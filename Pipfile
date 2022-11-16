@@ -4,12 +4,13 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-discord = "*"
-editdistance = "*"
-requests = "*"
-beautifulsoup4 = "*"
-pillow = "*"
-unidecode = "*"
+editdistance = "~=0.5.3"
+requests = "~=2.25.1"
+beautifulsoup4 = "~=4.11.1"
+pillow = "~=9.3.0"
+unidecode = "~=1.2.0"
+pynacl = "~=1.5.0"
+"discord.py" = "~=1.7.3"
 
 [dev-packages]
 
