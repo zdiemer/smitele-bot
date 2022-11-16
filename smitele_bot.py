@@ -6,8 +6,10 @@ channels.
 
 import asyncio
 import hashlib
+import io
 import json
 import math
+import os
 import random
 import time
 from datetime import datetime
@@ -81,10 +83,6 @@ class SmiteleBot(commands.Bot):
 
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki = lambda self, name: f'https://smite.fandom.com/wiki/{name}_voicelines'
-
-    # A helper lambda for constructing the item image file names used in constructing the build
-    # image
-    __get_item_image_file = lambda self, item_id: f'item{item_id}.jpg'
 
     # A helper lambda for getting a time string in the format the Hirez API expects
     __get_time_string_utcnow = lambda self: str(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
@@ -172,9 +170,6 @@ class SmiteleBot(commands.Bot):
         god = self.__gods[random.randint(0, len(self.__gods) - 1)]
         self.answer_god_name = god['Name']
 
-        res = requests.get(god['godCard_URL'])
-        open(self.GOD_IMAGE_FILE, 'wb').write(res.content)
-
         # Helper function for checking correctness
         def check(msg):
             # Slightly hacky way for the player to stop the running game
@@ -202,23 +197,24 @@ class SmiteleBot(commands.Bot):
             skin_url = skins[random.randint(0, len(skins) - 1)]['godSkin_URL']
 
         res = requests.get(skin_url)
-        open(self.SKIN_IMAGE_FILE, 'wb').write(res.content)
+        skin_image = io.BytesIO(res.content)
+        file = io.BytesIO()
 
         # Cropping the skin image that we got randomly
-        with Image.open(self.SKIN_IMAGE_FILE) as img:
+        with Image.open(skin_image) as img:
             size = 180
             width, height = img.size
             left = random.randint(0, width - size)
             top = random.randint(0, height - size)
             crop_image = img.crop((left, top, left + size, top + size))
-            crop_image.save(self.SKIN_CROP_IMAGE_FILE)
+            crop_image.save(file, format='JPEG')
+            file.seek(0)
 
-        with open(self.SKIN_CROP_IMAGE_FILE, 'rb') as file:
-            desc = 'Name the god with this skin'
-            if await self.__send_round_message(round_number=1, \
-                description=desc, check=check, message=message, \
-                file=file, file_name=self.SKIN_CROP_IMAGE_FILE):
-                return
+        desc = 'Name the god with this skin'
+        if await self.__send_round_message(round_number=1, \
+            description=desc, check=check, message=message, \
+            file=file, file_name=self.SKIN_CROP_IMAGE_FILE):
+            return
 
         # Round 2
         build = []
@@ -257,9 +253,8 @@ class SmiteleBot(commands.Bot):
         total_height = 128
         for key in sorted(item_urls):
             # First requesting and saving the image from the URLs we got
-            file_name = self.__get_item_image_file(item_id=key)
             res = requests.get(item_urls[key])
-            open(file_name, 'wb').write(res.content)
+            item_bytes = io.BytesIO(res.content)
             try:
                 # Sometimes we don't get a full build, so this sets the final size of the build
                 # image
@@ -267,11 +262,10 @@ class SmiteleBot(commands.Bot):
                     total_width += thumb_size
                 if key == 3:
                     total_height += thumb_size
-                image = Image.open(file_name)
+                image = Image.open(item_bytes)
                 # Resize the image if necessary, Hirez doesn't return a consistent size
                 if image.size != (thumb_size, thumb_size):
                     image.thumbnail((thumb_size, thumb_size))
-                image.save(file_name)
                 images.append(image)
             except Exception:
                 print(f'Unable to create an image with the URL {item_urls[key]}')
@@ -289,9 +283,10 @@ class SmiteleBot(commands.Bot):
                 pos_x += img.size[0]
             if idx == 2:
                 pos_x, pos_y = (0, img.size[1])
-        output_image.save(self.BUILD_IMAGE_FILE)
+        with io.BytesIO() as file:
+            output_image.save(file, format='PNG')
+            file.seek(0)
 
-        with open(self.BUILD_IMAGE_FILE, 'rb') as file:
             desc = 'Hint: A top-ranked player of this god recently used this build in Ranked '\
                 'Conquest.'
             if await self.__send_round_message(round_number=2, description=desc, check=check, \
@@ -327,18 +322,23 @@ class SmiteleBot(commands.Bot):
             except ValueError:
                 print(f'Unable to fetch voicelines for {god["Name"]}\'s skin: {skin_name}')
         res = requests.get(audio_src)
-        open(self.VOICE_LINE_FILE, 'wb').write(res.content)
 
         # If the current player is in a voice channel, connect to it and play the voice line!
         if self.current_player.voice is not None:
+            open(self.VOICE_LINE_FILE, 'wb').write(res.content)
             client = await self.current_player.voice.channel.connect()
+
+            async def disconnect():
+                await client.disconnect()
+                os.remove(self.VOICE_LINE_FILE)
+
             client.play(discord.FFmpegPCMAudio(source=self.VOICE_LINE_FILE), \
                 after=lambda _: asyncio.run_coroutine_threadsafe(\
-                    coro=client.disconnect(), loop=client.loop).result())
+                    coro=disconnect(), loop=client.loop).result())
         else:
             # Otherwise, just upload the voice file to Discord
-            with open(self.VOICE_LINE_FILE, 'rb') as file:
-                dis_file = discord.File(file)
+            with io.BytesIO(res.content) as file:
+                dis_file = discord.File(file, filename=self.VOICE_LINE_FILE)
                 await message.channel.send(file=dis_file)
 
         if await self.__send_round_message(round_number=3, \
@@ -353,22 +353,22 @@ class SmiteleBot(commands.Bot):
                 # I may add support for their additional abilities later
                 ability_url = god[f'godAbility{random.randint(1, 5)}_URL']
                 res = requests.get(ability_url)
-                open(self.ABILITY_IMAGE_FILE, 'wb').write(res.content)
-                image = Image.open(self.ABILITY_IMAGE_FILE)
-                # Again, not all images that Hirez sends are a consistent size
-                if image.size != (64, 64):
-                    image.thumbnail((64, 64))
-                image.save(self.ABILITY_IMAGE_FILE)
-                images.append(image)
-                saved_image = True
+                ability_bytes = io.BytesIO()
+                with io.BytesIO(res.content) as file:
+                    image = Image.open(file)
+                    # Again, not all images that Hirez sends are a consistent size
+                    if image.size != (64, 64):
+                        image.thumbnail((64, 64))
+                    image.save(ability_bytes, format='JPEG')
+                    ability_bytes.seek(0)
+                    saved_image = True
             except Exception:
                 # requests isn't able to fetch for every ability image URL
                 print(f'Unable to create an image with the URL {ability_url}')
-        with open(self.ABILITY_IMAGE_FILE, 'rb') as file:
-            if await self.__send_round_message(round_number=4, \
-                description='Hint: Here\'s one of the god\'s abilities', check=check, \
-                message=message, file=file, file_name=self.ABILITY_IMAGE_FILE):
-                return
+        if await self.__send_round_message(round_number=4, \
+            description='Hint: Here\'s one of the god\'s abilities', check=check, \
+            message=message, file=ability_bytes, file_name=self.ABILITY_IMAGE_FILE):
+            return
 
         # Round 5
         if await self.__send_round_message(round_number=5, \
@@ -377,21 +377,25 @@ class SmiteleBot(commands.Bot):
             return
 
         # Round 6
-        with Image.open(self.GOD_IMAGE_FILE) as img:
-            size = 180
-            width, height = img.size
-            left = random.randint(0, width - size)
-            top = random.randint(0, height - size)
-            crop_image = img.crop((left, top, left + size, top + size))
-            crop_image.save(self.GOD_CROP_IMAGE_FILE)
+        res = requests.get(god['godCard_URL'])
 
-        with open(self.GOD_IMAGE_FILE, 'rb') as ans_f:
-            with open(self.GOD_CROP_IMAGE_FILE, 'rb') as file:
-                desc = 'Final hint: This is a crop of the god\'s base skin'
-                if await self.__send_round_message(round_number=6, description=desc, check=check, \
-                    message=message, file=file, file_name=self.GOD_CROP_IMAGE_FILE, \
-                    last_round=True, answer_file=ans_f, answer_file_name=self.GOD_IMAGE_FILE):
-                    return
+        with io.BytesIO(res.content) as god_file:
+            crop_file = io.BytesIO()
+            with Image.open(god_file) as img:
+                size = 180
+                width, height = img.size
+                left = random.randint(0, width - size)
+                top = random.randint(0, height - size)
+                crop_image = img.crop((left, top, left + size, top + size))
+                crop_image.save(crop_file, format='JPEG')
+                god_file.seek(0)
+                crop_file.seek(0)
+
+            desc = 'Final hint: This is a crop of the god\'s base skin'
+            if await self.__send_round_message(round_number=6, description=desc, check=check, \
+                message=message, file=crop_file, file_name=self.GOD_CROP_IMAGE_FILE, \
+                last_round=True, answer_file=god_file, answer_file_name=self.GOD_IMAGE_FILE):
+                return
 
     # Loops until exp time, editing the message embed with a countdown
     async def __countdown_loop(self, message, exp, embed):
@@ -418,7 +422,7 @@ class SmiteleBot(commands.Bot):
         # If we have an image file, this is how it gets attached to the embed
         picture = None
         if file is not None and file_name is not None:
-            picture = discord.File(file)
+            picture = discord.File(file, filename=file_name)
             embed.set_image(url=f'attachment://{file_name}')
 
         async def send_incorrect(incorrect_desc):
@@ -427,7 +431,7 @@ class SmiteleBot(commands.Bot):
                 incorrect_desc += '\n\nNext round coming up shortly.'
             elif answer_file is not None and answer_file_name is not None:
                 incorrect_desc += f' The answer was **{self.answer_god_name}**.'
-                answer_image = discord.File(answer_file)
+                answer_image = discord.File(answer_file, filename=answer_file_name)
 
             await message.channel.send(file=answer_image, \
                 embed=discord.Embed(color=discord.Color.red(), description=incorrect_desc))
@@ -450,7 +454,8 @@ class SmiteleBot(commands.Bot):
                     # more universal. :D
                     ans_description = f'✅ Correct, **{msg.author.display_name}**! '\
                         f'You got it in {round(answer_time)} seconds. '\
-                        f'The answer was **{self.answer_god_name}**. <:frogchamp:566686914858713108>'
+                        f'The answer was **{self.answer_god_name}**. '\
+                        '<:frogchamp:566686914858713108>'
 
                     await message.channel.send(embed=discord.Embed(color=discord.Color.green(), \
                         description=ans_description))
