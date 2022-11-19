@@ -1,3 +1,5 @@
 *.json
-voice.ogg
+**/__pycache__
 session
+version
+voice.ogg
