@@ -22,6 +22,8 @@ class _Base:
     """
     SESSION_FILE = 'session'
 
+    MAX_RETRIES = 3
+
     __auth_key: str
     __base_url: str
     __dev_id: str
@@ -74,36 +76,42 @@ class _Base:
                     raise
 
     async def _make_request(self, route: str, *args: tuple) -> any:
-        invalid = 'Invalid session id.'
-        session_expired = False
-        time_string = self.__get_time_string_utcnow()
-        req = lambda: self.__make_request_base(route, self.__dev_id, \
-            self.__create_signature(route, time_string), \
-            self.__session_id, time_string, *args)
-        resp = await req()
-        try:
-            if isinstance(resp, list):
-                if any(val['ret_msg'] == invalid for val in resp):
-                    session_expired = True
-                    await self.__keep_alive()
-            elif resp['ret_msg'] == invalid:
-                session_expired = True
+        if self.__session_id is None or  self.__session_id == '':
+            await self.__keep_alive()
+        req_count = 0
+        res = None
+
+        while req_count < self.MAX_RETRIES:
+            time_string = self.__get_time_string_utcnow()
+            res = await self.__make_request_base(route, self.__dev_id, \
+                self.__create_signature(route, time_string), \
+                self.__session_id, time_string, *args)
+            req_count += 1
+            if self.__is_expired(res):
                 await self.__keep_alive()
-        except KeyError:
-            print(f'Response message did not contain ret_msg: {resp}')
-        return await req() if session_expired else resp
+                continue
+            break
+        if res is None:
+            raise ConnectionError('Failed to connect')
+        return res
+
+    def __is_expired(self, res: any) -> bool:
+        invalid = 'Invalid session id.'
+        is_list = isinstance(res, list)
+        return (is_list and any(val['ret_msg'] == invalid for val in res)) \
+            or (not is_list and res['ret_msg'] == invalid)
 
     async def __keep_alive(self):
         if self.__should_keep_alive:
             new_session = await self.create_session()
             self.__session_id = new_session['session_id']
             if self.__save_session:
-                with open(self.SESSION_FILE, 'w') as file:
+                with open(self.SESSION_FILE, 'w', encoding='utf-8') as file:
                     file.write(self.__session_id)
 
     def __try_load_session(self):
         try:
-            with open(self.SESSION_FILE, 'r') as file:
+            with open(self.SESSION_FILE, 'r', encoding='utf-8') as file:
                 self.__session_id = file.read()
         except FileNotFoundError:
             print('Session ID not loaded, will be loaded on demand')

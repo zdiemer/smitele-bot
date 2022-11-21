@@ -41,6 +41,10 @@ class ItemAttribute(Enum):
 
         return ItemAttribute(value)
 
+    @property
+    def display_name(self) -> str:
+        return str(self.value).title().replace('Hp5', 'HP5').replace('Mp5', 'MP5')
+
 class ItemType(Enum):
     CONSUMABLE = 'consumable'
     ITEM = 'item'
@@ -74,8 +78,8 @@ class Item:
     icon_id: int
     description: str
     item_properties: List[ItemProperty]
-    passive: str
-    aura: str
+    passive: str = None
+    aura: str = None
     id: int
     tier: int
     price: int

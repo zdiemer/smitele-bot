@@ -1,53 +1,65 @@
 import asyncio
-import discord
-from discord.ext import commands
-import editdistance
 import json
-from json.decoder import JSONDecodeError
 import math
 import random
 import time
+from json.decoder import JSONDecodeError
+from typing import Callable, List
+
+import discord
+from discord.ext import commands
+import editdistance
 from unidecode import unidecode
 
-bot = commands.Bot(command_prefix="$")
-consumables = {}
-relics = {}
-items = {}
+from HirezAPI import Smite
+from item import Item, ItemType
 
-with open("consumables.json") as f:
-    consumables = json.load(f)
+intents = discord.Intents.default()
+intents.messages = True
+bot = commands.Bot(command_prefix="%", intents=intents)
+config = {}
 
-with open("relics.json") as f:
-    relics = json.load(f)
+with open("config.json") as f:
+    config = json.load(f)
 
-with open("items.json") as f:
-    items = json.load(f)
+smite_client = Smite(config['hirezAuthKey'], config['hirezDevId'])
 
-consumables_questions = [
+async def load_items():
+    items = None
+    try:
+        with open("items.json", "r") as file:
+            items = json.load(file)
+    except (JSONDecodeError, FileNotFoundError):
+        items = await smite_client.get_items()
+        with open('items.json', 'w') as file:
+            json.dump(items, file)
+    return [Item.from_json(obj) for obj in items]
+
+consumables_questions: List[Callable[[Item], any]] = [
     lambda c: {
-        "question": discord.Embed(description=f'How much does {"an" if c["name"][0].lower() in "aeiou" else "a"} **{c["name"]}** cost?'),
-        "answer": c['cost'],
-        "id": f'{c["name"]}-1'
+        "question": discord.Embed(description=f'How much does {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.nam}** cost?'),
+        "answer": c.price,
+        "id": f'{c.name}-1'
     },
-    lambda c: ((lambda _c, i: {
-        "question": discord.Embed(description=f'How much **{_c["effects"][i]["stat"]}** does {"an" if c["name"][0].lower() in "aeiou" else "a"} **{_c["name"]}** provide?'),
-        "answer": _c['effects'][i]['value'] if _c['effects'][i]['type'] == "flat" else f'{_c["effects"][i]["value"]}%',
-        "id": f'{_c["name"]}{_c["effects"][i]["stat"]}-1'
-    })(c, random.randrange(len(c['effects'])))) if 'effects' in c.keys() else None,
+    # lambda c: ((lambda _c, i: {
+    #     "question": discord.Embed(description=f'How much **{_c["effects"][i]["stat"]}** does {"an" if c["name"][0].lower() in "aeiou" else "a"} **{_c["name"]}** provide?'),
+    #     "answer": _c['effects'][i]['value'] if _c['effects'][i]['type'] == "flat" else f'{_c["effects"][i]["value"]}%',
+    #     "id": f'{_c["name"]}{_c["effects"][i]["stat"]}-1'
+    # })(c, random.randrange(len(c['effects'])))) if 'effects' in c.keys() else None,
     lambda c: {
-        "question": discord.Embed(description=f'Name the consumable with this description: \n\n`{c["description"]}`'),
-        "answer": c['name'],
-        "id": f'{c["name"]}-2'
+        "question": discord.Embed(description=f'Name the consumable with this description: \n\n`{c.description}`'),
+        "answer": c.name,
+        "id": f'{c.name}-2'
     },
+    # lambda c: {
+    #     "question": discord.Embed(description=f'How long (in seconds) do the effects of {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}** last?'),
+    #     "answer": c.duration,
+    #     "id": f'{c.name}-3'
+    # } if 'duration' in c.keys() else None,
     lambda c: {
-        "question": discord.Embed(description=f'How long (in seconds) do the effects of {"an" if c["name"][0].lower() in "aeiou" else "a"} **{c["name"]}** last?'),
-        "answer": c['duration'],
-        "id": f'{c["name"]}-3'
-    } if 'duration' in c.keys() else None,
-    lambda c: {
-        "question": discord.Embed(description="What consumable is this?").set_image(url=c['image_url']),
-        "answer": c['name'],
-        "id": f'{c["name"]}-4'
+        "question": discord.Embed(description="What consumable is this?").set_image(url=c.icon_url),
+        "answer": c.name,
+        "id": f'{c.name}-4'
     },
     lambda _: {
         "question": discord.Embed(description="What is the range of a **Ward**?"),
@@ -64,127 +76,112 @@ consumables_questions = [
         "answer": 200,
         "id": "consumables-7"
     },
-    lambda c: {
-        "question": discord.Embed(description=f'What level must you be to purchase {"an" if c["name"][0].lower() in "aeiou" else "a"} **{c["name"]}**?'),
-        "answer": c["level"],
-        "id": f'{c["name"]-5}'
-    } if 'level' in c.keys() else None,
+    # lambda c: {
+    #     "question": discord.Embed(description=f'What level must you be to purchase {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}**?'),
+    #     "answer": c.level,
+    #     "id": f'{c.name}-8'
+    # } if 'level' in c.keys() else None,
 ]
 
-relics_questions = [
-    lambda relic: ((lambda r, i: {
-        "question": discord.Embed(
-            description=f'**{r["name"]} {r["effects"][i]["stat"]}** {"against" if r["effects"][i]["target"] == "enemies" else "of"} {r["effects"][i]["target"]} by how much?'),
-        "answer": r['effects'][i]['value'] if r['effects'][i]['type'] == 'flat' else f'{r["effects"][i]["value"]}%',
-        "id": f'{r["name"]}{r["effects"][i]["stat"]}-1'
-    })(relic, random.randrange(len(relic['effects'])))) if 'effects' in relic.keys() else None,
+relics_questions: List[Callable[[Item], any]] = [
+    # lambda relic: ((lambda r, i: {
+    #     "question": discord.Embed(
+    #         description=f'**{r["name"]} {r["effects"][i]["stat"]}** {"against" if r["effects"][i]["target"] == "enemies" else "of"} {r["effects"][i]["target"]} by how much?'),
+    #     "answer": r['effects'][i]['value'] if r['effects'][i]['type'] == 'flat' else f'{r["effects"][i]["value"]}%',
+    #     "id": f'{r["name"]}{r["effects"][i]["stat"]}-1'
+    # })(relic, random.randrange(len(relic['effects'])))) if 'effects' in relic.keys() else None,
     lambda relic: {
-        "question": discord.Embed(description=f'Name the relic with this description: \n\n`{relic["description"]}`'),
-        "answer": relic['name'],
-        "id": f'{relic["name"]}-1'
+        "question": discord.Embed(description=f'Name the relic with this description: \n\n`{relic.name}`'),
+        "answer": relic.name,
+        "id": f'{relic.name}-1'
     },
+    # lambda relic: {
+    #     "question": discord.Embed(description=f'What is the range of the relic **{relic["name"]}**?'),
+    #     "answer": relic['range'],
+    #     "id": f'{relic["name"]}-2'
+    # } if 'range' in relic.keys() else None,
+    # lambda relic: {
+    #     "question": discord.Embed(description=f'What is the cooldown (in seconds) on the relic **{relic["name"]}**?'),
+    #     "answer": relic['cooldown'],
+    #     "id": f'{relic["name"]}-3'
+    # } if 'cooldown' in relic.keys() else None,
+    # lambda relic: {
+    #     "question": discord.Embed(description=f'How long (in seconds) does the relic **{relic["name"]}** last?'),
+    #     "answer": relic['duration'],
+    #     "id": f'{relic["name"]}-4'
+    # } if 'duration' in relic.keys() else None,
     lambda relic: {
-        "question": discord.Embed(description=f'What is the range of the relic **{relic["name"]}**?'),
-        "answer": relic['range'],
-        "id": f'{relic["name"]}-2'
-    } if 'range' in relic.keys() else None,
-    lambda relic: {
-        "question": discord.Embed(description=f'What is the cooldown (in seconds) on the relic **{relic["name"]}**?'),
-        "answer": relic['cooldown'],
-        "id": f'{relic["name"]}-3'
-    } if 'cooldown' in relic.keys() else None,
-    lambda relic: {
-        "question": discord.Embed(description=f'How long (in seconds) does the relic **{relic["name"]}** last?'),
-        "answer": relic['duration'],
-        "id": f'{relic["name"]}-4'
-    } if 'duration' in relic.keys() else None,
-    lambda relic: {
-        "question": discord.Embed(description="What relic is this?").set_image(url=relic['image_url']),
-        "answer": relic['name'],
-        "id": f'{relic["name"]}-5'
+        "question": discord.Embed(description="What relic is this?").set_image(url=relic.icon_url),
+        "answer": relic.name,
+        "id": f'{relic.name}-5'
     },
 ]
 
-items_questions = [
+items_questions: List[Callable[[Item], any]] = [
     lambda item: {
-        "question": discord.Embed(description=f'How much does **{item["name"]}** cost?'),
-        "answer": item['cost'],
-        "id": f'{item["name"]}-1'
+        "question": discord.Embed(description=f'How much does **{item.name}** cost?'),
+        "answer": item.price,
+        "id": f'{item.name}-1'
     },
     lambda item: ((lambda i, statIdx: {
-        "question": discord.Embed(description=f'{"How much" if i["effects"][statIdx]["type"] == "flat" else "What percent"} **{i["effects"][statIdx]["stat"]}** does **{i["name"]}** provide?'),
-        "answer": i['effects'][statIdx]['value'] if i['effects'][statIdx]['type'] == "flat" else f'{i["effects"][statIdx]["value"]}%',
-        "id": f'{i["name"]}{i["effects"][statIdx]["stat"]}-1'
-    })(item, random.randrange(len(item['effects'])))),
+        "question": discord.Embed(description=f'{"How much" if i.item_properties[statIdx].flat_value is not None else "What percent"} **{i.item_properties[statIdx].attribute.value.title()}** does **{i.name}** provide?'),
+        "answer": i.item_properties[statIdx].flat_value if i.item_properties[statIdx].flat_value is not None else f'{i.item_properties[statIdx].percent_value * 100}%',
+        "id": f'{i.name}{i.item_properties[statIdx].attribute.value}-1'
+    })(item, random.randrange(len(item.item_properties)))),
     lambda item: ((lambda i, statIdx: {
-        "question": discord.Embed(description=f'{"How much" if i["effects"][statIdx]["type"] == "flat" else "What percent"} **{i["effects"][statIdx]["stat"]}** does this item provide?').set_image(url=item['image_url']),
-        "answer": i['effects'][statIdx]['value'] if i['effects'][statIdx]['type'] == "flat" else f'{i["effects"][statIdx]["value"]}%',
-        "id": f'{i["name"]}{i["effects"][statIdx]["stat"]}-1'
-    })(item, random.randrange(len(item['effects'])))),
+        "question": discord.Embed(description=f'{"How much" if i.item_properties[statIdx].flat_value is not None else "What percent"} **{i.item_properties[statIdx].attribute.value.title()}** does this item provide?').set_image(url=item.icon_url),
+        "answer": i.item_properties[statIdx].flat_value if i.item_properties[statIdx].flat_value is not None else f'{i.item_properties[statIdx].percent_value * 100}%',
+        "id": f'{i.name}{i.item_properties[statIdx].attribute.value}-1'
+    })(item, random.randrange(len(item.item_properties)))),
     lambda item: {
-            "question": discord.Embed(description=f'Name the item with this passive:\n\n`{item["passive"]}`'),
-            "answer": item['name'],
-            "id": f'{item["name"]}-2'
+            "question": discord.Embed(description=f'Name the item with this passive:\n\n`{item.passive}`'),
+            "answer": item.name,
+            "id": f'{item.name}-2'
         } if 'passive' in item.keys() else {
-            "question": discord.Embed(description=f'Name the item with this description:\n\n`{item["description"]}`'),
-            "answer": item['name'],
-            "id": f'{item["name"]}-2'
-        } if 'description' in item.keys() else None,
-    lambda item: ((lambda i, upgradeIdx: {
-        "question": discord.Embed(description=f'How much does it cost to upgrade **{i["name"]}** into **{items[str(i["upgrades"][upgradeIdx]["upgradeId"])]["name"]}**?'),
-        "answer": i["upgrades"][upgradeIdx]['cost'],
-        "id": f'{item["name"]}-3'
-    })(item, random.randrange(len(item['upgrades'])))) if 'upgrades' in item.keys() else None,
+            "question": discord.Embed(description=f'Name the item with this description:\n\n`{item.description}`'),
+            "answer": item.name,
+            "id": f'{item.name}-2'
+        } if item.description is not None else None,
+    # lambda item: ((lambda i, upgradeIdx: {
+    #     "question": discord.Embed(description=f'How much does it cost to upgrade **{i["name"]}** into **{items[str(i["upgrades"][upgradeIdx]["upgradeId"])]["name"]}**?'),
+    #     "answer": i["upgrades"][upgradeIdx]['cost'],
+    #     "id": f'{item["name"]}-3'
+    # })(item, random.randrange(len(item['upgrades'])))) if 'upgrades' in item.keys() else None,
     lambda item: {
-        "question": discord.Embed(description="What item is this?").set_image(url=item['image_url']),
-        "answer": item['name'],
-        "id": f'{item["name"]}-4'
+        "question": discord.Embed(description="What item is this?").set_image(url=item.icon_url),
+        "answer": item.name,
+        "id": f'{item.name}-4'
     },
-    lambda item: {
-        "question": discord.Embed(description=f'How many stacks does it take to fully stack **{item["name"]}**?'),
-        "answer": item['stacks']['max'],
-        "id": f'{item["name"]}-5'
-    } if 'stacks' in item else None,
-    lambda item: ((lambda i, stat: {
-        "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does one stack on **{i["name"]}** provide?'),
-        "answer": i["stacks"]["per_stack"][stat]["value"],
-        "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
-    })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] else None,
-    lambda item: ((lambda i, stat: {
-        "question": discord.Embed(description=f'{"How much" if i["stacks"]["evolved"]["effects"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["evolved"]["effects"][stat]["stat"]}** does **Evolved {i["name"]}** provide?'),
-        "answer": i["stacks"]["evolved"]["effects"][stat]["value"],
-        "id": f'{item["name"]}{i["stacks"]["evolved"]["effects"][stat]["stat"]}-7'
-    })(item, random.randrange(len(item['stacks']['evolved']["effects"])))) if 'stacks' in item and 'evolved' in item['stacks'] and 'effects' in item['stacks']['evolved'] else None,
-    lambda item: {
-        "question": discord.Embed(description=f'Name the **Evolved** item with this passive:\n\n`{item["stacks"]["evolved"]["passive"]}`'),
-        "answer": item['name'],
-        "id": f'{item["name"]}-8'
-    } if 'stacks' in item and 'evolved' in item['stacks'] and 'passive' in item['stacks']['evolved'] else None,
-    lambda item: ((lambda i, stat: {
-        "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does fully stacked **{i["name"]}** provide (including base stats)?'),
-        "answer": (float(i["stacks"]["per_stack"][stat]["value"]) * int(i["stacks"]["max"])) + (int([s["value"] for s in i["effects"] if s["stat"] == i["stacks"]["per_stack"][stat]["stat"]][::] or 1) if "effects" in i else 1),
-        "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
-    })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] and 'evolved' not in item['stacks'] else None,
+    # lambda item: {
+    #     "question": discord.Embed(description=f'How many stacks does it take to fully stack **{item["name"]}**?'),
+    #     "answer": item['stacks']['max'],
+    #     "id": f'{item["name"]}-5'
+    # } if 'stacks' in item else None,
+    # lambda item: ((lambda i, stat: {
+    #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does one stack on **{i["name"]}** provide?'),
+    #     "answer": i["stacks"]["per_stack"][stat]["value"],
+    #     "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
+    # })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] else None,
+    # lambda item: ((lambda i, stat: {
+    #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["evolved"]["effects"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["evolved"]["effects"][stat]["stat"]}** does **Evolved {i["name"]}** provide?'),
+    #     "answer": i["stacks"]["evolved"]["effects"][stat]["value"],
+    #     "id": f'{item["name"]}{i["stacks"]["evolved"]["effects"][stat]["stat"]}-7'
+    # })(item, random.randrange(len(item['stacks']['evolved']["effects"])))) if 'stacks' in item and 'evolved' in item['stacks'] and 'effects' in item['stacks']['evolved'] else None,
+    # lambda item: {
+    #     "question": discord.Embed(description=f'Name the **Evolved** item with this passive:\n\n`{item["stacks"]["evolved"]["passive"]}`'),
+    #     "answer": item['name'],
+    #     "id": f'{item["name"]}-8'
+    # } if 'stacks' in item and 'evolved' in item['stacks'] and 'passive' in item['stacks']['evolved'] else None,
+    # lambda item: ((lambda i, stat: {
+    #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does fully stacked **{i["name"]}** provide (including base stats)?'),
+    #     "answer": (float(i["stacks"]["per_stack"][stat]["value"]) * int(i["stacks"]["max"])) + (int([s["value"] for s in i["effects"] if s["stat"] == i["stacks"]["per_stack"][stat]["stat"]][::] or 1) if "effects" in i else 1),
+    #     "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
+    # })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] and 'evolved' not in item['stacks'] else None,
     # lambda item: {
     #     "question": discord.Embed(description=f'What items does {item["name"]} upgrade directly into ({len(item["upgrades"])} answers)?'),
     #     "answer": [items[u["upgradeId"]]["name"] for u in item["upgrades"]]
     # } if 'upgrades' in item else None,
 ]
-
-question_mapping = {
-    "items": {
-        "values": items,
-        "questions": items_questions
-    },
-    "consumables": {
-        "values": consumables,
-        "questions": consumables_questions
-    },
-    "relics": {
-        "values": relics,
-        "questions": relics_questions
-    }
-}
 
 class StoppedError(Exception):
     pass
@@ -207,6 +204,23 @@ async def countdown_loop(message, exp, embed):
 async def smitetrivia(message, *args):
     if message.author == bot.user:
         return
+
+    items = await load_items()
+
+    question_mapping = {
+        "items": {
+            "values": filter(lambda item: item.type == ItemType.ITEM, items),
+            "questions": items_questions
+        },
+        "consumables": {
+            "values": filter(lambda item: item.type == ItemType.CONSUMABLE, items),
+            "questions": consumables_questions
+        },
+        "relics": {
+            "values": filter(lambda item: item.type == ItemType.RELIC, items),
+            "questions": relics_questions
+        }
+    }
 
     question_count = 1
     input_category = None
@@ -382,4 +396,4 @@ async def scores(ctx):
         except JSONDecodeError:
             await ctx.channel.send(embed=discord.Embed(color=discord.Color.blue(), title="No scores recorded yet!"))
 
-bot.run('')
+bot.run(config['discordToken'])

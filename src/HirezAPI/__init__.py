@@ -1,3 +1,3 @@
-from .HirezAPI import Smite, QueueId
-from .ability import Ability
-from .god import God, GodId
+from HirezAPI.HirezAPI import Smite, QueueId
+from HirezAPI.ability import Ability
+from HirezAPI.god import God, GodId
