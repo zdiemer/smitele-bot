@@ -33,7 +33,7 @@ from discord.ext import commands
 from PIL import Image
 from unidecode import unidecode
 
-from HirezAPI import Smite, QueueId
+from HirezAPI import Smite, QueueId, TierId
 from ability import Ability
 from god import God
 from item import Item, ItemType
@@ -88,18 +88,15 @@ class _SmiteleRoundContext:
         file_name: If a file is to be attahced to this round's output, this represents its name.
         round_number: The round that this context represents.
     """
-    TOTAL_ROUNDS = 6
-
     file_bytes: io.BytesIO
     file_name: str
     round_number: int
 
-    def __init__(self, round_number: int, file_bytes: io.BytesIO = None, \
-            file_name: str = None) -> None:
-        """Inits _SmiteleRoundContext given a round number, and optional file info."""
-        self.file_bytes = file_bytes
-        self.file_name = file_name
-        self.round_number = round_number
+    __total_rounds: int
+
+    def __init__(self, total_rounds: int) -> None:
+        """Inits _SmiteleRoundContext given a number of rounds"""
+        self.__total_rounds = total_rounds
 
     def has_file(self) -> bool:
         """Checks whether this round context has a file.
@@ -119,7 +116,11 @@ class _SmiteleRoundContext:
         Returns:
             A boolean indicating whether this is the final round's context.
         """
-        return self.round_number == self.TOTAL_ROUNDS
+        return self.round_number == self.__total_rounds
+
+    def reset_file(self):
+        self.file_bytes = None
+        self.file_name = None
 
 class SmiteleGame:
     """A class for holding all information about a running Smitele Game.
@@ -133,8 +134,10 @@ class SmiteleGame:
         context: A SmiteleGameContext object holding Discord related context
         god: A God object which indicates the answer to this particular game
     """
+    choices: List[Tuple[God, bool]]
     context: SmiteleGameContext
     current_round: _SmiteleRoundContext
+    easy_mode: bool = False
     god: God
     skin: Skin
     __tasks: Set[asyncio.Task]
@@ -144,6 +147,11 @@ class SmiteleGame:
         self.god = answer
         self.context = context
         self.__tasks = set()
+
+    def generate_easy_mode_choices(self, gods: List[God]) -> None:
+        self.easy_mode = True
+        self.choices = [(god, False) for god in random.sample(gods, k=6)]
+        self.choices.insert(random.randint(1, len(self.choices) - 1), (self.god, False))
 
     def cancel(self) -> None:
         """Cancels a running SmiteleGame.
@@ -289,13 +297,9 @@ class Smitele(commands.Cog):
 
         print('Smite-le Bot is ready!')
 
-    @commands.command()
+    @commands.command(aliases=["smite-le", "st"])
     async def smitele(self, message: discord.Message, *args: tuple) -> None:
         await self.__smitele(message, *args)
-
-    @commands.command()
-    async def st(self, message: discord.Message, *args: tuple) -> None:
-        await self.smitele(message, *args)
 
     @commands.command()
     async def stop(self, message: discord.Message, *args: tuple) -> None:
@@ -305,9 +309,6 @@ class Smitele(commands.Cog):
     @commands.is_owner()
     async def sessionid(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))
-        if len(args) > 0:
-            game_session_id = hash(args[0], message.channel.id)
-
         if game_session_id in self.__running_sessions:
             await message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
                 description=f'Running session ID = {game_session_id}'))
@@ -360,6 +361,49 @@ class Smitele(commands.Cog):
     async def scores(self, ctx):
         await self.__scores(ctx)
 
+    @commands.command(aliases=["sr"])
+    async def rank(self, message: discord.Message, *args: tuple) -> None:
+        if not any(args) or len(args) > 1:
+            desc = f'Invalid command! {self.__bot.user.mention} '\
+                    f'accepts the command `$rank [playername]` (or `$sr [playername]`)'
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=desc))
+            return
+        player_name = ''.join(args[0])
+        players = await self.__smite_client.get_player_id_by_name(player_name)
+        if not any(players):
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description='No players with that name found!'))
+            return
+        if players[0]['privacy_flag'] == 'y':
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>'))
+            return
+        player_id = players[0]['player_id']
+        player = (await self.__smite_client.get_player(player_id))[0]
+        def get_rank_string(queue_id: QueueId, tier_id: TierId, mmr: float) -> str:
+            emoji = '🥉' if tier_id.value <= 5 \
+                else '🥈' if tier_id.value <= 10 \
+                else '🥇' if tier_id.value <= 15 \
+                else '🏅' if tier_id.value <= 20 \
+                else '💎' if tier_id.value <= 25 \
+                else '🏆' if tier_id.value == 26 else '💯'
+            tier_name = tier_id.name.replace('_', ' ').lower().title()\
+                .replace('Iv', 'IV')\
+                .replace('Iii', 'III')\
+                .replace('Ii', 'II')
+            return f'{queue_id.name.lower().replace("_", " ").title()}: '\
+                   f'{emoji} **{tier_name}** ({int(mmr)} MMR)\n'
+        tier = player['RankedConquest']['Tier']
+        ranked_conquest = get_rank_string(QueueId.RANKED_CONQUEST, TierId(int(tier)), player["Rank_Stat_Conquest"]) if tier != 0 else ''
+        tier = player['RankedDuel']['Tier']
+        ranked_duel = get_rank_string(QueueId.RANKED_DUEL, TierId(int(tier)), player["Rank_Stat_Duel"]) if tier != 0 else ''
+        tier = player['RankedDuel']['Tier']
+        ranked_joust = get_rank_string(QueueId.RANKED_JOUST, TierId(int(tier)), player["Rank_Stat_Joust"]) if tier != 0 else ''
+        desc = f'{ranked_conquest}{ranked_duel}{ranked_joust}'
+        await message.channel.send(embed=discord.Embed(color=discord.Color.blue(), \
+            description=desc, title=f'{player["Name"]} Ranks:'))
+
     def start_bot(self) -> None:
         """
         Using this command instead of just calling self.run() since the discordToken is loaded
@@ -403,10 +447,15 @@ class Smitele(commands.Cog):
 
     # Helper function for checking correctness
     @staticmethod
-    def __check_answer_message(message: discord.Message, answer: str) -> bool:
-        guess = unidecode(message.content).lower().replace('-', ' ')
+    def __check_answer_message(guess: str, answer: str) -> bool:
+        guess = unidecode(guess).lower().replace('-', ' ')
         return guess == answer.lower() or \
-            edit_distance.SequenceMatcher(a=guess, b=answer.lower()).distance() <= 2
+            edit_distance.SequenceMatcher(a=guess, b=answer.lower()).distance() <= 1
+
+    def __update_choices(self, guess: str, game: SmiteleGame) -> None:
+        for idx, choice in enumerate(game.choices):
+            if self.__check_answer_message(guess, choice[0].name):
+                game.choices[idx] = (choice[0], True)
 
     # Primary command for starting a round of Smite-le!
     async def __smitele(self, message: discord.Message, *args: tuple) -> None:
@@ -429,16 +478,25 @@ class Smitele(commands.Cog):
                 description=desc))
             return
 
-        if args is not None:
-            if len(args) > 0:
+        easy_mode = False
+        if any(args):
+            async def send_invalid():
                 desc = f'Invalid command! {self.__bot.user.mention} '\
-                       f'accepts the command `$smitele` (or `$st`)'
+                       f'accepts the command `$smitele [easy]` (or `$st [easy]`)'
                 await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
                     description=desc))
+            if len(args) > 1:
+                await send_invalid()
                 return
+            if ''.join(args[0]) != 'easy':
+                await send_invalid()
+                return
+            easy_mode = True
 
         # Fetching a random god from our list of cached gods
         game = SmiteleGame(random.choice(self.__gods), context)
+        if easy_mode:
+            game.generate_easy_mode_choices(self.__gods)
         self.__running_sessions[game_session_id] = game
         try:
             await game.add_task(self.__bot.loop.create_task(\
@@ -448,7 +506,7 @@ class Smitele(commands.Cog):
             desc = f'{self.__bot.user.mention} encountered a fatal error. Please try again later.'
             await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
                 description=desc))
-            print(f'Fatal exception encountered: {ex}')
+            print(f'Fatal {type(ex)} exception encountered: {ex}')
             game.cancel()
         finally:
             if game_session_id in self.__running_sessions:
@@ -477,8 +535,9 @@ class Smitele(commands.Cog):
             description='Name the god given the clues! You\'ll have '\
                        f'{len(round_methods)} attempts.'))
 
+        session.current_round = _SmiteleRoundContext(len(round_methods))
         for idx, method in enumerate(round_methods):
-            session.current_round = _SmiteleRoundContext(idx + 1)
+            session.current_round.round_number = idx + 1
             await session.context.channel.typing()
             if await session.add_task(self.__bot.loop.create_task(method())):
                 return
@@ -508,7 +567,7 @@ class Smitele(commands.Cog):
                         build.append(self.__items[item_id])
 
         # Appending the images into a single build image
-        thumb_size = 128
+        thumb_size = 96
         with Image.new('RGB', (thumb_size*3, thumb_size*2), (250, 250, 250)) as output_image:
             pos_x, pos_y = (0, 0)
             for idx, item in enumerate(build):
@@ -518,9 +577,9 @@ class Smitele(commands.Cog):
                         with Image.open(item_bytes) as image:
                             # Resize the image if necessary, Hirez doesn't return a consistent size
                             if image.size != (thumb_size, thumb_size):
-                                image.thumbnail((thumb_size, thumb_size))
+                                image = image.resize((thumb_size, thumb_size))
                             if image.mode != 'RGB':
-                                image.convert('RGB')
+                                image = image.convert('RGB')
                             output_image.paste(image, (pos_x, pos_y))
                             if idx != 2:
                                 pos_x += thumb_size
@@ -530,7 +589,7 @@ class Smitele(commands.Cog):
                         print(f'Unable to create an image for {item.name}, {ex}')
 
             file = io.BytesIO()
-            output_image.save(file, format='JPEG')
+            output_image.save(file, format='JPEG', quality=95)
             file.seek(0)
             return file
 
@@ -550,7 +609,7 @@ class Smitele(commands.Cog):
                     crop_image = img.crop((left, top, left + size, top + size))
                     if crop_image.size != (180, 180):
                         crop_image = crop_image.resize((180, 180))
-                    crop_image.save(file, format='JPEG')
+                    crop_image.save(file, format='JPEG', quality=95)
                     file.seek(0)
 
                 desc = 'Name the god with this skin'
@@ -624,6 +683,7 @@ class Smitele(commands.Cog):
                         dis_file = discord.File(file, filename=self.VOICE_LINE_FILE)
                         await context.channel.send(file=dis_file)
 
+                session.current_round.reset_file()
                 return await self.__send_round_and_wait_wrapper('Whose voice line was that?', \
                     session)
 
@@ -641,8 +701,8 @@ class Smitele(commands.Cog):
                         if image.size != (64, 64):
                             image.thumbnail((64, 64))
                         if image.mode != 'RGB':
-                            image.convert('RGB')
-                        image.save(ability_bytes, format='JPEG')
+                            image = image.convert('RGB')
+                        image.save(ability_bytes, format='JPEG', quality=95)
                         ability_bytes.seek(0)
                         saved_image = True
                 except Exception as ex:
@@ -655,6 +715,7 @@ class Smitele(commands.Cog):
             return await self.__send_round_and_wait_wrapper(desc, session)
 
     async def __send_god_title(self, session: SmiteleGame) -> bool:
+        session.current_round.reset_file()
         return await self.__send_round_and_wait_wrapper(\
                 f'The god has this title:\n```{session.god.title.title()}```', session)
 
@@ -669,7 +730,7 @@ class Smitele(commands.Cog):
                     crop_image = img.crop((left, top, left + size, top + size))
                     if crop_image.size != (180, 180):
                         crop_image = crop_image.resize((180, 180))
-                    crop_image.save(crop_file, format='JPEG')
+                    crop_image.save(crop_file, format='JPEG', quality=95)
                     crop_file.seek(0)
 
                 desc = 'Hint: This is a crop of the god\'s base skin'
@@ -732,10 +793,17 @@ class Smitele(commands.Cog):
         sent = await context.channel.send(file=picture, embed=embed)
         task = session.add_task(self.__bot.loop.create_task(self.__countdown_loop(\
             sent, exp, embed)))
+        if session.easy_mode:
+            desc = ''
+            for idx, choice in enumerate(session.choices):
+                wrap = '~~' if choice[1] else '**'
+                desc += f'**{idx + 1}**. {wrap}{choice[0].name}{wrap}\n'
+            await context.channel.send(embed=discord.Embed(\
+                color=discord.Color.blue(), title='Choices:', description=desc))
         try:
             msg = await asyncio.wait_for(\
                 self.__wait_for_message(sent.id, session), timeout=20)
-            if self.__check_answer_message(msg, session.god.name):
+            if self.__check_answer_message(msg.content, session.god.name):
                 await context.channel.typing()
                 answer_time = time.time() - (exp - 20)
                 task.cancel()
@@ -754,6 +822,8 @@ class Smitele(commands.Cog):
 
                 await context.channel.send(file=picture, embed=embed)
                 return True
+            if session.easy_mode:
+                self.__update_choices(msg.content, session)
             task.cancel()
             inc_description = f'❌ Incorrect, **{context.player.mention}**.'
             await self.__send_incorrect(inc_description, round_ctx.is_last_round(), session)
@@ -767,11 +837,24 @@ class Smitele(commands.Cog):
             game: SmiteleGame) -> discord.Message:
         channel = game.context.channel
         while channel.last_message_id == last_message_id or \
-                channel.last_message.author == self.__bot.user or \
-                channel.last_message.content.startswith('$') or \
-                channel.last_message.author != game.context.player:
+                not self.__validate_message(game) or \
+                not await self.__check_answer_is_god(channel.last_message.content, game):
             await asyncio.sleep(0)
         return channel.last_message
+
+    def __validate_message(self, game: SmiteleGame) -> bool:
+        channel = game.context.channel
+        return channel.last_message.author != self.__bot.user and \
+                not channel.last_message.content.startswith('$') and \
+                channel.last_message.author == game.context.player
+
+    async def __check_answer_is_god(self, guess: str, game: SmiteleGame) -> bool:
+        if any(self.__check_answer_message(guess, god.name) for god in self.__gods):
+            return True
+        desc = f'**{guess}** is not a known god name!'
+        await game.context.channel.send(\
+            embed=discord.Embed(color=discord.Color.red(), description=desc))
+        return False
 
     async def __write_to_file_from_api(self, file: io.TextIOWrapper, \
             refresher: Callable[[], Awaitable[Any]]) -> Any:
@@ -832,7 +915,7 @@ class Smitele(commands.Cog):
                 "question": discord.Embed(description=f'Name the consumable with this description: \n\n`{c.passive}`'),
                 "answer": c.name,
                 "id": f'{c.name}-2'
-            } if c.passive is not None and c.passive != '' else None,
+            } if c.passive is not None and c.passive != '' else {},
             # lambda c: {
             #     "question": discord.Embed(description=f'How long (in seconds) do the effects of {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}** last?'),
             #     "answer": c.duration,
@@ -876,7 +959,7 @@ class Smitele(commands.Cog):
                 "question": discord.Embed(description=f'Name the relic with this description: \n\n`{relic.passive}`'),
                 "answer": relic.name,
                 "id": f'{relic.name}-1'
-            } if relic.passive is not None and relic.passive != '' else None,
+            } if relic.passive is not None and relic.passive != '' else {},
             # lambda relic: {
             #     "question": discord.Embed(description=f'What is the range of the relic **{relic["name"]}**?'),
             #     "answer": relic['range'],
@@ -946,7 +1029,7 @@ class Smitele(commands.Cog):
                 "question": discord.Embed(description=f'How much does **{item.name}** cost?'),
                 "answer": compute_price(item),
                 "id": f'{item.name}-1'
-            } if item.price > 1 else None,
+            } if item.price > 1 else {},
             lambda item: ((lambda i, statIdx: {
                 "question": discord.Embed(description=f'{"How much" if i.item_properties[statIdx].flat_value is not None else "What percent"} **{i.item_properties[statIdx].attribute.display_name}** does **{i.name}** provide?'),
                 "answer": int(i.item_properties[statIdx].flat_value) if i.item_properties[statIdx].flat_value is not None else f'{int(i.item_properties[statIdx].percent_value * 100)}%',
@@ -965,12 +1048,12 @@ class Smitele(commands.Cog):
                     "question": discord.Embed(description=f'Name the item with this description:\n\n`{item.description}`'),
                     "answer": item.name,
                     "id": f'{item.name}-2'
-                } if item.tier >= 3 and item.description is not None and item.description != '' else None,
+                } if item.tier >= 3 and item.description is not None and item.description != '' else {},
             lambda item: {
                 "question": discord.Embed(description=f'How much does it cost to upgrade **{self.__items[item.parent_item_id].name}** into **{item.name}**?'),
                 "answer": item.price,
                 "id": f'{item.name}-3'
-            } if item.parent_item_id is not None else None,
+            } if item.parent_item_id is not None else {},
             lambda item: {
                 "question": discord.Embed(description="What item is this?").set_image(url=item.icon_url),
                 "answer": item.name,
@@ -1073,7 +1156,7 @@ class Smitele(commands.Cog):
                     await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="Question count must be a number."))
                     return
         for q in range(question_count):
-            question = None
+            question: dict = {}
             category = input_category
 
             if category is None:
@@ -1083,7 +1166,7 @@ class Smitele(commands.Cog):
             input_objects = question_mapping[category]["values"]
             input_object = random.choice(list(input_objects))
                 
-            while question is None or question['id'] in asked_questions:
+            while not any(question) or question['id'] in asked_questions:
                 question = random.choice(question_pool)(input_object)
 
             asked_questions.add(question['id'])
@@ -1202,15 +1285,15 @@ class Smitele(commands.Cog):
                 json.dump(current_scores, f)
 
     async def __scores(self, ctx):
-        with open("scores.json", "r") as f:
-            try:
+        try:
+            with open("scores.json", "r") as f:
                 current_scores = json.load(f)
                 current_scores = sorted(current_scores.items(), key=lambda i: i[1], reverse=True)
                 description = [f'**{idx + 1}**. _{(await self.__bot.fetch_user(u[0])).display_name}_ (Score: **{u[1]}**) {"<:mleh:472905075208093717>" if idx == 0 else ""}' for idx, u in enumerate(current_scores)]
-                embed = discord.Embed(color=discord.Color.blue(), title="**Leaderboard:**", description=str.join("\n", description)).set_thumbnail(url=(await bot.fetch_user(current_scores[0][0])).avatar_url)
+                embed = discord.Embed(color=discord.Color.blue(), title="**Leaderboard:**", description=str.join("\n", description)).set_thumbnail(url=(await self.__bot.fetch_user(current_scores[0][0])).display_avatar.url)
                 await ctx.channel.send(embed=embed)
-            except JSONDecodeError:
-                await ctx.channel.send(embed=discord.Embed(color=discord.Color.blue(), title="No scores recorded yet!"))
+        except (FileNotFoundError, JSONDecodeError):
+            await ctx.channel.send(embed=discord.Embed(color=discord.Color.blue(), title="No scores recorded yet!"))
 
 if __name__ == '__main__':
     intents = discord.Intents.default()

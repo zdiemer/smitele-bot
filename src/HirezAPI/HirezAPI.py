@@ -10,6 +10,7 @@ import hashlib
 from datetime import datetime
 from enum import Enum
 from json.decoder import JSONDecodeError
+from typing import Any
 
 import aiohttp
 
@@ -18,7 +19,8 @@ from god import GodId
 class _Base:
     """_Base implements base Hirez API functionality.
 
-    This class has     
+    This class has the basic methods in Hirez's API, along with wrapper functionality
+    for making API requests. It implements the non-game specific APIs.
     """
     SESSION_FILE = 'session'
 
@@ -40,8 +42,9 @@ class _Base:
         self.__save_session = save_session
         self.__try_load_session()
 
-    async def ping(self):
-        return await self.__make_request_base('ping')
+    async def ping(self) -> Any:
+        """Pings Hirez's API"""
+        return await self._make_request('ping')
 
     async def create_session(self) -> bytes:
         route = 'createsession'
@@ -140,6 +143,35 @@ class QueueId(Enum):
 class LanguageCode(Enum):
     ENGLISH = 1
 
+class TierId(Enum):
+    BRONZE_V = 1
+    BRONZE_IV = 2
+    BRONZE_III = 3
+    BRONZE_II = 4
+    BRONZE_I = 5
+    SILVER_V = 6
+    SILVER_IV = 7
+    SILVER_III = 8
+    SILVER_II = 9
+    SILVER_I = 10
+    GOLD_V = 11
+    GOLD_IV = 12
+    GOLD_III = 13
+    GOLD_II = 14
+    GOLD_I = 15
+    PLATINUM_V = 16
+    PLATINUM_IV = 17
+    PLATINUM_III = 18
+    PLATINUM_II = 19
+    PLATINUM_I = 20
+    DIAMOND_V = 21
+    DIAMOND_IV = 22
+    DIAMOND_III = 23
+    DIAMOND_II = 24
+    DIAMOND_I = 25
+    MASTERS = 26
+    GRANDMASTER = 27
+
 class Smite(_Base):
     BASE_URL: str = 'https://api.smitegame.com/smiteapi.svc'
 
@@ -173,9 +205,6 @@ class Smite(_Base):
             return await self._make_request('getplayer', player)
         return await self._make_request('getplayer', player, portal_id)
 
-    async def get_player_batch(self, *players: tuple):
-        return await self._make_request('getplayerbatch', *players)
-
     async def get_player_id_by_name(self, player_name: str):
         return await self._make_request('getplayeridbyname', player_name)
 
@@ -184,9 +213,6 @@ class Smite(_Base):
 
     async def get_player_ids_by_gamer_tag(self, portal_id: int, gamer_tag: str):
         return await self._make_request('getplayeridsbygamertag', portal_id, gamer_tag)
-
-    async def get_player_id_info_for_xbox_and_switch(self, player_name: str):
-        return await self._make_request('getplayeridinfoforxboxandswitch', player_name)
 
     async def get_friends(self, player_id: int):
         return await self._make_request('getfriends', player_id)
@@ -220,9 +246,10 @@ class Smite(_Base):
     async def get_match_details_batch(self, *match_ids: tuple):
         return await self._make_request('getmatchdetailsbatch', *match_ids)
 
-    async def get_match_ids_by_queue(self, queue_id: QueueId, date: int, hour: int, minute_window: int = 0):
-        # TODO: Validation and setup hour window
-        return await self._make_request('getmatchidsbyqueue', queue_id.value, date, f'{hour},{minute_window}')
+    async def get_match_ids_by_queue(self, queue_id: QueueId, \
+            date: int, hour: int, minute_window: int = 0):
+        return await self._make_request('getmatchidsbyqueue', \
+            queue_id.value, date, f'{hour},{minute_window}')
 
     async def get_match_player_details(self, match_id: int):
         return await self._make_request('getmatchplayerdetails', match_id)
@@ -232,8 +259,9 @@ class Smite(_Base):
 
     # Other
 
-    async def get_league_leaderboard(self, queue_id: QueueId, tier: int, _round: int):
-        return await self._make_request('getleagueleaderboard', queue_id.value, tier, _round)
+    async def get_league_leaderboard(self, queue_id: QueueId, tier_id: TierId, _round: int):
+        return await self._make_request('getleagueleaderboard', \
+            queue_id.value, tier_id.value, _round)
 
     async def get_league_seasons(self, queue_id: QueueId):
         return await self._make_request('getleagueseasons', queue_id.value)
