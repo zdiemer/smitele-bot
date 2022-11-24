@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List
 
 from HirezAPI import QueueId
-from god import GodId
+from god_types import GodId
 from item import Item
 
 class Build:

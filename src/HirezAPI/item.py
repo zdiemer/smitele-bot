@@ -4,7 +4,7 @@ from typing import List
 
 import aiohttp
 
-from god import GodRole
+from god_types import GodRole, GodType
 
 class ItemAttribute(Enum):
     ATTACK_SPEED = 'attack speed'
@@ -45,6 +45,13 @@ class ItemAttribute(Enum):
     def display_name(self) -> str:
         return str(self.value).title().replace('Hp5', 'HP5').replace('Mp5', 'MP5')
 
+    @property
+    def god_type(self) -> GodType:
+        if 'protection' in self.value:
+            return None
+        return GodType.MAGICAL if 'magical' in self.value \
+            else GodType.PHYSICAL if 'physical' in self.value else None
+
 class ItemType(Enum):
     CONSUMABLE = 'consumable'
     ITEM = 'item'
@@ -73,6 +80,7 @@ class ItemProperty:
 class Item:
     active: bool
     parent_item_id: int
+    root_item_id: int
     name: str
     glyph: bool
     icon_id: int
@@ -97,6 +105,7 @@ class Item:
         item.active = obj['ActiveFlag'] == 'y'
         parent_item_id = int(obj['ChildItemId'])
         item.parent_item_id = parent_item_id if parent_item_id != 0 else None
+        item.root_item_id = int(obj['RootItemId'])
         item.name = obj['DeviceName']
         item.glyph = obj['Glyph'] == 'y'
         item.icon_id = int(obj['IconId'])
@@ -108,7 +117,8 @@ class Item:
         item.type = ItemType(obj['Type'].lower())
         # Temporary correction for this mistake in Hirez's response
         item.icon_url = obj['itemIcon_URL']\
-            .replace('manticores-spikes', 'manticores-spike')
+            .replace('manticores-spikes', 'manticores-spike')\
+            .replace('sphinxs-baubles', 'sphinxs-bauble')
 
         restricted = obj['RestrictedRoles'].lower()
         item.restricted_roles = []

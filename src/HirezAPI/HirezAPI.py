@@ -14,7 +14,7 @@ from typing import Any
 
 import aiohttp
 
-from god import GodId
+from god_types import GodId
 
 class _Base:
     """_Base implements base Hirez API functionality.
@@ -139,6 +139,9 @@ class QueueId(Enum):
     RANKED_JOUST = 450
     SIEGE = 459
     SLASH = 10189
+    RANKED_CONQUEST_CONTROLLER = 504
+    RANKED_DUEL_CONTROLLER = 502
+    RANKED_JOUST_CONTROLLER = 504
 
 class LanguageCode(Enum):
     ENGLISH = 1
@@ -171,6 +174,13 @@ class TierId(Enum):
     DIAMOND_I = 25
     MASTERS = 26
     GRANDMASTER = 27
+
+class PlayerRole(Enum):
+    CARRY = 'carry'
+    JUNGLE = 'jungle'
+    MID = 'mid'
+    SOLO = 'solo'
+    SUPPORT = 'support'
 
 class Smite(_Base):
     BASE_URL: str = 'https://api.smitegame.com/smiteapi.svc'

@@ -3,7 +3,7 @@ from typing import Tuple
 
 import aiohttp
 
-from god import GodId
+from god_types import GodId
 
 class Skin(object):
     card_url: str
