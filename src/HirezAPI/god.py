@@ -19,9 +19,9 @@ class _basicAttackProperties:
     scaling: float
 
     # Izanami special case
-    base_damage_back: float
-    per_level_back: float
-    scaling_back: float
+    base_damage_back: float = 0
+    per_level_back: float = 0
+    scaling_back: float = 0
 
     def __init__(self, damage: str, progression: str, damage_scaling: str):
         self.__damage = damage
@@ -211,9 +211,18 @@ class God(object):
                 return io.BytesIO(await res.content.read())
 
     def get_stat_at_level(self, stat: ItemAttribute, level: int) -> float:
-        if ItemAttribute == ItemAttribute.MOVEMENT_SPEED:
-            level = 8 if level > 8 else level
-            speed = self.stats.values[stat].base
-            return speed + (speed * 0.3 * level)
-        god_stat = self.stats.values[stat]
-        return god_stat.base + god_stat.per_level * level
+        try:
+            if ItemAttribute == ItemAttribute.BASIC_ATTACK_DAMAGE:
+                basic = self.stats.basic_attack.base_damage + \
+                    self.stats.basic_attack.per_level * level
+                basic_back = self.stats.basic_attack.base_damage_back + \
+                    self.stats.basic_attack.per_level_back * level
+                return basic + basic_back
+            if ItemAttribute == ItemAttribute.MOVEMENT_SPEED:
+                level = 8 if level > 8 else level
+                speed = self.stats.values[stat].base
+                return speed + (speed * 0.3 * level)
+            god_stat = self.stats.values[stat]
+            return god_stat.base + god_stat.per_level * level
+        except KeyError:
+            return 0

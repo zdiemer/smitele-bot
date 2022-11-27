@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Dict, FrozenSet, List, Set, Tuple, Union
 
 from god import God
-from god_types import GodId, GodRole, GodType
+from god_types import GodId, GodPro, GodRole, GodType
 from item import Item, ItemAttribute, ItemProperty
 from passive_parser import PassiveAttribute
 
@@ -181,23 +181,18 @@ class BuildOptimizer:
         'lifesteal': set([ItemAttribute.MAGICAL_LIFESTEAL, ItemAttribute.PHYSICAL_LIFESTEAL]),
         'protection': set([
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION,
-            ItemAttribute.PROTECTIONS]),
+            ItemAttribute.PHYSICAL_PROTECTION]),
         'prots': set([
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION,
-            ItemAttribute.PROTECTIONS]),
+            ItemAttribute.PHYSICAL_PROTECTION]),
         'prot': set([
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION,
-            ItemAttribute.PROTECTIONS]),
+            ItemAttribute.PHYSICAL_PROTECTION]),
         'pen': set([
             ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PENETRATION,
             ItemAttribute.PHYSICAL_PENETRATION]),
         'penetration': set([
             ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PENETRATION,
             ItemAttribute.PHYSICAL_PENETRATION]),
     }
 
@@ -286,6 +281,8 @@ class BuildOptimizer:
         ItemAttribute.COOLDOWN_REDUCTION: 0.40,
     }
 
+    __archetype_passive_wishlist: Dict[BuildArchetype, Set[PassiveAttribute]]
+    __archetype_passive_denylist: Dict[BuildArchetype, Set[PassiveAttribute]]
     __archetype_stat_targets: Dict[BuildArchetype, Dict[ItemAttribute, float]]
     __archetype_weight_mappings: Dict[BuildArchetype, Dict[ItemAttribute, float]]
 
@@ -302,17 +299,19 @@ class BuildOptimizer:
         self.god = god
         self.valid_items = valid_items
         self.__all_items = all_items
-        if stat is not None:
-            self.__init_stat(stat.lower())
-        self.__init_archetype_weight_mappings()
-        self.__init_level_20_stats()
-        self.__init_archetype_stat_targets()
         archetype = None
         if god.id in self.GOD_ID_ARCHETYPE_MAPPINGS:
             archetype = self.GOD_ID_ARCHETYPE_MAPPINGS[god.id]
         self.__current_archetype = \
             BuildArchetype.default_archetype(self.god.role) \
                 if archetype is None else archetype
+        self.__init_archetype_passive_denylist()
+        self.__init_archetype_passive_wishlist()
+        self.__init_archetype_stat_targets()
+        self.__init_archetype_weight_mappings()
+        self.__init_level_20_stats()
+        if stat is not None:
+            self.__init_stat(stat.lower())
 
     def __init_stat(self, stat_name: str):
         try:
@@ -325,6 +324,347 @@ class BuildOptimizer:
         if isinstance(self.__stat, ItemAttribute) and \
                 self.__stat.god_type is not None and self.__stat.god_type != self.god.type:
             raise ValueError(self.__stat.display_name, ' is not a valid stat for ', self.god.name)
+        if self.__current_archetype in self.__archetype_stat_targets:
+            stat_targets = self.__archetype_stat_targets[self.__current_archetype]
+            for stat in stat_targets:
+                if stat in self.__stat:
+                    if stat in (ItemAttribute.ATTACK_SPEED, ItemAttribute.MOVEMENT_SPEED):
+                        stat_targets[stat] = 1
+                        continue
+                    if stat in (
+                            ItemAttribute.MAGICAL_PENETRATION,
+                            ItemAttribute.PHYSICAL_PENETRATION):
+                        stat_targets[stat] = (
+                            self.FLAT_ITEM_ATTRIBUTE_CAPS[stat],
+                            self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat])
+                        continue
+                    stat_targets[stat] = self.FLAT_ITEM_ATTRIBUTE_CAPS[stat] \
+                        if stat in self.FLAT_ITEM_ATTRIBUTE_CAPS else \
+                            self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat] \
+                                if stat in self.PERCENT_ITEM_ATTRIBUTE_CAPS else \
+                                    stat_targets[stat]
+                    continue
+                stat_targets[stat] = 0
+            print(self.__archetype_stat_targets[self.__current_archetype])
+
+    def __init_archetype_passive_denylist(self):
+        defaults = {
+            BuildArchetype.ABILITY_BASED_ASSASSIN: {
+                PassiveAttribute.AURA,
+                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+                PassiveAttribute.BLOCK_STACKS,
+                PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
+                PassiveAttribute.INCREASED_PROJECTILE_SPEED,
+                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
+            },
+            BuildArchetype.SUPPORT_GUARDIAN: {
+                PassiveAttribute.BASIC_ATTACK_PROC,
+                PassiveAttribute.PERCENT_DAMAGE,
+                PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
+            },
+            BuildArchetype.CARRY_HUNTER: {
+                PassiveAttribute.AURA,
+                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+                PassiveAttribute.INCREASES_HEALING,
+                PassiveAttribute.ABILITY_HEALING,
+                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+                PassiveAttribute.INCREASED_PROJECTILE_SPEED,
+                PassiveAttribute.ALLIED_GODS_CAN_CRITICAL_HIT,
+                PassiveAttribute.PERCENT_DAMAGE,
+                PassiveAttribute.ABILITY_PROC,
+            },
+            BuildArchetype.MID_MAGE: {
+                PassiveAttribute.AURA,
+                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+            },
+            BuildArchetype.ABILITY_BASED_WARRIOR: {
+                PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
+                PassiveAttribute.EVOLVES_WITH_ASSISTS,
+                PassiveAttribute.BASIC_ATTACK_PROC,
+            },
+        }
+
+        if GodPro.HIGH_SUSTAIN not in self.god.pros and \
+                self.__current_archetype in defaults:
+            defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
+            defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
+
+        self.__archetype_passive_denylist = defaults
+
+    def __init_archetype_passive_wishlist(self):
+        defaults = {
+            BuildArchetype.ABILITY_BASED_ASSASSIN: {
+                PassiveAttribute.ABILITY_PROC,
+                PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
+                PassiveAttribute.ANTIHEAL,
+                PassiveAttribute.FLAT_TRUE_BONUS_DAMAGE,
+                PassiveAttribute.PERCENT_DAMAGE,
+                PassiveAttribute.DECREASES_ABILITY_COOLDOWNS,
+                PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+                PassiveAttribute.ABILITY_HEALING,
+                PassiveAttribute.IMMUNE_TO_CC,
+                PassiveAttribute.IN_JUNGLE_EFFECT,
+                PassiveAttribute.SCALING_BONUS_DAMAGE,
+                PassiveAttribute.ULTIMATE_PROC,
+            },
+            BuildArchetype.SUPPORT_GUARDIAN: {
+                PassiveAttribute.AURA,
+                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+                PassiveAttribute.ANTIHEAL,
+                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+                PassiveAttribute.PERCENT_STAT_CONVERTED,
+                PassiveAttribute.SHIELD,
+                PassiveAttribute.IMMUNE_TO_SLOWS,
+                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+                PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
+                PassiveAttribute.DAMAGE_MITIGATION,
+                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+                PassiveAttribute.BLOCK_STACKS,
+                PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
+                PassiveAttribute.CAUSES_CC,
+                PassiveAttribute.TRIGGERED_BY_CC,
+                PassiveAttribute.IMMUNE_TO_CC,
+                PassiveAttribute.DAMAGING_AURA,
+                PassiveAttribute.EVOLVES_WITH_ASSISTS,
+                PassiveAttribute.ALLIED_STRUCTURES_BUFF,
+            },
+            BuildArchetype.CARRY_HUNTER: {
+                PassiveAttribute.BASIC_ATTACK_PROC,
+                PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
+                PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
+                PassiveAttribute.STRIPS_PROTECTIONS,
+                PassiveAttribute.CRITICAL_HIT_EFFECT,
+                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+            },
+            BuildArchetype.MID_MAGE: {
+                PassiveAttribute.ABILITY_PROC,
+                PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
+                PassiveAttribute.TRIGGERS_HEAL,
+                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+                PassiveAttribute.PERCENT_DAMAGE,
+                PassiveAttribute.PERCENT_STAT_CONVERTED,
+                PassiveAttribute.ULTIMATE_PROC,
+                PassiveAttribute.SCALING_BONUS_DAMAGE,
+                PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
+            },
+            BuildArchetype.ABILITY_BASED_WARRIOR: {
+                PassiveAttribute.AURA,
+                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+                PassiveAttribute.ABILITY_PROC,
+                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+                PassiveAttribute.BELOW_THRESHOLD_BUFF,
+                PassiveAttribute.ANTIHEAL,
+                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+                PassiveAttribute.PERCENT_DAMAGE,
+                PassiveAttribute.PERCENT_STAT_CONVERTED,
+                PassiveAttribute.SHIELD,
+                PassiveAttribute.IMMUNE_TO_SLOWS,
+                PassiveAttribute.ABILITY_HEALING,
+                PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
+                PassiveAttribute.EFFECT_VARIES_BY_CURRENT_STATS,
+                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+                PassiveAttribute.DAMAGE_MITIGATION,
+                PassiveAttribute.BLOCK_STACKS,
+                PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
+                PassiveAttribute.CAUSES_CC,
+                PassiveAttribute.TRIGGERED_BY_CC,
+                PassiveAttribute.IMMUNE_TO_CC,
+                PassiveAttribute.ALLIED_STRUCTURES_BUFF,
+                PassiveAttribute.DAMAGING_AURA,
+            },
+        }
+
+        if GodPro.HIGH_SUSTAIN in self.god.pros and \
+                self.__current_archetype in defaults:
+            defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
+            defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
+
+        # Assassin Archetypes
+        auto_assassin = [BuildArchetype.ABILITY_BASED_ASSASSIN].copy()
+        self.__archetype_passive_wishlist = defaults
+
+    def __init_archetype_stat_targets(self):
+        self.__archetype_stat_targets = {
+            BuildArchetype.ABILITY_BASED_ASSASSIN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.MANA: 200,
+                ItemAttribute.PHYSICAL_PENETRATION: (20, 0.30),
+                ItemAttribute.PHYSICAL_POWER: 320,
+                ItemAttribute.PHYSICAL_PROTECTION: 35,
+            },
+            BuildArchetype.AUTO_ATTACK_ASSASSIN: {
+                ItemAttribute.ATTACK_SPEED: 0.70,
+                ItemAttribute.MOVEMENT_SPEED: 0.20,
+                ItemAttribute.PHYSICAL_LIFESTEAL: 0.10,
+                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 225,
+            },
+            BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: {
+                ItemAttribute.ATTACK_SPEED: 0.40,
+                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.75,
+                ItemAttribute.MOVEMENT_SPEED: 0.21,
+                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 195,
+                ItemAttribute.PHYSICAL_PROTECTION: 30,
+            },
+            BuildArchetype.SOLO_ASSASSIN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
+                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 300,
+                ItemAttribute.MAGICAL_PROTECTION: 100,
+                ItemAttribute.MANA: 1000,
+                ItemAttribute.MP5: 10,
+                ItemAttribute.PHYSICAL_PENETRATION: (15, 0),
+                ItemAttribute.PHYSICAL_POWER: 150,
+                ItemAttribute.PHYSICAL_PROTECTION: 130,
+            },
+            BuildArchetype.SUPPORT_GUARDIAN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 1000,
+                ItemAttribute.HP5: 30,
+                ItemAttribute.MAGICAL_PROTECTION: 175,
+                ItemAttribute.MP5: 10,
+                ItemAttribute.PHYSICAL_PROTECTION: 150,
+            },
+            BuildArchetype.SOLO_GUARDIAN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 800,
+                ItemAttribute.MAGICAL_POWER: 200,
+                ItemAttribute.MAGICAL_PROTECTION: 130,
+                ItemAttribute.MANA: 400,
+                ItemAttribute.MP5: 60,
+                ItemAttribute.PHYSICAL_PROTECTION: 140,
+            },
+            BuildArchetype.CARRY_HUNTER: {
+                ItemAttribute.ATTACK_SPEED: 0.80,
+                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.75,
+                ItemAttribute.PHYSICAL_LIFESTEAL: 0.25,
+                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 210,
+            },
+            BuildArchetype.ABILITY_BASED_HUNTER: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
+                ItemAttribute.HEALTH: 100,
+                ItemAttribute.MANA: 1050,
+                ItemAttribute.MP5: 10,
+                ItemAttribute.PHYSICAL_PENETRATION: (15, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 285,
+            },
+            BuildArchetype.MID_MAGE: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
+                ItemAttribute.MAGICAL_PENETRATION: (25, 0.30),
+                ItemAttribute.MAGICAL_POWER: 560,
+                ItemAttribute.MANA: 1300,
+                ItemAttribute.MP5: 40,
+            },
+            BuildArchetype.LIFESTEAL_MID_MAGE: {
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.40,
+                ItemAttribute.MAGICAL_PENETRATION: (30, 0.30),
+                ItemAttribute.MAGICAL_POWER: 600,
+                ItemAttribute.MANA: 150,
+                ItemAttribute.MP5: 45,
+            },
+            BuildArchetype.JUNGLE_MAGE: {
+                ItemAttribute.ATTACK_SPEED: 0.20,
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.25,
+                ItemAttribute.MAGICAL_PENETRATION: (10, 0.20),
+                ItemAttribute.MAGICAL_POWER: 500,
+                ItemAttribute.MANA: 1200,
+                ItemAttribute.MP5: 50,
+            },
+            BuildArchetype.HEALER_MAGE: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
+                ItemAttribute.HEALTH: 350,
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.10,
+                ItemAttribute.MAGICAL_PENETRATION: (10, 0.10),
+                ItemAttribute.MAGICAL_POWER: 600,
+                ItemAttribute.MANA: 1600,
+                ItemAttribute.MP5: 65,
+            },
+            BuildArchetype.AUTO_ATTACK_MAGE: {
+                ItemAttribute.ATTACK_SPEED: 0.80,
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.30,
+                ItemAttribute.MAGICAL_PENETRATION: (0, 0.10),
+                ItemAttribute.MAGICAL_POWER: 400,
+                ItemAttribute.MANA: 200,
+            },
+            BuildArchetype.SOLO_MAGE: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 600,
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.20,
+                ItemAttribute.MAGICAL_PENETRATION: (0, 0.10),
+                ItemAttribute.MAGICAL_POWER: 400,
+                ItemAttribute.MANA: 1000,
+                ItemAttribute.MP5: 25,
+                ItemAttribute.PHYSICAL_PROTECTION: 100,
+                ItemAttribute.MAGICAL_PROTECTION: 30,
+            },
+            BuildArchetype.SUPPORT_MAGE: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 1200,
+                ItemAttribute.HP5: 15,
+                ItemAttribute.MAGICAL_PROTECTION: 155,
+                ItemAttribute.MP5: 15,
+                ItemAttribute.PHYSICAL_PROTECTION: 155,
+            },
+            BuildArchetype.ABILITY_BASED_WARRIOR: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 500,
+                ItemAttribute.HP5: 30,
+                ItemAttribute.MAGICAL_PROTECTION: 100,
+                ItemAttribute.MANA: 150,
+                ItemAttribute.MP5: 40,
+                ItemAttribute.PHYSICAL_POWER: 100,
+                ItemAttribute.PHYSICAL_PROTECTION: 120,
+            },
+            BuildArchetype.AUTO_ATTACK_WARRIOR: {
+                ItemAttribute.ATTACK_SPEED: 0.30,
+                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
+                ItemAttribute.HEALTH: 500,
+                ItemAttribute.HP5: 10,
+                ItemAttribute.MAGICAL_PROTECTION: 100,
+                ItemAttribute.MP5: 20,
+                ItemAttribute.PHYSICAL_POWER: 50,
+                ItemAttribute.PHYSICAL_PROTECTION: 120,
+            },
+            BuildArchetype.JUNGLE_WARRIOR: {
+                ItemAttribute.ATTACK_SPEED: 0.60,
+                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
+                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.10,
+                ItemAttribute.HEALTH: 200,
+                ItemAttribute.HP5: 15,
+                ItemAttribute.MAGICAL_PROTECTION: 40,
+                ItemAttribute.MOVEMENT_SPEED: 0.07,
+                ItemAttribute.PHYSICAL_PENETRATION: (20, 0.10),
+                ItemAttribute.PHYSICAL_POWER: 100,
+                ItemAttribute.PHYSICAL_PROTECTION: 80,
+            },
+            BuildArchetype.SUPPORT_WARRIOR: {
+                ItemAttribute.HEALTH: 1400,
+                ItemAttribute.HP5: 15,
+                ItemAttribute.MAGICAL_PROTECTION: 175,
+                ItemAttribute.MANA: 300,
+                ItemAttribute.MP5: 50,
+                ItemAttribute.PHYSICAL_PROTECTION: 195,
+            },
+        }
+
+        self.__archetype_stat_targets[BuildArchetype.HEALER_WARRIOR] = \
+            self.__archetype_stat_targets[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
+        self.__archetype_stat_targets[BuildArchetype.HEALER_GUARDIAN] = \
+            self.__archetype_stat_targets[BuildArchetype.SUPPORT_GUARDIAN].copy()
 
     def __init_archetype_weight_mappings(self):
         defaults = {
@@ -344,7 +684,7 @@ class BuildOptimizer:
                 ItemAttribute.MAGICAL_PROTECTION: 1,
                 ItemAttribute.MANA: 1,
                 ItemAttribute.MOVEMENT_SPEED: 1,
-                ItemAttribute.PHYSICAL_LIFESTEAL: -1,
+                ItemAttribute.PHYSICAL_LIFESTEAL: -0.5,
                 ItemAttribute.PHYSICAL_PENETRATION: (5, 5),
                 ItemAttribute.PHYSICAL_POWER: 5,
                 ItemAttribute.PHYSICAL_PROTECTION: 1,
@@ -513,186 +853,6 @@ class BuildOptimizer:
 
         self.__archetype_weight_mappings = defaults
 
-    def __init_archetype_stat_targets(self):
-        self.__archetype_stat_targets = {
-            BuildArchetype.ABILITY_BASED_ASSASSIN: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.HEALTH: 200,
-                ItemAttribute.MANA: 200,
-                ItemAttribute.MOVEMENT_SPEED: 0.07,
-                ItemAttribute.PHYSICAL_LIFESTEAL: 0.05,
-                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.40),
-                ItemAttribute.PHYSICAL_POWER: 300,
-            },
-            BuildArchetype.AUTO_ATTACK_ASSASSIN: {
-                ItemAttribute.ATTACK_SPEED: 0.70,
-                ItemAttribute.MOVEMENT_SPEED: 0.20,
-                ItemAttribute.PHYSICAL_LIFESTEAL: 0.10,
-                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 225,
-            },
-            BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: {
-                ItemAttribute.ATTACK_SPEED: 0.40,
-                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.75,
-                ItemAttribute.MOVEMENT_SPEED: 0.21,
-                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 195,
-                ItemAttribute.PHYSICAL_PROTECTION: 30,
-            },
-            BuildArchetype.SOLO_ASSASSIN: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 300,
-                ItemAttribute.MAGICAL_PROTECTION: 100,
-                ItemAttribute.MANA: 1000,
-                ItemAttribute.MP5: 10,
-                ItemAttribute.PHYSICAL_PENETRATION: (15, 0),
-                ItemAttribute.PHYSICAL_POWER: 150,
-                ItemAttribute.PHYSICAL_PROTECTION: 130,
-            },
-            BuildArchetype.SUPPORT_GUARDIAN: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 1350,
-                ItemAttribute.HP5: 60,
-                ItemAttribute.MAGICAL_PROTECTION: 195,
-                ItemAttribute.MP5: 15,
-                ItemAttribute.PHYSICAL_PROTECTION: 180,
-            },
-            BuildArchetype.SOLO_GUARDIAN: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 800,
-                ItemAttribute.MAGICAL_POWER: 200,
-                ItemAttribute.MAGICAL_PROTECTION: 130,
-                ItemAttribute.MANA: 400,
-                ItemAttribute.MP5: 60,
-                ItemAttribute.PHYSICAL_PROTECTION: 140,
-            },
-            BuildArchetype.CARRY_HUNTER: {
-                ItemAttribute.ATTACK_SPEED: 0.90,
-                ItemAttribute.BASIC_ATTACK_DAMAGE: 40,
-                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.45,
-                ItemAttribute.PHYSICAL_LIFESTEAL: 0.30,
-                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 185,
-            },
-            BuildArchetype.ABILITY_BASED_HUNTER: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
-                ItemAttribute.HEALTH: 100,
-                ItemAttribute.MANA: 1050,
-                ItemAttribute.MP5: 10,
-                ItemAttribute.PHYSICAL_PENETRATION: (15, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 285,
-            },
-            BuildArchetype.MID_MAGE: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.MAGICAL_PENETRATION: (25, 0.30),
-                ItemAttribute.MAGICAL_POWER: 560,
-                ItemAttribute.MANA: 1300,
-                ItemAttribute.MP5: 40,
-            },
-            BuildArchetype.LIFESTEAL_MID_MAGE: {
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.40,
-                ItemAttribute.MAGICAL_PENETRATION: (30, 0.30),
-                ItemAttribute.MAGICAL_POWER: 600,
-                ItemAttribute.MANA: 150,
-                ItemAttribute.MP5: 45,
-            },
-            BuildArchetype.JUNGLE_MAGE: {
-                ItemAttribute.ATTACK_SPEED: 0.20,
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.25,
-                ItemAttribute.MAGICAL_PENETRATION: (10, 0.20),
-                ItemAttribute.MAGICAL_POWER: 500,
-                ItemAttribute.MANA: 1200,
-                ItemAttribute.MP5: 50,
-            },
-            BuildArchetype.HEALER_MAGE: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.HEALTH: 350,
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.10,
-                ItemAttribute.MAGICAL_PENETRATION: (10, 0.10),
-                ItemAttribute.MAGICAL_POWER: 600,
-                ItemAttribute.MANA: 1600,
-                ItemAttribute.MP5: 65,
-            },
-            BuildArchetype.AUTO_ATTACK_MAGE: {
-                ItemAttribute.ATTACK_SPEED: 0.80,
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.30,
-                ItemAttribute.MAGICAL_PENETRATION: (0, 0.10),
-                ItemAttribute.MAGICAL_POWER: 400,
-                ItemAttribute.MANA: 200,
-            },
-            BuildArchetype.SOLO_MAGE: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 600,
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.20,
-                ItemAttribute.MAGICAL_PENETRATION: (0, 0.10),
-                ItemAttribute.MAGICAL_POWER: 400,
-                ItemAttribute.MANA: 1000,
-                ItemAttribute.MP5: 25,
-                ItemAttribute.PHYSICAL_PROTECTION: 100,
-                ItemAttribute.MAGICAL_PROTECTION: 30,
-            },
-            BuildArchetype.SUPPORT_MAGE: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 1200,
-                ItemAttribute.HP5: 15,
-                ItemAttribute.MAGICAL_PROTECTION: 155,
-                ItemAttribute.MP5: 15,
-                ItemAttribute.PHYSICAL_PROTECTION: 155,
-            },
-            BuildArchetype.ABILITY_BASED_WARRIOR: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 600,
-                ItemAttribute.HP5: 30,
-                ItemAttribute.MAGICAL_PROTECTION: 125,
-                ItemAttribute.MANA: 200,
-                ItemAttribute.MP5: 60,
-                ItemAttribute.PHYSICAL_LIFESTEAL: 0.15,
-                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.10),
-                ItemAttribute.PHYSICAL_POWER: 100,
-                ItemAttribute.PHYSICAL_PROTECTION: 155,
-            },
-            BuildArchetype.AUTO_ATTACK_WARRIOR: {
-                ItemAttribute.ATTACK_SPEED: 0.50,
-                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
-                ItemAttribute.HEALTH: 500,
-                ItemAttribute.HP5: 15,
-                ItemAttribute.MAGICAL_PROTECTION: 110,
-                ItemAttribute.MOVEMENT_SPEED: 0.07,
-                ItemAttribute.MP5: 20,
-                ItemAttribute.PHYSICAL_PENETRATION: (15, 0),
-                ItemAttribute.PHYSICAL_POWER: 80,
-                ItemAttribute.PHYSICAL_PROTECTION: 110,
-            },
-            BuildArchetype.JUNGLE_WARRIOR: {
-                ItemAttribute.ATTACK_SPEED: 0.60,
-                ItemAttribute.COOLDOWN_REDUCTION: 0.10,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.10,
-                ItemAttribute.HEALTH: 200,
-                ItemAttribute.HP5: 15,
-                ItemAttribute.MAGICAL_PROTECTION: 40,
-                ItemAttribute.MOVEMENT_SPEED: 0.07,
-                ItemAttribute.PHYSICAL_PENETRATION: (20, 0.10),
-                ItemAttribute.PHYSICAL_POWER: 100,
-                ItemAttribute.PHYSICAL_PROTECTION: 80,
-            },
-            BuildArchetype.SUPPORT_WARRIOR: {
-                ItemAttribute.HEALTH: 1400,
-                ItemAttribute.HP5: 15,
-                ItemAttribute.MAGICAL_PROTECTION: 175,
-                ItemAttribute.MANA: 300,
-                ItemAttribute.MP5: 50,
-                ItemAttribute.PHYSICAL_PROTECTION: 195,
-            },
-        }
-
-        self.__archetype_stat_targets[BuildArchetype.HEALER_WARRIOR] = \
-            self.__archetype_stat_targets[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
-        self.__archetype_stat_targets[BuildArchetype.HEALER_GUARDIAN] = \
-            self.__archetype_stat_targets[BuildArchetype.SUPPORT_GUARDIAN].copy()
-
     def __init_level_20_stats(self):
         self.__level_20_stats = {}
         for attr in list(ItemAttribute):
@@ -749,10 +909,23 @@ class BuildOptimizer:
                     return False
             else:
                 return False
+        all_passives = {passive for item in build for passive in item.passive_properties}
+
+        # Evolutions (sometimes) don't have a passive so add passive properties 
+        # from their parents
+        evos = list(filter(lambda item: item.tier == 4, build))
+        if any(evos):
+            for evo in evos:
+                all_passives.union({passive for passive \
+                    in self.__all_items[evo.parent_item_id].passive_properties})
         if self.__check_overcapped(
                 stats,
-                {passive for item in build for passive in item.passive_properties}):
+                all_passives):
             return False
+        if self.__current_archetype in self.__archetype_passive_wishlist:
+            if len(all_passives & \
+                    self.__archetype_passive_wishlist[self.__current_archetype]) < 2:
+                return False
         return True
 
     def __check_overcapped(
@@ -801,6 +974,11 @@ class BuildOptimizer:
         god_weights = self.__archetype_weight_mappings[self.__current_archetype]
         if any(stats_to_optimize):
             for stat in stats_to_optimize:
+                if stat in (
+                        ItemAttribute.PHYSICAL_PENETRATION,
+                        ItemAttribute.MAGICAL_PENETRATION):
+                    god_weights[stat] = (15, 15)
+                    continue
                 god_weights[stat] = 15
         return god_weights
 
@@ -812,17 +990,19 @@ class BuildOptimizer:
     async def optimize(self) -> Tuple[List[List[Item]], int]:
         god_weights = self.__get_weights()
         self.__compute_scores(god_weights)
-        starters = self.get_preferred_starters()
+        starters = self.__filter_passive_denylist(
+            self.get_preferred_starters())
 
         sorted_ids = list([id for id, _ in sorted(
             self.__item_scores.items(), key=lambda item: item[1], reverse=True)])
         rated_items = [self.__all_items[id] for id in sorted_ids]
-        rated_items = self.filter_tiers_with_glyphs(rated_items)
-        rated_items = rated_items[:int(len(rated_items) / 3)] # Top 50th percentile of item rankings
+        rated_items = self.__filter_passive_denylist(
+            self.filter_evolution_parents(
+                self.filter_tiers_with_glyphs(rated_items)))
+        rated_items = rated_items[:int(len(rated_items) / 2)]
 
         glyphs = self.get_glyphs(rated_items)
-        items = self.filter_evolution_parents(
-            self.filter_tiers(rated_items))
+        items = self.filter_tiers(rated_items)
 
         viable_builds: List[List[Item]] = []
         async def check_combinations(
@@ -851,7 +1031,7 @@ class BuildOptimizer:
                 iterations += build_n
                 print(f'Iterated {iterations} times...')
             build_n = await check_combinations(
-                starter_build, items, build_size)
+                starter_build, self.filter_glyph_parent(items), build_size)
             iterations += build_n
             print(f'Iterated {iterations} times...')
 
@@ -874,7 +1054,9 @@ class BuildOptimizer:
 
             for item in build:
                 if item.tier == 4 and not item.glyph:
-                    evos.append(item)
+                    if PassiveAttribute.EVOLVES_WITH_GOD_KILLS \
+                            not in self.__all_items[item.parent_item_id].passive_properties:
+                        evos.append(item)
             # Place evolved items second
             for evo in evos:
                 build.remove(evo)
@@ -964,9 +1146,22 @@ class BuildOptimizer:
     def filter_tiers_with_glyphs(items: List[Item]) -> List[Item]:
         return list(filter(lambda item: item.tier >= 3, items))
 
-    @staticmethod
-    def filter_glyph_parent(items: List[Item], glyph: Item) -> List[Item]:
-        return list(filter(lambda item: item.id != glyph.parent_item_id, items))
+    def __filter_passive_denylist(self, items: List[Item]) -> List[Item]:
+        if self.__current_archetype not in self.__archetype_passive_denylist:
+            return items
+        denylist = self.__archetype_passive_denylist[self.__current_archetype]
+        return list(filter(
+            lambda item: not any(item.passive_properties & denylist) \
+                if item.tier < 4 \
+                else not any(\
+                    self.__all_items[item.parent_item_id].passive_properties & denylist), items))
+
+    def filter_glyph_parent(self, items: List[Item], glyph: Item = None) -> List[Item]:
+        if glyph is not None:
+            return list(filter(lambda item: item.id != glyph.parent_item_id, items))
+        return list(filter(
+            lambda item: item.id not in \
+                [g.parent_item_id for g in self.get_glyphs(self.valid_items)], items))
 
     @staticmethod
     def get_evolutions(items: List[Item]) -> List[Item]:

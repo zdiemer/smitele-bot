@@ -1,10 +1,11 @@
 import io
 from enum import Enum
-from typing import List
+from typing import List, Set
 
 import aiohttp
 
 from god_types import GodRole, GodType
+from passive_parser import PassiveAttribute, PassiveParser
 
 class ItemAttribute(Enum):
     ATTACK_SPEED = 'attack speed'
@@ -12,9 +13,7 @@ class ItemAttribute(Enum):
     COOLDOWN_REDUCTION = 'cooldown reduction'
     CRITICAL_STRIKE_CHANCE = 'critical strike chance'
     CROWD_CONTROL_REDUCTION = 'crowd control reduction'
-    DAMAGE_REDUCTION = 'damage reduction'
     HP5 = 'hp5'
-    HP5_AND_MP5 = 'hp5 & mp5'
     HEALTH = 'health'
     MP5 = 'mp5'
     MAGICAL_LIFESTEAL = 'magical lifesteal'
@@ -22,14 +21,18 @@ class ItemAttribute(Enum):
     MAGICAL_POWER = 'magical power'
     MAGICAL_PROTECTION = 'magical protection'
     MANA = 'mana'
-    MAXIMUM_HEALTH = 'maximum health'
     MOVEMENT_SPEED = 'movement speed'
-    PENETRATION = 'penetration'
-    PHYSICAL_CRITICAL_STRIKE_CHANCE = 'physical critical strike chance'
     PHYSICAL_LIFESTEAL = 'physical lifesteal'
     PHYSICAL_PENETRATION = 'physical penetration'
     PHYSICAL_POWER = 'physical power'
     PHYSICAL_PROTECTION = 'physical protection'
+
+    # These attributes are fairly bespoke, showing up on only a few items
+    DAMAGE_REDUCTION = 'damage reduction'
+    HP5_AND_MP5 = 'hp5 & mp5'
+    MAXIMUM_HEALTH = 'maximum health'
+    PENETRATION = 'penetration'
+    PHYSICAL_CRITICAL_STRIKE_CHANCE = 'physical critical strike chance'
     PROTECTIONS = 'protections'
 
     @staticmethod
@@ -95,6 +98,7 @@ class Item:
     is_starter: bool
     type: ItemType
     icon_url: str
+    passive_properties: Set[PassiveAttribute]
 
     def __init__(self):
         pass
@@ -119,6 +123,7 @@ class Item:
         item.icon_url = obj['itemIcon_URL']\
             .replace('manticores-spikes', 'manticores-spike')\
             .replace('sphinxs-baubles', 'sphinxs-bauble')
+        item.passive_properties = set()
 
         restricted = obj['RestrictedRoles'].lower()
         item.restricted_roles = []
@@ -127,13 +132,14 @@ class Item:
             item.restricted_roles = [GodRole(role.strip()) for role in roles]
 
         secondary: str = obj['ItemDescription']['SecondaryDescription']
-        if secondary is not None:
+        if secondary is not None and secondary != '':
+            secondary = secondary.replace('<n>', '')
             if secondary.startswith('AURA'):
                 item.aura = secondary.replace('AURA - ', '', 1)
             else:
                 item.passive = secondary.replace('PASSIVE - ', '', 1)\
-                    .replace('PASSIVE: ', '', 1).replace('<n>GLPYH - ', '', 1)\
-                    .replace('GLYPH - ', '', 1)
+                    .replace('PASSIVE: ', '', 1).replace('GLYPH - ', '', 1)
+            item.passive_properties = PassiveParser().parse(secondary.lower())
 
         if item.type is ItemType.ITEM:
             item.item_properties = [ItemProperty.from_json(val) for \
