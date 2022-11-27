@@ -511,7 +511,9 @@ class Smitele(commands.Cog):
             if prioritize is not None:
                 items_for_god = optimizer.filter_prioritize(items_for_god, prioritize)
             # Filter to just tier 3 items
-            items = optimizer.filter_evolution_parents(optimizer.filter_tiers(items_for_god))
+            items = optimizer.filter_evolution_parents(
+                optimizer.filter_acorns(
+                    optimizer.filter_tiers(items_for_god)))
 
             # Ratatoskr always has his acorn!
             should_include_starter = random.randint(0, 1)
@@ -549,8 +551,11 @@ class Smitele(commands.Cog):
                 if glyph is not None:
                     build[parent_idx] = glyph
 
+            desc = 'here\'s your random build!\n\n'\
+                   f'{optimizer.get_build_stats_string(build)}'
+
             await self.__send_generated_build(
-                build, message, 'here\'s your random build!', god, no_god_arg)
+                build, message, desc, god, no_god_arg)
             return
         if option == 'top':
             role: str | PlayerRole = flatten_args[option_index + 1] \
@@ -610,7 +615,9 @@ class Smitele(commands.Cog):
                 f'**{random_player["player_name"]}**! '\
                 f'({"they won!" if build_match["Win_Status"] == "Win" else "they lost..."})\n\n'\
                 f'They were playing {role.value.title() if role is not None else match["Queue"]} '\
-                f'and they went {build_match["Kills"]}/{build_match["Deaths"]}/{build_match["Assists"]}!'
+                f'and they went {build_match["Kills"]}/'\
+                f'{build_match["Deaths"]}/{build_match["Assists"]}!\n\n'\
+                f'{optimizer.get_build_stats_string(build)}'
             await self.__send_generated_build(build, message, desc, god)
             return
         if option == 'optimize':
@@ -629,42 +636,28 @@ class Smitele(commands.Cog):
                 await message.channel.send(
                     embed=discord.Embed(color=discord.Color.red(), description=desc))
             try:
-                vowels = ("a", "e", "i", "o", "u")
+                vowels = ('A', 'E', 'I', 'O', 'U')
                 desc = f'Optimizing a{"n" if god.name.startswith(vowels) else ""} '\
                        f'{god.name} build for you... This may take a while...'
                 await message.channel.send(
                     embed=discord.Embed(color=discord.Color.blue(), description=desc))
                 await message.channel.typing()
-                optimized_build, iterations = await optimizer.optimize()
+                builds, iterations = await optimizer.optimize()
             except ValueError:
                 traceback.print_exc()
                 await send_failed()
                 return
-            if optimized_build is None:
+            if not any(builds):
                 await send_failed()
                 return
-            build_stats = optimizer.compute_build_stats(optimized_build)
-            total_price = optimizer.compute_price(optimized_build)
-            indent = '    '
+            build = random.choice(builds)
             optimized_for = f', optimized for {stat_name}' if stat_name != '' else ''
             desc = f'here\'s your number crunched build{optimized_for}! '\
-                   f'I tried **{iterations:,}** builds and this was my favorite. '\
-                   f'Hopefully it\'s a winner!\n\n**Stats** '\
-                   f'_(Total Price - {total_price:,})_:\n\n'
-            stats = build_stats.values()
-            for stat in sorted(stats, key=lambda s: s.attribute.value):
-                percent_prefix = stat.attribute in (
-                    ItemAttribute.PENETRATION,
-                    ItemAttribute.MAGICAL_PENETRATION,
-                    ItemAttribute.PHYSICAL_PENETRATION,
-                )
-                if stat.flat_value > 0:
-                    desc += f'{indent}**{"Flat " if percent_prefix else ""}'\
-                            f'{stat.attribute.display_name}**: {int(stat.flat_value)}\n'
-                if stat.percent_value > 0:
-                    desc += f'{indent}**{"Percent " if percent_prefix else ""}'\
-                            f'{stat.attribute.display_name}**: {round(stat.percent_value * 100)}%\n'
-            await self.__send_generated_build(optimized_build, message, desc, god)
+                   f'I tried **{iterations:,}** builds and found '\
+                   f'**{len(builds):,}** viable builds. '\
+                   f'Here\'s one of them, hopefully it\'s a winner!\n\n'\
+                   f'{optimizer.get_build_stats_string(build)}'
+            await self.__send_generated_build(build, message, desc, god)
             return
 
     def start_bot(self) -> None:
