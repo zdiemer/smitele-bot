@@ -59,141 +59,109 @@ class BuildArchetype(Enum):
             return BuildArchetype.ABILITY_BASED_WARRIOR
 
 class BuildOptimizer:
+    JUNGLE_STARTERS = {
+        19500, # Manikin Scepter
+        19502, # Bumba's Dagger
+        19694, # Eye of the Jungle
+    }
+    SOLO_STARTERS = {
+        19490, # Bluestone Pendant
+        19496, # Warrior's Axe
+        19640, # Tainted Steel
+        19751, # Warding Sigil
+        19492, # Death's Toll
+    }
+    SUPPORT_STARTERS = {
+        19609, # Sentinel's Gift
+        19634, # Benevolence
+        20698, # War Flag
+    }
+    MID_STARTERS = {
+        19677, # Conduit Gem
+        19510, # Vampiric Shroud
+        19508, # Sands of Time
+    }
+    CARRY_STARTERS = {
+        19492, # Death's Toll
+        19494, # Gilded Arrow
+        19672, # Leather Cowl
+    }
+
     ARCHETYPE_PREFERRED_STARTER: Dict[BuildArchetype, Set[int]] = {
-        BuildArchetype.ABILITY_BASED_ASSASSIN: {
-            19500, # Manikin Scepter
-            19502, # Bumba's Dagger
-            19694, # Eye of the Jungle
-        },
-        BuildArchetype.AUTO_ATTACK_ASSASSIN: {
-            19500, # Manikin Scepter
-            19502, # Bumba's Dagger
-            19694, # Eye of the Jungle
-        },
-        BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: {
-            19500, # Manikin Scepter
-            19502, # Bumba's Dagger
-            19694, # Eye of the Jungle
-        },
-        BuildArchetype.SOLO_ASSASSIN: {
-            19490, # Bluestone Pendant
-            19496, # Warrior's Axe
-            19640, # Tainted Steel
-            19751, # Warding Sigil
-        },
-        BuildArchetype.SUPPORT_GUARDIAN: {
-            19609, # Sentinel's Gift
-            19634, # Benevolence
-            20698, # War Flag
-        },
-        BuildArchetype.HEALER_GUARDIAN: {
-            19609, # Sentinel's Gift
-            19634, # Benevolence
-            20698, # War Flag
-        },
-        BuildArchetype.SOLO_GUARDIAN: {
-            19677, # Conduit Gem
-            19496, # Warrior's Axe
-            19510, # Vampiric Shroud
-            19508, # Sands of Time
-        },
-        BuildArchetype.CARRY_HUNTER: {
-            19492, # Death's Toll
-            19494, # Gilded Arrow
-            19672, # Leather Cowl
-        },
+        BuildArchetype.ABILITY_BASED_ASSASSIN: JUNGLE_STARTERS,
+        BuildArchetype.AUTO_ATTACK_ASSASSIN: JUNGLE_STARTERS,
+        BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: JUNGLE_STARTERS,
+        BuildArchetype.SOLO_ASSASSIN: SOLO_STARTERS.copy().difference({19492}),
+        BuildArchetype.SUPPORT_GUARDIAN: SUPPORT_STARTERS,
+        BuildArchetype.HEALER_GUARDIAN: SUPPORT_STARTERS,
+        BuildArchetype.SOLO_GUARDIAN: MID_STARTERS.copy().union({19496}),
+        BuildArchetype.CARRY_HUNTER: CARRY_STARTERS,
         BuildArchetype.ABILITY_BASED_HUNTER: {
             19500, # Manikin Scepter
             19490, # Bluestone Pendant
         },
-        BuildArchetype.MID_MAGE: {
-            19508, # Sands of Time
-            19677, # Conduit Gem
-        },
+        BuildArchetype.MID_MAGE: MID_STARTERS.copy().difference({19510}),
         BuildArchetype.LIFESTEAL_MID_MAGE: {
             19510, # Vampiric Shroud
         },
-        BuildArchetype.JUNGLE_MAGE: {
-            19500, # Manikin Scepter
-            19502, # Bumba's Dagger
-            19694, # Eye of the Jungle
-        },
-        BuildArchetype.HEALER_MAGE: {
-            19508, # Sands of Time
-            19677, # Conduit Gem
-        },
-        BuildArchetype.AUTO_ATTACK_MAGE: {
-            19508, # Sands of Time
-            19677, # Conduit Gem
-            19500, # Manikin Scepter
-        },
-        BuildArchetype.SOLO_MAGE: {
-            19508, # Sands of Time
-            19677, # Conduit Gem
-            19510, # Vampiric Shroud
-            19496, # Warrior's Axe
-            19640, # Tainted Steel
-        },
-        BuildArchetype.SUPPORT_MAGE: {
-            19609, # Sentinel's Gift
-            19634, # Benevolence
-            20698, # War Flag
-            23048, # Protector's Mask
-        },
-        BuildArchetype.ABILITY_BASED_WARRIOR: {
-            19490, # Bluestone Pendant
-            19492, # Death's Toll
-            19496, # Warrior's Axe
-            19640, # Tainted Steel
-            19751, # Warding Sigil
-        },
-        BuildArchetype.HEALER_WARRIOR: {
-            19490, # Bluestone Pendant
-            19492, # Death's Toll
-            19496, # Warrior's Axe
-            19640, # Tainted Steel
-            19751, # Warding Sigil
-        },
+        BuildArchetype.JUNGLE_MAGE: JUNGLE_STARTERS,
+        BuildArchetype.HEALER_MAGE: MID_STARTERS.copy().difference({19510}),
+        BuildArchetype.AUTO_ATTACK_MAGE: MID_STARTERS.copy().difference({19510}).union({19500}),
+        BuildArchetype.SOLO_MAGE: MID_STARTERS.copy()
+            .union(SOLO_STARTERS.union()).difference({19490, 19492}),
+        BuildArchetype.SUPPORT_MAGE: SUPPORT_STARTERS.copy().union({23048}),
+        BuildArchetype.ABILITY_BASED_WARRIOR: SOLO_STARTERS,
+        BuildArchetype.HEALER_WARRIOR: SOLO_STARTERS,
         BuildArchetype.AUTO_ATTACK_WARRIOR: {
             19492, # Death's Toll
         },
-        BuildArchetype.JUNGLE_WARRIOR: {
-            19500, # Manikin Scepter
-            19502, # Bumba's Dagger
-            19694, # Eye of the Jungle
-        },
-        BuildArchetype.SUPPORT_WARRIOR: {
-            19609, # Sentinel's Gift
-            19634, # Benevolence
-            20698, # War Flag
-        },
+        BuildArchetype.JUNGLE_WARRIOR: JUNGLE_STARTERS,
+        BuildArchetype.SUPPORT_WARRIOR: SUPPORT_STARTERS,
     }
 
     # Used for processing input to determine what stats to optimize for
     COLLOQUIAL_MAPPINGS: Dict[str, Set[ItemAttribute]] = {
-        'crit': set(
-            [ItemAttribute.CRITICAL_STRIKE_CHANCE,
-            ItemAttribute.PHYSICAL_CRITICAL_STRIKE_CHANCE]),
-        'ccr': set([ItemAttribute.CROWD_CONTROL_REDUCTION]),
-        'cdr': set([ItemAttribute.COOLDOWN_REDUCTION]),
-        'power': set([ItemAttribute.MAGICAL_POWER, ItemAttribute.PHYSICAL_POWER]),
-        'speed': set([ItemAttribute.MOVEMENT_SPEED]),
-        'lifesteal': set([ItemAttribute.MAGICAL_LIFESTEAL, ItemAttribute.PHYSICAL_LIFESTEAL]),
-        'protection': set([
+        'crit': {
+            ItemAttribute.CRITICAL_STRIKE_CHANCE,
+            ItemAttribute.PHYSICAL_CRITICAL_STRIKE_CHANCE
+        },
+        'ccr': {
+            ItemAttribute.CROWD_CONTROL_REDUCTION
+        },
+        'cdr': {
+            ItemAttribute.COOLDOWN_REDUCTION
+        },
+        'power': {
+            ItemAttribute.MAGICAL_POWER,
+            ItemAttribute.PHYSICAL_POWER
+        },
+        'speed': {
+            ItemAttribute.MOVEMENT_SPEED
+        },
+        'lifesteal': {
+            ItemAttribute.MAGICAL_LIFESTEAL,
+            ItemAttribute.PHYSICAL_LIFESTEAL
+        },
+        'protection': {
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION]),
-        'prots': set([
+            ItemAttribute.PHYSICAL_PROTECTION
+        },
+        'prots': {
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION]),
-        'prot': set([
+            ItemAttribute.PHYSICAL_PROTECTION
+        },
+        'prot': {
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION]),
-        'pen': set([
+            ItemAttribute.PHYSICAL_PROTECTION
+        },
+        'pen': {
             ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PHYSICAL_PENETRATION]),
-        'penetration': set([
+            ItemAttribute.PHYSICAL_PENETRATION
+        },
+        'penetration': {
             ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PHYSICAL_PENETRATION]),
+            ItemAttribute.PHYSICAL_PENETRATION
+        },
     }
 
     FLAT_ITEM_ATTRIBUTE_CAPS: Dict[ItemAttribute, float] = {
@@ -256,17 +224,17 @@ class BuildOptimizer:
     }
 
     GOD_TYPE_MAPPINGS: Dict[GodType, Set[ItemAttribute]] = {
-        GodType.MAGICAL: set([
+        GodType.MAGICAL: {
             ItemAttribute.MAGICAL_LIFESTEAL,
             ItemAttribute.MAGICAL_PENETRATION,
             ItemAttribute.MAGICAL_POWER,
-        ]),
-        GodType.PHYSICAL: set([
+        },
+        GodType.PHYSICAL: {
             ItemAttribute.PHYSICAL_CRITICAL_STRIKE_CHANCE,
             ItemAttribute.PHYSICAL_LIFESTEAL,
             ItemAttribute.PHYSICAL_PENETRATION,
             ItemAttribute.PHYSICAL_POWER,
-        ])
+        },
     }
 
     MAGIC_ACORN_ID = 18703
@@ -345,152 +313,258 @@ class BuildOptimizer:
                                     stat_targets[stat]
                     continue
                 stat_targets[stat] = 0
-            print(self.__archetype_stat_targets[self.__current_archetype])
 
     def __init_archetype_passive_denylist(self):
-        defaults = {
-            BuildArchetype.ABILITY_BASED_ASSASSIN: {
-                PassiveAttribute.AURA,
-                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
-                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
-                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
-                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
-                PassiveAttribute.BLOCK_STACKS,
+        jungle = {
+            PassiveAttribute.AURA,
+            PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+            PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+            PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+            PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+            PassiveAttribute.BLOCK_STACKS,
+            PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
+            PassiveAttribute.INCREASED_PROJECTILE_SPEED,
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+            PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
+        }
+        support = {
+            PassiveAttribute.BASIC_ATTACK_PROC,
+            PassiveAttribute.PERCENT_DAMAGE,
+            PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
+        }
+        solo = {
+            PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
+            PassiveAttribute.EVOLVES_WITH_ASSISTS,
+            PassiveAttribute.BASIC_ATTACK_PROC,
+        }
+        carry = {
+            PassiveAttribute.AURA,
+            PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+            PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+            PassiveAttribute.INCREASES_HEALING,
+            PassiveAttribute.ABILITY_HEALING,
+            PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+            PassiveAttribute.INCREASED_PROJECTILE_SPEED,
+            PassiveAttribute.ALLIED_GODS_CAN_CRITICAL_HIT,
+            PassiveAttribute.PERCENT_DAMAGE,
+            PassiveAttribute.ABILITY_PROC,
+        }
+        mid = {
+            PassiveAttribute.AURA,
+            PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+            PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+            PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+        }
+
+        jungle_warrior = auto_assassin = jungle.copy()\
+            .difference({
                 PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
-                PassiveAttribute.INCREASED_PROJECTILE_SPEED,
-                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
-                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
-            },
-            BuildArchetype.SUPPORT_GUARDIAN: {
-                PassiveAttribute.BASIC_ATTACK_PROC,
-                PassiveAttribute.PERCENT_DAMAGE,
-                PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
-            },
-            BuildArchetype.CARRY_HUNTER: {
-                PassiveAttribute.AURA,
-                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
-                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
-                PassiveAttribute.INCREASES_HEALING,
-                PassiveAttribute.ABILITY_HEALING,
-                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
-                PassiveAttribute.INCREASED_PROJECTILE_SPEED,
-                PassiveAttribute.ALLIED_GODS_CAN_CRITICAL_HIT,
-                PassiveAttribute.PERCENT_DAMAGE,
-                PassiveAttribute.ABILITY_PROC,
-            },
-            BuildArchetype.MID_MAGE: {
-                PassiveAttribute.AURA,
-                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
-                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
-                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
-            },
-            BuildArchetype.ABILITY_BASED_WARRIOR: {
-                PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
-                PassiveAttribute.EVOLVES_WITH_ASSISTS,
-                PassiveAttribute.BASIC_ATTACK_PROC,
-            },
+                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS
+            })
+        jungle_mage = ability_hunter = jungle.copy()\
+            .difference({PassiveAttribute.EVOLVES_WITH_MINION_KILLS})\
+            .union({PassiveAttribute.BASIC_ATTACK_PROC})
+        defaults = {
+            BuildArchetype.ABILITY_BASED_ASSASSIN: jungle,
+            BuildArchetype.AUTO_ATTACK_ASSASSIN: auto_assassin,
+            BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: auto_assassin,
+            BuildArchetype.SUPPORT_ASSASSIN: support,
+            BuildArchetype.SOLO_ASSASSIN: solo,
+            BuildArchetype.MID_ASSASSIN: jungle.copy()\
+                .difference({PassiveAttribute.EVOLVES_WITH_MINION_KILLS}),
+            BuildArchetype.SUPPORT_GUARDIAN: support,
+            BuildArchetype.SOLO_GUARDIAN: solo,
+            BuildArchetype.MID_GUARDIAN: mid,
+            BuildArchetype.HEALER_GUARDIAN: support,
+            BuildArchetype.CARRY_HUNTER: carry,
+            BuildArchetype.ABILITY_BASED_HUNTER: ability_hunter,
+            BuildArchetype.ATTACK_SPEED_STIM_HUNTER: carry,
+            BuildArchetype.MID_MAGE: mid,
+            BuildArchetype.JUNGLE_MAGE: jungle_mage,
+            BuildArchetype.AUTO_ATTACK_MAGE: carry,
+            BuildArchetype.HEALER_MAGE: mid,
+            BuildArchetype.SUPPORT_MAGE: support,
+            BuildArchetype.SOLO_MAGE: solo,
+            BuildArchetype.LIFESTEAL_MID_MAGE: mid,
+            BuildArchetype.ABILITY_BASED_WARRIOR: solo,
+            BuildArchetype.AUTO_ATTACK_WARRIOR: solo.copy()\
+                .difference({PassiveAttribute.BASIC_ATTACK_PROC}),
+            BuildArchetype.SUPPORT_WARRIOR: support,
+            BuildArchetype.JUNGLE_WARRIOR: jungle_warrior,
+            BuildArchetype.HEALER_WARRIOR: solo,
         }
 
         if GodPro.HIGH_SUSTAIN not in self.god.pros and \
                 self.__current_archetype in defaults:
             defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
             defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
+            defaults[self.__current_archetype].add(PassiveAttribute.SELF_BUFF_ON_HEAL)
 
         self.__archetype_passive_denylist = defaults
 
     def __init_archetype_passive_wishlist(self):
+        jungle = {
+            PassiveAttribute.ABILITY_PROC,
+            PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
+            PassiveAttribute.ANTIHEAL,
+            PassiveAttribute.FLAT_TRUE_BONUS_DAMAGE,
+            PassiveAttribute.PERCENT_DAMAGE,
+            PassiveAttribute.DECREASES_ABILITY_COOLDOWNS,
+            PassiveAttribute.ABILITY_HEALING,
+            PassiveAttribute.IMMUNE_TO_CC,
+            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+            PassiveAttribute.IN_JUNGLE_EFFECT,
+            PassiveAttribute.SCALING_BONUS_DAMAGE,
+            PassiveAttribute.ULTIMATE_PROC,
+        }
+        support = {
+            PassiveAttribute.AURA,
+            PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+            PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+            PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+            PassiveAttribute.ANTIHEAL,
+            PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+            PassiveAttribute.PERCENT_STAT_CONVERTED,
+            PassiveAttribute.SHIELD,
+            PassiveAttribute.IMMUNE_TO_SLOWS,
+            PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
+            PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
+            PassiveAttribute.DAMAGE_MITIGATION,
+            PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+            PassiveAttribute.BLOCK_STACKS,
+            PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
+            PassiveAttribute.CAUSES_CC,
+            PassiveAttribute.TRIGGERED_BY_CC,
+            PassiveAttribute.IMMUNE_TO_CC,
+            PassiveAttribute.DAMAGING_AURA,
+            PassiveAttribute.EVOLVES_WITH_ASSISTS,
+            PassiveAttribute.ALLIED_STRUCTURES_BUFF,
+        }
+        carry = {
+            PassiveAttribute.BASIC_ATTACK_PROC,
+            PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
+            PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
+            PassiveAttribute.STRIPS_PROTECTIONS,
+            PassiveAttribute.CRITICAL_HIT_EFFECT,
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+        }
+        mid = {
+            PassiveAttribute.ABILITY_PROC,
+            PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
+            PassiveAttribute.TRIGGERS_HEAL,
+            PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+            PassiveAttribute.PERCENT_DAMAGE,
+            PassiveAttribute.PERCENT_STAT_CONVERTED,
+            PassiveAttribute.ULTIMATE_PROC,
+            PassiveAttribute.SCALING_BONUS_DAMAGE,
+            PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
+        }
+        solo = {
+            PassiveAttribute.AURA,
+            PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
+            PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
+            PassiveAttribute.ABILITY_PROC,
+            PassiveAttribute.ALLIED_GODS_BUFF_AURA,
+            PassiveAttribute.BELOW_THRESHOLD_BUFF,
+            PassiveAttribute.ANTIHEAL,
+            PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+            PassiveAttribute.PERCENT_DAMAGE,
+            PassiveAttribute.PERCENT_STAT_CONVERTED,
+            PassiveAttribute.SHIELD,
+            PassiveAttribute.IMMUNE_TO_SLOWS,
+            PassiveAttribute.ABILITY_HEALING,
+            PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
+            PassiveAttribute.EFFECT_VARIES_BY_CURRENT_STATS,
+            PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
+            PassiveAttribute.DAMAGE_MITIGATION,
+            PassiveAttribute.BLOCK_STACKS,
+            PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
+            PassiveAttribute.CAUSES_CC,
+            PassiveAttribute.TRIGGERED_BY_CC,
+            PassiveAttribute.IMMUNE_TO_CC,
+            PassiveAttribute.ALLIED_STRUCTURES_BUFF,
+            PassiveAttribute.DAMAGING_AURA,
+        }
+        auto_assassin = {
+            PassiveAttribute.BASIC_ATTACK_PROC,
+            PassiveAttribute.ANTIHEAL,
+            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+            PassiveAttribute.ULTIMATE_PROC,
+            PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
+            PassiveAttribute.STRIPS_PROTECTIONS,
+            PassiveAttribute.IN_JUNGLE_EFFECT,
+        }
+        auto_assassin_crit = auto_assassin.copy().union({
+            PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
+            PassiveAttribute.CRITICAL_HIT_EFFECT,
+            PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
+        })
+        mid_assassin = jungle.copy().difference({
+            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+            PassiveAttribute.IN_JUNGLE_EFFECT,
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+        })
+        ability_hunter = {
+            PassiveAttribute.ABILITY_PROC,
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+            PassiveAttribute.ANTIHEAL,
+            PassiveAttribute.ABILITY_HEALING,
+            PassiveAttribute.ULTIMATE_PROC,
+            PassiveAttribute.SCALING_BONUS_DAMAGE,
+        }
+        jungle_mage = mid.copy().union({
+            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+            PassiveAttribute.IN_JUNGLE_EFFECT,
+            PassiveAttribute.BASIC_ATTACK_PROC,
+        })
+        auto_mage = {
+            PassiveAttribute.STACKS,
+            PassiveAttribute.INCREASES_WITH_MISSING_STAT,
+            PassiveAttribute.PERCENT_STAT_CONVERTED,
+            PassiveAttribute.SCALING_BONUS_DAMAGE,
+            PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
+            PassiveAttribute.STRIPS_PROTECTIONS,
+            PassiveAttribute.BASIC_ATTACK_PROC,
+        }
+        solo_mage = solo.copy().union({
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+            PassiveAttribute.TRIGGERS_HEAL,
+            PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
+        })
         defaults = {
-            BuildArchetype.ABILITY_BASED_ASSASSIN: {
-                PassiveAttribute.ABILITY_PROC,
-                PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
-                PassiveAttribute.ANTIHEAL,
-                PassiveAttribute.FLAT_TRUE_BONUS_DAMAGE,
-                PassiveAttribute.PERCENT_DAMAGE,
-                PassiveAttribute.DECREASES_ABILITY_COOLDOWNS,
-                PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
-                PassiveAttribute.ABILITY_HEALING,
-                PassiveAttribute.IMMUNE_TO_CC,
-                PassiveAttribute.IN_JUNGLE_EFFECT,
-                PassiveAttribute.SCALING_BONUS_DAMAGE,
-                PassiveAttribute.ULTIMATE_PROC,
-            },
-            BuildArchetype.SUPPORT_GUARDIAN: {
-                PassiveAttribute.AURA,
-                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
-                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
-                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
-                PassiveAttribute.ANTIHEAL,
-                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
-                PassiveAttribute.PERCENT_STAT_CONVERTED,
-                PassiveAttribute.SHIELD,
-                PassiveAttribute.IMMUNE_TO_SLOWS,
-                PassiveAttribute.DECREASES_RELIC_COOLDOWNS,
-                PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
-                PassiveAttribute.DAMAGE_MITIGATION,
-                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
-                PassiveAttribute.BLOCK_STACKS,
-                PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
-                PassiveAttribute.CAUSES_CC,
-                PassiveAttribute.TRIGGERED_BY_CC,
-                PassiveAttribute.IMMUNE_TO_CC,
-                PassiveAttribute.DAMAGING_AURA,
-                PassiveAttribute.EVOLVES_WITH_ASSISTS,
-                PassiveAttribute.ALLIED_STRUCTURES_BUFF,
-            },
-            BuildArchetype.CARRY_HUNTER: {
-                PassiveAttribute.BASIC_ATTACK_PROC,
-                PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
-                PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
-                PassiveAttribute.STRIPS_PROTECTIONS,
-                PassiveAttribute.CRITICAL_HIT_EFFECT,
-                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
-            },
-            BuildArchetype.MID_MAGE: {
-                PassiveAttribute.ABILITY_PROC,
-                PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY,
-                PassiveAttribute.TRIGGERS_HEAL,
-                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
-                PassiveAttribute.PERCENT_DAMAGE,
-                PassiveAttribute.PERCENT_STAT_CONVERTED,
-                PassiveAttribute.ULTIMATE_PROC,
-                PassiveAttribute.SCALING_BONUS_DAMAGE,
-                PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
-            },
-            BuildArchetype.ABILITY_BASED_WARRIOR: {
-                PassiveAttribute.AURA,
-                PassiveAttribute.ENEMY_STAT_REDUCTION_AURA,
-                PassiveAttribute.ENEMY_STRUCTURE_REDUCTION,
-                PassiveAttribute.ABILITY_PROC,
-                PassiveAttribute.ALLIED_GODS_BUFF_AURA,
-                PassiveAttribute.BELOW_THRESHOLD_BUFF,
-                PassiveAttribute.ANTIHEAL,
-                PassiveAttribute.INCREASES_WITH_MISSING_STAT,
-                PassiveAttribute.PERCENT_DAMAGE,
-                PassiveAttribute.PERCENT_STAT_CONVERTED,
-                PassiveAttribute.SHIELD,
-                PassiveAttribute.IMMUNE_TO_SLOWS,
-                PassiveAttribute.ABILITY_HEALING,
-                PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC,
-                PassiveAttribute.EFFECT_VARIES_BY_CURRENT_STATS,
-                PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS,
-                PassiveAttribute.DAMAGE_MITIGATION,
-                PassiveAttribute.BLOCK_STACKS,
-                PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN,
-                PassiveAttribute.CAUSES_CC,
-                PassiveAttribute.TRIGGERED_BY_CC,
-                PassiveAttribute.IMMUNE_TO_CC,
-                PassiveAttribute.ALLIED_STRUCTURES_BUFF,
-                PassiveAttribute.DAMAGING_AURA,
-            },
+            BuildArchetype.ABILITY_BASED_ASSASSIN: jungle,
+            BuildArchetype.AUTO_ATTACK_ASSASSIN: auto_assassin,
+            BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: auto_assassin_crit,
+            BuildArchetype.SUPPORT_ASSASSIN: support,
+            BuildArchetype.SOLO_ASSASSIN: mid_assassin.union(solo),
+            BuildArchetype.MID_ASSASSIN: mid_assassin,
+            BuildArchetype.SUPPORT_GUARDIAN: support,
+            BuildArchetype.SOLO_GUARDIAN: solo,
+            BuildArchetype.MID_GUARDIAN: mid,
+            BuildArchetype.HEALER_GUARDIAN: support,
+            BuildArchetype.CARRY_HUNTER: carry,
+            BuildArchetype.ABILITY_BASED_HUNTER: ability_hunter,
+            BuildArchetype.ATTACK_SPEED_STIM_HUNTER: carry,
+            BuildArchetype.MID_MAGE: mid,
+            BuildArchetype.JUNGLE_MAGE: jungle_mage,
+            BuildArchetype.AUTO_ATTACK_MAGE: auto_mage,
+            BuildArchetype.HEALER_MAGE: mid,
+            BuildArchetype.SOLO_MAGE: solo_mage,
+            BuildArchetype.SUPPORT_MAGE: support,
+            BuildArchetype.LIFESTEAL_MID_MAGE: mid.copy().union({PassiveAttribute.INCREASES_LIFESTEAL}),
+            BuildArchetype.ABILITY_BASED_WARRIOR: solo,
+            BuildArchetype.AUTO_ATTACK_WARRIOR: solo,
+            BuildArchetype.SUPPORT_WARRIOR: support,
+            BuildArchetype.JUNGLE_WARRIOR: auto_assassin,
+            BuildArchetype.HEALER_WARRIOR: solo,
         }
 
         if GodPro.HIGH_SUSTAIN in self.god.pros and \
                 self.__current_archetype in defaults:
             defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
             defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
+            defaults[self.__current_archetype].add(PassiveAttribute.SELF_BUFF_ON_HEAL)
 
-        # Assassin Archetypes
-        auto_assassin = [BuildArchetype.ABILITY_BASED_ASSASSIN].copy()
         self.__archetype_passive_wishlist = defaults
 
     def __init_archetype_stat_targets(self):
@@ -569,11 +643,10 @@ class BuildOptimizer:
                 ItemAttribute.MP5: 40,
             },
             BuildArchetype.LIFESTEAL_MID_MAGE: {
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.40,
-                ItemAttribute.MAGICAL_PENETRATION: (30, 0.30),
-                ItemAttribute.MAGICAL_POWER: 600,
-                ItemAttribute.MANA: 150,
-                ItemAttribute.MP5: 45,
+                ItemAttribute.MAGICAL_LIFESTEAL: 0.45,
+                ItemAttribute.MAGICAL_PENETRATION: (10, 0.30),
+                ItemAttribute.MAGICAL_POWER: 575,
+                ItemAttribute.MANA: 1550,
             },
             BuildArchetype.JUNGLE_MAGE: {
                 ItemAttribute.ATTACK_SPEED: 0.20,
@@ -736,7 +809,7 @@ class BuildOptimizer:
                 ItemAttribute.BASIC_ATTACK_DAMAGE: 0.1,
                 ItemAttribute.COOLDOWN_REDUCTION: 5,
                 ItemAttribute.CRITICAL_STRIKE_CHANCE: None,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.1,
+                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.5,
                 ItemAttribute.DAMAGE_REDUCTION: 0.1,
                 ItemAttribute.HP5: 1,
                 ItemAttribute.HEALTH: 1,
@@ -815,7 +888,7 @@ class BuildOptimizer:
         healer_mage = lifesteal_mage.copy()
         solo_mage = lifesteal_mage.copy()
         defaults[BuildArchetype.HEALER_MAGE] = healer_mage
-        lifesteal_mage[ItemAttribute.MAGICAL_LIFESTEAL] = 5
+        lifesteal_mage[ItemAttribute.MAGICAL_LIFESTEAL] = 10
         defaults[BuildArchetype.LIFESTEAL_MID_MAGE] = lifesteal_mage
         defaults[BuildArchetype.JUNGLE_MAGE] = lifesteal_mage
         auto_mage = lifesteal_mage.copy()
@@ -903,15 +976,15 @@ class BuildOptimizer:
                     pct_target = pct_target[1]
                     flat_value = 0.1 if flat_value == 0 else flat_value
                     pct_value = 0.01 if pct_value == 0 else pct_value
-                if 0 < flat_value < flat_target:
+                if 0 < float(f'{flat_value:.2f}') < float(f'{flat_target:.2f}'):
                     return False
-                if 0 < pct_value < pct_target:
+                if 0 < float(f'{pct_value:.2f}') < float(f'{pct_target:.2f}'):
                     return False
             else:
                 return False
         all_passives = {passive for item in build for passive in item.passive_properties}
 
-        # Evolutions (sometimes) don't have a passive so add passive properties 
+        # Evolutions (sometimes) don't have a passive so add passive properties
         # from their parents
         evos = list(filter(lambda item: item.tier == 4, build))
         if any(evos):
@@ -943,7 +1016,7 @@ class BuildOptimizer:
                         ItemAttribute.PHYSICAL_PENETRATION):
                     flat_value += self.god.get_stat_at_level(attr, 20)
                 flat_cap = self.FLAT_ITEM_ATTRIBUTE_CAPS[attr]
-                if flat_value > flat_cap:
+                if float(f'{flat_value:.2f}') > float(f'{flat_cap:.2f}'):
                     if attr in (ItemAttribute.MAGICAL_POWER, \
                             ItemAttribute.PHYSICAL_POWER):
                         # Soft cap for these two
@@ -957,7 +1030,7 @@ class BuildOptimizer:
             if attr in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
                 pct_value = prop.percent_value
                 pct_cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]
-                if pct_value > pct_cap:
+                if float(f'{pct_value:.2f}') > float(f'{pct_cap:.2f}'):
                     if attr == ItemAttribute.ATTACK_SPEED:
                         if PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED in \
                             passives:
@@ -999,7 +1072,7 @@ class BuildOptimizer:
         rated_items = self.__filter_passive_denylist(
             self.filter_evolution_parents(
                 self.filter_tiers_with_glyphs(rated_items)))
-        rated_items = rated_items[:int(len(rated_items) / 2)]
+        rated_items = rated_items[:int(min(len(rated_items) + 1, 28))]
 
         glyphs = self.get_glyphs(rated_items)
         items = self.filter_tiers(rated_items)

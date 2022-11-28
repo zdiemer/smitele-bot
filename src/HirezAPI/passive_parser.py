@@ -54,6 +54,8 @@ class PassiveAttribute(Enum):
     ALLIED_GODS_CAN_CRITICAL_HIT = 49
     CRITICAL_HIT_EFFECT = 50
     AREA_OF_EFFECT_BASIC_ATTACKS = 51
+    SELF_BUFF_ON_HEAL = 52
+    INCREASES_LIFESTEAL = 53
 
 class PassiveParser:
     ALLIED_GODS_WITHIN = r'(allied gods|allies) within (?P<range>\d+) units'
@@ -257,5 +259,11 @@ class PassiveParser:
 
         if 'your allies can land a critical strike' in passive_string:
             properties.add(PassiveAttribute.ALLIED_GODS_CAN_CRITICAL_HIT)
+
+        if 'healing yourself' in passive_string:
+            properties.add(PassiveAttribute.SELF_BUFF_ON_HEAL)
+
+        if 'lifesteal is increased' in passive_string:
+            properties.add(PassiveAttribute.INCREASES_LIFESTEAL)
 
         return properties

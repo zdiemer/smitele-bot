@@ -897,8 +897,7 @@ class Smitele(commands.Cog):
     async def __send_god_build(self, session: SmiteleGame, \
             build_task: 'asyncio.Task[io.BytesIO]') -> bool:
         with await build_task as file:
-            desc = 'Hint: A top-ranked player of this god recently used this build in Ranked '\
-                'Conquest.'
+            desc = 'Hint: A top-ranked player of this god recently used this build.'
             session.current_round.file_bytes = file
             session.current_round.file_name = self.BUILD_IMAGE_FILE
             return await self.__send_round_and_wait_wrapper(desc, session)
@@ -1186,21 +1185,11 @@ class Smitele(commands.Cog):
                 "answer": c.price,
                 "id": f'{c.name}-1'
             },
-            # lambda c: ((lambda _c, i: {
-            #     "question": discord.Embed(description=f'How much **{_c["effects"][i]["stat"]}** does {"an" if c["name"][0].lower() in "aeiou" else "a"} **{_c["name"]}** provide?'),
-            #     "answer": _c['effects'][i]['value'] if _c['effects'][i]['type'] == "flat" else f'{_c["effects"][i]["value"]}%',
-            #     "id": f'{_c["name"]}{_c["effects"][i]["stat"]}-1'
-            # })(c, random.randrange(len(c['effects'])))) if 'effects' in c.keys() else None,
             lambda c: {
                 "question": discord.Embed(description=f'Name the consumable with this description: \n\n`{c.passive}`'),
                 "answer": c.name,
                 "id": f'{c.name}-2'
             } if c.passive is not None and c.passive != '' else {},
-            # lambda c: {
-            #     "question": discord.Embed(description=f'How long (in seconds) do the effects of {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}** last?'),
-            #     "answer": c.duration,
-            #     "id": f'{c.name}-3'
-            # } if 'duration' in c.keys() else None,
             lambda c: {
                 "question": discord.Embed(description="What consumable is this?").set_image(url=c.icon_url),
                 "answer": c.name,
@@ -1221,40 +1210,14 @@ class Smitele(commands.Cog):
                 "answer": 200,
                 "id": "consumables-7"
             },
-            # lambda c: {
-            #     "question": discord.Embed(description=f'What level must you be to purchase {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}**?'),
-            #     "answer": c.level,
-            #     "id": f'{c.name}-8'
-            # } if 'level' in c.keys() else None,
         ]
 
         relics_questions: List[Callable[[Item], dict]] = [
-            # lambda relic: ((lambda r, i: {
-            #     "question": discord.Embed(
-            #         description=f'**{r["name"]} {r["effects"][i]["stat"]}** {"against" if r["effects"][i]["target"] == "enemies" else "of"} {r["effects"][i]["target"]} by how much?'),
-            #     "answer": r['effects'][i]['value'] if r['effects'][i]['type'] == 'flat' else f'{r["effects"][i]["value"]}%',
-            #     "id": f'{r["name"]}{r["effects"][i]["stat"]}-1'
-            # })(relic, random.randrange(len(relic['effects'])))) if 'effects' in relic.keys() else None,
             lambda relic: {
                 "question": discord.Embed(description=f'Name the relic with this description: \n\n`{relic.passive}`'),
                 "answer": relic.name,
                 "id": f'{relic.name}-1'
             } if relic.passive is not None and relic.passive != '' else {},
-            # lambda relic: {
-            #     "question": discord.Embed(description=f'What is the range of the relic **{relic["name"]}**?'),
-            #     "answer": relic['range'],
-            #     "id": f'{relic["name"]}-2'
-            # } if 'range' in relic.keys() else None,
-            # lambda relic: {
-            #     "question": discord.Embed(description=f'What is the cooldown (in seconds) on the relic **{relic["name"]}**?'),
-            #     "answer": relic['cooldown'],
-            #     "id": f'{relic["name"]}-3'
-            # } if 'cooldown' in relic.keys() else None,
-            # lambda relic: {
-            #     "question": discord.Embed(description=f'How long (in seconds) does the relic **{relic["name"]}** last?'),
-            #     "answer": relic['duration'],
-            #     "id": f'{relic["name"]}-4'
-            # } if 'duration' in relic.keys() else None,
             lambda relic: {
                 "question": discord.Embed(description="What relic is this?").set_image(url=relic.icon_url),
                 "answer": relic.name,
@@ -1268,11 +1231,6 @@ class Smitele(commands.Cog):
                 "answer": ability.name,
                 "id": f'{ability.name}-1'
             },
-            # lambda god, ability: {
-            #     "question": discord.Embed(description=f'Name **{god.name}**\'s ability with these properties: \n\n`{ability.ability_properties}`'),
-            #     "answer": ability.name,
-            #     "id": f'{ability.name}-2'
-            # },
             lambda _, ability: {
                 "question": discord.Embed(description="What ability is this?").set_image(url=ability.icon_url),
                 "answer": ability.name,
@@ -1338,35 +1296,6 @@ class Smitele(commands.Cog):
                 "answer": item.name,
                 "id": f'{item.name}-4'
             },
-            # lambda item: {
-            #     "question": discord.Embed(description=f'How many stacks does it take to fully stack **{item["name"]}**?'),
-            #     "answer": item['stacks']['max'],
-            #     "id": f'{item["name"]}-5'
-            # } if 'stacks' in item else None,
-            # lambda item: ((lambda i, stat: {
-            #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does one stack on **{i["name"]}** provide?'),
-            #     "answer": i["stacks"]["per_stack"][stat]["value"],
-            #     "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
-            # })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] else None,
-            # lambda item: ((lambda i, stat: {
-            #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["evolved"]["effects"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["evolved"]["effects"][stat]["stat"]}** does **Evolved {i["name"]}** provide?'),
-            #     "answer": i["stacks"]["evolved"]["effects"][stat]["value"],
-            #     "id": f'{item["name"]}{i["stacks"]["evolved"]["effects"][stat]["stat"]}-7'
-            # })(item, random.randrange(len(item['stacks']['evolved']["effects"])))) if 'stacks' in item and 'evolved' in item['stacks'] and 'effects' in item['stacks']['evolved'] else None,
-            # lambda item: {
-            #     "question": discord.Embed(description=f'Name the **Evolved** item with this passive:\n\n`{item["stacks"]["evolved"]["passive"]}`'),
-            #     "answer": item['name'],
-            #     "id": f'{item["name"]}-8'
-            # } if 'stacks' in item and 'evolved' in item['stacks'] and 'passive' in item['stacks']['evolved'] else None,
-            # lambda item: ((lambda i, stat: {
-            #     "question": discord.Embed(description=f'{"How much" if i["stacks"]["per_stack"][stat]["type"] == "flat" else "What percent"} **{i["stacks"]["per_stack"][stat]["stat"]}** does fully stacked **{i["name"]}** provide (including base stats)?'),
-            #     "answer": (float(i["stacks"]["per_stack"][stat]["value"]) * int(i["stacks"]["max"])) + (int([s["value"] for s in i["effects"] if s["stat"] == i["stacks"]["per_stack"][stat]["stat"]][::] or 1) if "effects" in i else 1),
-            #     "id": f'{item["name"]}{i["stacks"]["per_stack"][stat]["stat"]}-6'
-            # })(item, random.randrange(len(item['stacks']['per_stack'])))) if 'stacks' in item and 'per_stack' in item['stacks'] and 'evolved' not in item['stacks'] else None,
-            # lambda item: {
-            #     "question": discord.Embed(description=f'What items does {item["name"]} upgrade directly into ({len(item["upgrades"])} answers)?'),
-            #     "answer": [items[u["upgradeId"]]["name"] for u in item["upgrades"]]
-            # } if 'upgrades' in item else None,
         ]
         if message.author == self.__bot.user:
             return
