@@ -289,7 +289,7 @@ class Smite(_Base):
         return await self._make_request('searchteams', search_query)
 
     async def get_esports_pro_league_details(self):
-        return await self._make_request('getsportsproleaguedetails')
+        return await self._make_request('getesportsproleaguedetails')
 
     async def get_motd(self):
         return await self._make_request('getmotd')

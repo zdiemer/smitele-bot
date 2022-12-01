@@ -24,7 +24,7 @@ import random
 import time
 import traceback
 from json.decoder import JSONDecodeError
-from typing import Any, Awaitable, Callable, Coroutine, Dict, List, Set, Tuple
+from typing import Any, Callable, Coroutine, Dict, List, Set, Tuple
 
 import aiohttp
 import discord
@@ -34,17 +34,14 @@ from discord.ext import commands
 from PIL import Image
 from unidecode import unidecode
 
-from HirezAPI import Smite, PlayerRole, QueueId, TierId
-from ability import Ability
+from build_optimizer import BuildOptimizer
 from god import God
 from god_types import GodId, GodType
-from item import Item, ItemType, ItemAttribute
+from item import Item, ItemType
 from skin import Skin
-
-from build_optimizer import BuildOptimizer
-
-class StoppedError(Exception):
-    pass
+from SmiteProvider import SmiteProvider
+from smitetrivia import SmiteTrivia
+from HirezAPI import Smite, PlayerRole, QueueId, TierId
 
 class SmiteleGameContext:
     """A class for holding Discord context for a Smitele Game.
@@ -222,39 +219,34 @@ class Smitele(commands.Cog):
     CONFIG_FILE: str = 'config.json'
     GOD_IMAGE_FILE: str = 'god.jpg'
     GOD_CROP_IMAGE_FILE: str = 'godCrop.jpg'
-    GODS_FILE: str = 'gods.json'
-    ITEMS_FILE: str = 'items.json'
     SKIN_IMAGE_FILE: str = 'skin.jpg'
     SKIN_CROP_IMAGE_FILE: str = 'crop.jpg'
-    SMITE_PATCH_VERSION_FILE: str = 'version'
     VOICE_LINE_FILE: str = 'voice.ogg'
 
     __bot: commands.Bot
 
+    __gods: Dict[GodId, God]
+
     # Cached config values
     __config: dict = None
 
-    # Cached getgods in memory
-    __gods: List[God]
-
-    # Wrapper client around Hirez API
-    __smite_client: Smite
-
-    # Cached getitems in memory
     __items: Dict[int, Item]
 
     # Mapping of session IDs to running games
     __running_sessions: Dict[int, SmiteleGame]
 
+    __smite_client: SmiteProvider
+
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = \
         lambda self, name: f'https://smite.fandom.com/wiki/{name}_voicelines'
 
-    def __init__(self, _bot: commands.Bot) -> None:
+    def __init__(self, _bot: commands.Bot, provider: SmiteProvider) -> None:
         # Setting our intents so that Discord knows what our bot is going to do
         self.__bot = _bot
-        self.__gods = []
-        self.__items = {}
+        self.__smite_client = provider
+        self.__gods = provider.gods
+        self.__items = provider.items
         self.__running_sessions = {}
 
         if self.__config is None:
@@ -265,12 +257,6 @@ class Smitele(commands.Cog):
                     if not 'discordToken' in self.__config:
                         raise RuntimeError(f'{self.CONFIG_FILE} '\
                             'was missing value for "discordToken."')
-                    if not 'hirezDevId' in self.__config:
-                        raise RuntimeError(f'{self.CONFIG_FILE} '\
-                            'was missing value for "hirezDevId."')
-                    if not 'hirezAuthKey' in self.__config:
-                        raise RuntimeError(f'{self.CONFIG_FILE} '\
-                            'was missing value for "hirezAuthKey."')
             except (FileNotFoundError, JSONDecodeError) as exc:
                 raise RuntimeError(f'Failed to load {self.CONFIG_FILE}. Does this file exist?') \
                     from exc
@@ -281,24 +267,6 @@ class Smitele(commands.Cog):
     async def on_ready(self) -> None:
         activity = discord.Game(name='Smite', type=3)
         await self.__bot.change_presence(status=discord.Status.online, activity=activity)
-
-        should_refresh, current_patch = await self.__should_refresh()
-
-        gods = await self.__load_cache(self.GODS_FILE, \
-            self.__smite_client.get_gods if should_refresh else None)
-        self.__gods = [God.from_json(god) for god in gods]
-
-        items = await self.__load_cache(self.ITEMS_FILE, \
-            self.__smite_client.get_items if should_refresh else None)
-
-        for i in items:
-            item = Item.from_json(i)
-            self.__items[item.id] = item
-
-        if should_refresh:
-            with open(self.SMITE_PATCH_VERSION_FILE, 'w', encoding='utf-8') as file:
-                file.write(str(current_patch))
-
         print('Smite-le Bot is ready!')
 
     @commands.command(aliases=["smite-le", "st"])
@@ -373,14 +341,6 @@ class Smitele(commands.Cog):
         await self.__bot.change_presence(status=discord.Status.offline)
         await self.__bot.close()
 
-    @commands.command(aliases=["trivia"])
-    async def smitetrivia(self, message, *args):
-        await self.__smitetrivia(message, *args)
-
-    @commands.command()
-    async def scores(self, ctx):
-        await self.__scores(ctx)
-
     @commands.command(aliases=["sr"])
     async def rank(self, message: discord.Message, *args: tuple) -> None:
         if not any(args) or len(args) > 1:
@@ -434,6 +394,212 @@ class Smitele(commands.Cog):
         await message.channel.send(embed=discord.Embed(color=discord.Color.blue(), \
             description=desc, title=f'{player["Name"]} Ranks:'))
 
+    @commands.command(aliases=['w'])
+    async def worshippers(self, message: discord.Message, *args: tuple):
+        async def send_invalid(additional_info: str = 'Invalid command!', include_command_info: bool = True):
+            desc = f'{additional_info}'
+            if include_command_info:
+                    desc += f' {self.__bot.user.mention} accepts the command `$worshippers [playername] [godname]` '\
+                    '(or `$w [playername] [godname]`)'
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=desc))
+        flatten_args = [''.join(arg) for arg in args]
+        if not any(flatten_args):
+            await send_invalid()
+            return
+
+        player_name = flatten_args[0]
+        god_name: str | None = None
+        god_id: GodId | None = None
+        if len(flatten_args) > 1:
+            god_name = ' '.join(flatten_args[1:])
+
+            try:
+                god_id = GodId[god_name.upper().replace(' ', '_')\
+                    .replace("'", '')]
+            except KeyError:
+                await send_invalid(f'{god_name} is not a valid god!')
+                return
+
+        players = await self.__smite_client.get_player_id_by_name(player_name)
+        if not any(players):
+            await send_invalid('No players with that name found!', False)
+            return
+        if players[0]['privacy_flag'] == 'y':
+            await send_invalid(f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>', False)
+            return
+
+        god_ranks = await self.__smite_client.get_god_ranks(players[0]['player_id'])
+        stats = {
+            GodId(int(god['god_id'])):{
+                'assists': int(god['Assists']),
+                'deaths': int(god['Deaths']),
+                'kills': int(god['Kills']),
+                'losses': int(god['Losses']),
+                'rank': int(god['Rank']),
+                'wins': int(god['Wins']),
+                'worshippers': int(god['Worshippers']),
+                'minions': int(god['MinionKills']),
+            } for god in god_ranks
+        }
+
+        player_details = (await self.__smite_client.get_player(players[0]['player_id']))[0]
+        stats_embed = discord.Embed(
+                color=discord.Color.blue(), title=f'{player_details["Name"]}\'s {self.__gods[god_id].name if god_id is not None else "Overall"} Stats')
+        if god_id is not None:
+            if god_id not in stats:
+                await send_invalid(f'{player_name} doesn\'t have any worshippers for {self.__gods[god_id].name}!', False)
+                return
+
+            god_stats = stats[god_id]
+            kills = god_stats['kills']
+            assists = god_stats['assists']
+            deaths = god_stats['deaths']
+            avg_kda = (kills + (assists / 2)) / (deaths if deaths > 0 else 1)
+            kda = f'• _Kills_: {kills:,}\n• _Deaths_: {deaths:,}\n• _Assists_: {assists:,}'\
+                f'\n• _Avg. KDA_: {avg_kda:.2f}\n• _Minion Kills_: {god_stats["minions"]:,}'
+            wins = god_stats['wins']
+            losses = god_stats['losses']
+            wlr = f'• _Wins_: {wins:,}\n• _Losses_: {losses:,}\n• _Win Percent_: {int((wins / (wins + losses)) * 100)}%'
+            worshippers = f'_Worshippers_: {god_stats["worshippers"]:,} (_Rank {god_stats["rank"]:,}_)'
+
+            stats_embed.add_field(name='KDA', value=kda)
+            stats_embed.add_field(name='Win/Loss Ratio', value=wlr)
+            stats_embed.add_field(name='Worshippers', value=worshippers)
+            stats_embed.set_thumbnail(url=self.__gods[god_id].icon_url)
+
+            await message.channel.send(embed=stats_embed)
+            return
+        
+        total_kills = sum(god['kills'] for _, god in stats.items())
+        total_assists = sum(god['assists'] for _, god in stats.items())
+        total_deaths = sum(god['deaths'] for _, god in stats.items())
+        total_avg_kda = (total_kills + (total_assists / 2)) / (total_deaths if total_deaths > 0 else 1)
+        total_minions = sum(god['minions'] for _, god in stats.items())
+        total_kda = f'• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}'\
+            f'\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Minion Kills_: {total_minions:,}'
+
+        total_wins = sum(god['wins'] for _, god in stats.items())
+        total_losses = sum(god['losses'] for _, god in stats.items())
+        total_wlr = f'• _Total Wins_: {total_wins:,}\n• _Total Losses_: {total_losses:,}\n• _Overall Win Percent_: {int((total_wins / (total_wins + total_losses)) * 100)}%'
+
+        total_worshippers = sum(god['worshippers'] for _, god in stats.items())
+        total_worshippers_str = f'_Total Worshippers_: {total_worshippers:,}'
+
+        stats_embed.add_field(name='Overall KDA', value=total_kda)
+        stats_embed.add_field(name='Overall Win/Loss Ratio', value=total_wlr)
+        stats_embed.add_field(name='Overall Worshippers', value=total_worshippers_str)
+        stats_embed.set_thumbnail(url=player_details['Avatar_URL'])
+
+        await message.channel.send(embed=stats_embed)
+
+    @commands.command(aliases=['live', 'current'])
+    async def livematch(self, message: discord.Message, *args: tuple):
+        async def send_invalid(additional_info: str = 'Invalid command!', include_command_info: bool = True):
+            desc = f'{additional_info}'
+            if include_command_info:
+                    desc += f' {self.__bot.user.mention} accepts the command `$livematch [playername]` '\
+                    '(or `$live [playername]`)'
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=desc))
+        flatten_args = [''.join(arg) for arg in args]
+        if not any(flatten_args) or len(flatten_args) > 1:
+            await send_invalid()
+            return
+
+        player_name = flatten_args[0]
+        players = await self.__smite_client.get_player_id_by_name(player_name)
+        if not any(players):
+            await send_invalid('No players with that name found!', False)
+            return
+        if players[0]['privacy_flag'] == 'y':
+            await send_invalid(f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>', False)
+            return
+        player_status = await self.__smite_client.get_player_status(players[0]['player_id'])
+        if int(player_status[0]['status']) != 3:
+            await send_invalid(f'{player_name} is not currently in a game!', False)
+            return
+        live_match = await self.__smite_client.get_match_player_details(player_status[0]['Match'])
+        try:
+            queue_id = QueueId(int(live_match[0]['Queue']))
+        except (KeyError, ValueError):
+            print(f'Unsupported queue type: {live_match[0]["Queue"]}')
+            await send_invalid('Unfortunately, the match type this player is playing is not currently supported.', False)
+            return
+        team_order = list(filter(lambda p: int(p['taskForce']) == 1, live_match))
+        team_chaos = list(filter(lambda p: int(p['taskForce']) == 2, live_match))
+
+        def get_rank_string(tier_id: TierId, mmr: float) -> str:
+            emoji = '🥉' if tier_id.value <= 5 \
+                else '🥈' if tier_id.value <= 10 \
+                else '🥇' if tier_id.value <= 15 \
+                else '🏅' if tier_id.value <= 20 \
+                else '💎' if tier_id.value <= 25 \
+                else '🏆' if tier_id.value == 26 else '💯'
+            tier_name = tier_id.name.replace('_', ' ').title()\
+                .replace('Iv', 'IV')\
+                .replace('Iii', 'III')\
+                .replace('Ii', 'II')
+            return f'{emoji} **{tier_name}** ({int(mmr)} MMR)'
+
+        is_ranked = queue_id in (
+            QueueId.RANKED_CONQUEST,
+            QueueId.RANKED_CONQUEST_CONTROLLER,
+            QueueId.RANKED_DUEL,
+            QueueId.RANKED_DUEL_CONTROLLER,
+            QueueId.RANKED_JOUST,
+            QueueId.RANKED_JOUST_CONTROLLER)
+
+        def create_team_output(team_list: list) -> str:
+            output = ''
+            for player in team_list:
+                ranked = ''
+                if is_ranked:
+                    ranked += f' - {get_rank_string(TierId(int(player["Tier"])), float(player["Rank_Stat"]))}'
+                player_name = player['playerName']
+                if player_name == '':
+                    player_name = 'Hidden Player'
+                output += f'• **{player_name}** ({player["GodName"]}){ranked}\n'
+            return output
+
+        players_embed = discord.Embed(
+                color=discord.Color.blue(),
+                title=f'{player_name}\'s Live '\
+                      f'{queue_id.name.replace("_", " ").title()} Details')
+
+        players_embed.add_field(name='🔵 Order Side', value=create_team_output(team_order))
+        players_embed.add_field(name='🔴 Chaos Side', value=create_team_output(team_chaos))
+
+        await message.channel.send(embed=players_embed)
+
+    @commands.command()
+    async def crymore(self, context: commands.Context):
+        cry_more_url = 'https://static.wikia.nocookie.net/smite_gamepedia/'\
+            'images/3/3e/Nerd_Rage_Cabrakan_Other_S.ogg/revision/latest?cb=20170325002129'
+        cry_more_file = 'crymore.ogg'
+        async with aiohttp.ClientSession() as client:
+            async with client.get(cry_more_url) as res:
+                # If the current player is in a voice channel,
+                # connect to it and play the voice line!
+                if context.author.voice is not None:
+                    with open(cry_more_file, 'wb') as voice_file:
+                        voice_file.write(await res.content.read())
+                    voice_client = await context.author.voice.channel.connect()
+
+                    async def disconnect():
+                        await voice_client.disconnect()
+                        os.remove(cry_more_file)
+
+                    voice_client.play(discord.FFmpegPCMAudio(source=cry_more_file), \
+                        after=lambda _: asyncio.run_coroutine_threadsafe(\
+                            coro=disconnect(), loop=voice_client.loop).result())
+
+    @commands.command()
+    async def swog(self, context: commands.Context):
+        await context.channel.send(
+            embed=discord.Embed(
+                color=discord.Color.blue(), title='You\'ve got the wrong bot.'))
+
     @commands.command(aliases=['b'])
     @commands.max_concurrency(1, per=commands.BucketType.guild)
     async def build(self, message: discord.Message, *args: tuple):
@@ -469,11 +635,9 @@ class Smitele(commands.Cog):
             except KeyError:
                 await send_invalid(f'{god_name} is not a valid god!')
                 return
-        for g in self.__gods:
-            if g.id == god_id:
-                god = g
-                break
-        if god is None:
+        try:
+            god = self.__gods[god_id]
+        except KeyError:
             await send_invalid(f'{god_id.name.title()} not mapped to a god!')
             return
 
@@ -765,9 +929,9 @@ class Smitele(commands.Cog):
             easy_mode = True
 
         # Fetching a random god from our list of cached gods
-        game = SmiteleGame(random.choice(self.__gods), context)
+        game = SmiteleGame(random.choice(list(self.__gods.values())), context)
         if easy_mode:
-            game.generate_easy_mode_choices(self.__gods)
+            game.generate_easy_mode_choices(list(self.__gods.values()))
         self.__running_sessions[game_session_id] = game
         try:
             await game.add_task(self.__bot.loop.create_task(\
@@ -1127,7 +1291,7 @@ class Smitele(commands.Cog):
                 channel.last_message.author == game.context.player
 
     async def __check_answer_is_god(self, guess: discord.Message, game: SmiteleGame) -> bool:
-        if any(self.__check_answer_message(guess.content, god.name) for god in self.__gods):
+        if any(self.__check_answer_message(guess.content, god.name) for god in list(self.__gods.values())):
             return True
         await guess.add_reaction('❓')
         desc = f'**{guess.content}** is not a known god name!'
@@ -1135,383 +1299,15 @@ class Smitele(commands.Cog):
             embed=discord.Embed(color=discord.Color.red(), description=desc))
         return False
 
-    async def __write_to_file_from_api(self, file: io.TextIOWrapper, \
-            refresher: Callable[[], Awaitable[Any]]) -> Any:
-        tmp = await refresher()
-        json.dump(tmp, file)
-        return tmp
-
-    async def __load_cache(self, file_name: str, \
-            refresher: Callable[[], Awaitable[Any]] = None) -> List[Any]:
-        tmp: List[Any] = []
-        if refresher is not None:
-            with open(file_name, 'w', encoding='utf-8') as file:
-                tmp = await self.__write_to_file_from_api(file, refresher)
-        else:
-            try:
-                with open(file_name, 'r+', encoding='utf-8') as file:
-                    tmp = json.load(file)
-            except (FileNotFoundError, JSONDecodeError):
-                with open(file_name, 'w', encoding='utf-8') as file:
-                    tmp = await self.__write_to_file_from_api(file, refresher)
-        return tmp
-
-    async def __should_refresh(self) -> Tuple[bool, float]:
-        current_patch = float((await self.__smite_client.get_patch_info())['version_string'])
-        try:
-            with open(self.SMITE_PATCH_VERSION_FILE, 'r+', encoding='utf-8') as file:
-                cached_version = float(file.read())
-                if current_patch > cached_version:
-                    print(f'Current local cache ({cached_version}) '\
-                          f'is out of date ({current_patch}), refreshing')
-                    return (True, current_patch)
-        except (FileNotFoundError, ValueError):
-            print('Failed to open version cache, refreshing')
-            return (True, current_patch)
-
-        return (False, None)
-
-    async def __smitetrivia(self, message, *args):
-        async def countdown_loop(message, exp, embed):
-            while time.time() < exp:
-                await asyncio.sleep(1)
-                rem = math.ceil(exp-time.time())
-                embed.set_field_at(0, name="Time Remaining:", value=f'_{rem} second{"s" if rem != 1 else ""}_')
-                await message.edit(embed=embed)
-
-        consumables_questions: List[Callable[[Item], dict]] = [
-            lambda c: {
-                "question": discord.Embed(description=f'How much does {"an" if c.name[0].lower() in "aeiou" else "a"} **{c.name}** cost?'),
-                "answer": c.price,
-                "id": f'{c.name}-1'
-            },
-            lambda c: {
-                "question": discord.Embed(description=f'Name the consumable with this description: \n\n`{c.passive}`'),
-                "answer": c.name,
-                "id": f'{c.name}-2'
-            } if c.passive is not None and c.passive != '' else {},
-            lambda c: {
-                "question": discord.Embed(description="What consumable is this?").set_image(url=c.icon_url),
-                "answer": c.name,
-                "id": f'{c.name}-4'
-            },
-            lambda _: {
-                "question": discord.Embed(description="What is the range of a **Ward**?"),
-                "answer": 45,
-                "id": "consumables-5"
-            },
-            lambda _: {
-                "question": discord.Embed(description="How long does a **Ward** last (in seconds)?"),
-                "answer": 180,
-                "id": "consumables-6"
-            },
-            lambda _: {
-                "question": discord.Embed(description="How much True damage does **Hand of the Gods** do to Jungle Monsters?"),
-                "answer": 200,
-                "id": "consumables-7"
-            },
-        ]
-
-        relics_questions: List[Callable[[Item], dict]] = [
-            lambda relic: {
-                "question": discord.Embed(description=f'Name the relic with this description: \n\n`{relic.passive}`'),
-                "answer": relic.name,
-                "id": f'{relic.name}-1'
-            } if relic.passive is not None and relic.passive != '' else {},
-            lambda relic: {
-                "question": discord.Embed(description="What relic is this?").set_image(url=relic.icon_url),
-                "answer": relic.name,
-                "id": f'{relic.name}-5'
-            }
-        ]
-
-        ability_questions: List[Callable[[God, Ability], dict]] = [
-            lambda god, ability: {
-                "question": discord.Embed(description=f'Name **{god.name}**\'s ability with this description: \n\n`{ability.description}`'),
-                "answer": ability.name,
-                "id": f'{ability.name}-1'
-            },
-            lambda _, ability: {
-                "question": discord.Embed(description="What ability is this?").set_image(url=ability.icon_url),
-                "answer": ability.name,
-                "id": f'{ability.name}-4'
-            },
-        ]
-
-        god_questions: List[Callable[[God], dict]] = [
-            lambda god: {
-                "question": discord.Embed(description=f'Name the god with this lore: \n\n```{god.lore.replace(god.name, "_____")}```'),
-                "answer": god.name,
-                "id": f'{god.name}-1'
-            },
-            lambda god: {
-                "question": discord.Embed(description=f'What pantheon is **{god.name}** a part of?'),
-                "answer": god.pantheon,
-                "id": f'{god.pantheon}-2'
-            },
-            lambda god: random.choice(ability_questions)(god, random.choice(god.abilities))
-        ]
-
-        def compute_price(item: Item):
-            price = item.price
-            parent_id = item.parent_item_id
-            while parent_id is not None:
-                parent = self.__items[parent_id]
-                price += parent.price
-                parent_id = parent.parent_item_id
-            return price
-
-        items_questions: List[Callable[[Item], dict]] = [
-            lambda item: {
-                "question": discord.Embed(description=f'How much does **{item.name}** cost?'),
-                "answer": compute_price(item),
-                "id": f'{item.name}-1'
-            } if item.price > 1 else {},
-            lambda item: ((lambda i, statIdx: {
-                "question": discord.Embed(description=f'{"How much" if i.item_properties[statIdx].flat_value is not None else "What percent"} **{i.item_properties[statIdx].attribute.display_name}** does **{i.name}** provide?'),
-                "answer": int(i.item_properties[statIdx].flat_value) if i.item_properties[statIdx].flat_value is not None else f'{int(i.item_properties[statIdx].percent_value * 100)}%',
-                "id": f'{i.name}{i.item_properties[statIdx].attribute.value}-1'
-            })(item, random.randrange(len(item.item_properties)))),
-            lambda item: ((lambda i, statIdx: {
-                "question": discord.Embed(description=f'{"How much" if i.item_properties[statIdx].flat_value is not None else "What percent"} **{i.item_properties[statIdx].attribute.display_name}** does this item provide?').set_image(url=item.icon_url),
-                "answer": int(i.item_properties[statIdx].flat_value) if i.item_properties[statIdx].flat_value is not None else f'{int(i.item_properties[statIdx].percent_value * 100)}%',
-                "id": f'{i.name}{i.item_properties[statIdx].attribute.value}-1'
-            })(item, random.randrange(len(item.item_properties)))),
-            lambda item: {
-                    "question": discord.Embed(description=f'Name the item with this {"passive" if item.passive is not None and item.passive != "" else "aura"}:\n\n`{item.passive if item.passive is not None and item.passive != "" else item.aura}`'),
-                    "answer": item.name,
-                    "id": f'{item.name}-2'
-                } if (item.passive is not None and item.passive != '') or (item.aura is not None and item.aura != '') else {
-                    "question": discord.Embed(description=f'Name the item with this description:\n\n`{item.description}`'),
-                    "answer": item.name,
-                    "id": f'{item.name}-2'
-                } if item.tier >= 3 and item.description is not None and item.description != '' else {},
-            lambda item: {
-                "question": discord.Embed(description=f'How much does it cost to upgrade **{self.__items[item.parent_item_id].name}** into **{item.name}**?'),
-                "answer": item.price,
-                "id": f'{item.name}-3'
-            } if item.parent_item_id is not None else {},
-            lambda item: {
-                "question": discord.Embed(description="What item is this?").set_image(url=item.icon_url),
-                "answer": item.name,
-                "id": f'{item.name}-4'
-            },
-        ]
-        if message.author == self.__bot.user:
-            return
-
-        items = []
-        consumables = []
-        relics = []
-
-        for i in self.__items.values():
-            if not i.active:
-                continue
-
-            if i.type == ItemType.CONSUMABLE:
-                consumables.append(i)
-            if i.type == ItemType.ITEM:
-                items.append(i)
-            if i.type == ItemType.RELIC:
-                relics.append(i)
-
-        question_mapping = {
-            "items": {
-                "values": items,
-                "questions": items_questions
-            },
-            "consumables": {
-                "values": consumables,
-                "questions": consumables_questions
-            },
-            "relics": {
-                "values": relics,
-                "questions": relics_questions
-            },
-            "gods": {
-                "values": self.__gods,
-                "questions": god_questions
-            }
-        }
-
-        question_count = 1
-        input_category = None
-        correct_answers = {}
-        was_stopped = False
-        asked_questions = set()
-
-        if args is not None:
-            args = [''.join(arg) for arg in args]
-            if len(args) > 2:
-                await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="Invalid command! This bot accepts the command `$smitetrivia` (or `$st`) with optional count and category arguments, e.g. `$smitetrivia 10 items`"))
-                return
-            if len(args) == 2:
-                try:
-                    question_count = int(args[0])
-                    if question_count > 20:
-                        await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="The maximum allowed questions per round is 20."))
-                        return
-                except ValueError:
-                    await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="Question count must be a number."))
-                    return
-
-                if args[1] not in question_mapping.keys():
-                    await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description=f'\'{args[1]}\' is not a valid question category.'))
-                    return
-                input_category = args[1]
-            elif len(args) == 1:
-                try:
-                    question_count = int(args[0])
-                    if question_count > 20:
-                        await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="The maximum allowed questions per round is 20."))
-                        return
-                except ValueError:
-                    await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="Question count must be a number."))
-                    return
-        for q in range(question_count):
-            question: dict = {}
-            category = input_category
-
-            if category is None:
-                category = random.choices(list(question_mapping.keys()), weights=[10, 1, 2, 10])[0]
-
-            question_pool = question_mapping[category]["questions"]
-            input_objects = question_mapping[category]["values"]
-            input_object = random.choice(list(input_objects))
-                
-            while not any(question) or question['id'] in asked_questions:
-                question = random.choice(question_pool)(input_object)
-
-            asked_questions.add(question['id'])
-
-            question['question'].title = f'❔ _Question **{q+1}** of **{question_count}**_' if question_count > 1 else "❔ _Question_"
-            question['question'].color = discord.Color.blue()
-            question['question'].add_field(name="Time Remaining:", value="_20 seconds_")
-            answers = {}
-
-            def check(m: discord.Message):
-                correct = False
-                if m.author == self.__bot.user:
-                    return False
-
-                if m.content.startswith("%stop"):
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(message.channel.send(embed=discord.Embed(color=discord.Color.red(), description="Trivia round canceled!")))
-                    raise StoppedError
-
-                if m.author not in answers.keys():
-                    answers[m.author] = {
-                        "answered": 1,
-                        "warned": False
-                    }
-                else:
-                    answers[m.author]["answered"] += 1
-
-                answer = str(question['answer']).lower().replace("-", " ")
-                correct = answer == unidecode(m.content).lower().replace("-", " ")
-
-                if not correct and not answer.replace("%", "").isdigit():
-                    if answer.startswith("the") and not m.content.lower().startswith("the"):
-                        answer = answer.replace("the ", "")
-
-                    correct = edit_distance.SequenceMatcher(a=answer, b=m.content.lower()).distance() <= 2
-                elif not correct and answer.replace("%", "").isdigit() and m.content.replace("%", "").isdigit() and answers[m.author]["answered"] < 3:
-                    guess = int(m.content.replace("%", ""))
-                    answer_number = int(answer.replace("%", ""))
-                    loop = asyncio.get_running_loop()
-
-                    if guess < answer_number:
-                        loop.create_task(message.channel.send(
-                            embed=discord.Embed(
-                                color=discord.Color.blue(),
-                                description=f'Not quite, {m.author.mention}, try a higher guess. ↗️')))
-                    else:
-                        loop.create_task(message.channel.send(
-                            embed=discord.Embed(
-                                color=discord.Color.blue(),
-                                description=f'Not quite, {m.author.mention}, try a lower guess. ↘️')))
-
-                if correct and answers[m.author]["answered"] <= 3:
-                    return correct
-
-                if answers[m.author]["answered"] >= 3 and not answers[m.author]["warned"]:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(message.channel.send(
-                        embed=discord.Embed(
-                            color=discord.Color.red(),
-                            description=f'{m.author.mention}, you\'ve reached your maximum number of guesses. <:noshot:782396496104128573> Try again next question!')))
-                    answers[m.author]["warned"] = True
-                    return False
-
-            exp = time.time() + 20
-            task = asyncio.get_running_loop().create_task(countdown_loop(await message.channel.send(embed=question['question']), exp, question['question']))
-            try:
-                msg = await self.__bot.wait_for('message', check=check, timeout=20)
-                answer_time = time.time() - (exp - 20)
-                task.cancel()
-                description = f'✅ Correct, **{msg.author.display_name}**! You got it in {round(answer_time)} seconds. The answer was **{question["answer"]}**. <:frogchamp:566686914858713108>'
-                if q < question_count - 1:
-                    description += "\n\nNext question coming up in 5 seconds."
-                    
-                await message.channel.send(embed=discord.Embed(color=discord.Color.green(), description=description))
-
-                if msg.author.id not in correct_answers:
-                    correct_answers[msg.author.id] = 1
-                else:
-                    correct_answers[msg.author.id] += 1
-                if q < question_count - 1:
-                    await asyncio.sleep(5)
-            except asyncio.TimeoutError:
-                description = f'❌⏲️ Time\'s up! The answer was **{question["answer"]}**. <:killmyself:472184572407447573>'
-                if q < question_count - 1:
-                    description += "\n\nNext question coming up in 5 seconds."
-                    
-                await message.channel.send(embed=discord.Embed(color=discord.Color.red(), description=description))
-                if q < question_count - 1:
-                    await asyncio.sleep(5)
-            except StoppedError:
-                was_stopped = True
-                task.cancel()
-                break
-
-        if not was_stopped and bool(correct_answers):
-            description = [f'**{idx + 1}**. _{(await self.__bot.fetch_user(u[0])).display_name}_ (Score: **{u[1]}**) {"<:mleh:472905075208093717>" if idx == 0 else ""}' for idx, u in enumerate(sorted(correct_answers.items(), key=lambda i: i[1], reverse=True))]
-            embed = discord.Embed(color=discord.Color.blue(), title="**Round Summary:**", description=str.join("\n", description))
-            await message.channel.send(embed=embed)
-
-            current_scores = {}
-            try:
-                with open("scores.json", "r") as f:
-                    current_scores = json.load(f)
-            except (FileNotFoundError, JSONDecodeError):
-                pass
-            if current_scores:
-                for u in correct_answers.keys():
-                    if str(u) not in current_scores:
-                        current_scores[str(u)] = correct_answers[u]
-                    else:
-                        current_scores[str(u)] += correct_answers[u]
-            else:
-                current_scores = correct_answers
-
-            with open("scores.json", "w") as f:
-                json.dump(current_scores, f)
-
-    async def __scores(self, ctx):
-        try:
-            with open("scores.json", "r") as f:
-                current_scores = json.load(f)
-                current_scores = sorted(current_scores.items(), key=lambda i: i[1], reverse=True)
-                description = [f'**{idx + 1}**. _{(await self.__bot.fetch_user(u[0])).display_name}_ (Score: **{u[1]}**) {"<:mleh:472905075208093717>" if idx == 0 else ""}' for idx, u in enumerate(current_scores)]
-                embed = discord.Embed(color=discord.Color.blue(), title="**Leaderboard:**", description=str.join("\n", description)).set_thumbnail(url=(await self.__bot.fetch_user(current_scores[0][0])).display_avatar.url)
-                await ctx.channel.send(embed=embed)
-        except (FileNotFoundError, JSONDecodeError):
-            await ctx.channel.send(embed=discord.Embed(color=discord.Color.blue(), title="No scores recorded yet!"))
-
 if __name__ == '__main__':
     intents = discord.Intents.default()
+    # pylint: disable=assigning-non-slot
     intents.message_content = True
     bot = commands.Bot(command_prefix='$', intents=intents)
-    smitele = Smitele(bot)
+    provider = SmiteProvider()
+    asyncio.run(provider.create())
+    smitele = Smitele(bot, provider)
+    smite_triva = SmiteTrivia(bot, provider.gods, provider.items)
     asyncio.run(bot.add_cog(smitele))
+    asyncio.run(bot.add_cog(smite_triva))
     smitele.start_bot()

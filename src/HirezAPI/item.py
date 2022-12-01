@@ -62,8 +62,8 @@ class ItemType(Enum):
 
 class ItemProperty:
     attribute: ItemAttribute
-    flat_value: float
-    percent_value: float
+    flat_value: float | None
+    percent_value: float | None
 
     def __init__(self, attribute: ItemAttribute, \
             flat_value: float = None, percent_value: float = None):

@@ -108,7 +108,7 @@ class Ability(object):
         # Special case for ONLY King Arthur's ultimate, which has a static
         # mana cost and varying energy costs
         if '35 (80) Energy & 40 Mana' in self.__item_description.cost:
-            return '35 (80) Energy'
+            return '& 35 (80) Energy'
         for modifier in self.__cost_modifiers:
             if modifier in self.__item_description.cost:
                 return modifier
