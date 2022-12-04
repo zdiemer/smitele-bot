@@ -658,12 +658,10 @@ class BuildOptimizer:
             },
             BuildArchetype.HEALER_MAGE: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.HEALTH: 350,
-                ItemAttribute.MAGICAL_LIFESTEAL: 0.10,
-                ItemAttribute.MAGICAL_PENETRATION: (10, 0.10),
-                ItemAttribute.MAGICAL_POWER: 600,
-                ItemAttribute.MANA: 1600,
-                ItemAttribute.MP5: 65,
+                ItemAttribute.MAGICAL_PENETRATION: (25, 0.30),
+                ItemAttribute.MAGICAL_POWER: 560,
+                ItemAttribute.MANA: 1300,
+                ItemAttribute.MP5: 40,
             },
             BuildArchetype.AUTO_ATTACK_MAGE: {
                 ItemAttribute.ATTACK_SPEED: 0.80,

@@ -38,10 +38,11 @@ from build_optimizer import BuildOptimizer
 from god import God
 from god_types import GodId, GodType
 from item import Item, ItemType
+from player_stats import PlayerStats
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
-from HirezAPI import Smite, PlayerRole, QueueId, TierId
+from HirezAPI import Smite, PlayerRole, QueueId
 
 class SmiteleGameContext:
     """A class for holding Discord context for a Smitele Game.
@@ -340,237 +341,6 @@ class Smitele(commands.Cog):
             description=f'Closing {self.__bot.user.mention}'))
         await self.__bot.change_presence(status=discord.Status.offline)
         await self.__bot.close()
-
-    @commands.command(aliases=["sr"])
-    async def rank(self, message: discord.Message, *args: tuple) -> None:
-        if not any(args) or len(args) > 1:
-            desc = f'Invalid command! {self.__bot.user.mention} '\
-                    f'accepts the command `$rank [playername]` (or `$sr [playername]`)'
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
-                description=desc))
-            return
-        player_name = ''.join(args[0])
-        players = await self.__smite_client.get_player_id_by_name(player_name)
-        if not any(players):
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
-                description='No players with that name found!'))
-            return
-        if players[0]['privacy_flag'] == 'y':
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
-                description=f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>'))
-            return
-        player_id = players[0]['player_id']
-        player = (await self.__smite_client.get_player(player_id))[0]
-        def get_rank_string(queue_id: QueueId, tier_id: TierId, mmr: float) -> str:
-            emoji = '🥉' if tier_id.value <= 5 \
-                else '🥈' if tier_id.value <= 10 \
-                else '🥇' if tier_id.value <= 15 \
-                else '🏅' if tier_id.value <= 20 \
-                else '💎' if tier_id.value <= 25 \
-                else '🏆' if tier_id.value == 26 else '💯'
-            tier_name = tier_id.name.replace('_', ' ').title()\
-                .replace('Iv', 'IV')\
-                .replace('Iii', 'III')\
-                .replace('Ii', 'II')
-            return f'{queue_id.name.lower().replace("_", " ").title().replace("Controller", "(🎮)")}: '\
-                   f'{emoji} **{tier_name}** ({int(mmr)} MMR)\n'
-        tier = player['RankedConquest']['Tier']
-        ranked_conquest = get_rank_string(QueueId.RANKED_CONQUEST, TierId(int(tier)), player["Rank_Stat_Conquest"]) if tier != 0 else ''
-        tier = player['RankedDuel']['Tier']
-        ranked_duel = get_rank_string(QueueId.RANKED_DUEL, TierId(int(tier)), player["Rank_Stat_Duel"]) if tier != 0 else ''
-        tier = player['RankedJoust']['Tier']
-        ranked_joust = get_rank_string(QueueId.RANKED_JOUST, TierId(int(tier)), player["Rank_Stat_Joust"]) if tier != 0 else ''
-        tier = player['RankedConquestController']['Tier']
-        ranked_conquest_controller = get_rank_string(QueueId.RANKED_CONQUEST_CONTROLLER, TierId(int(tier)), player["Rank_Stat_Conquest_Controller"]) if tier != 0 else ''
-        tier = player['RankedDuelController']['Tier']
-        ranked_duel_controller = get_rank_string(QueueId.RANKED_DUEL_CONTROLLER, TierId(int(tier)), player["Rank_Stat_Duel_Controller"]) if tier != 0 else ''
-        tier = player['RankedJoustController']['Tier']
-        ranked_joust_controller = get_rank_string(QueueId.RANKED_JOUST_CONTROLLER, TierId(int(tier)), player["Rank_Stat_Joust_Controller"]) if tier != 0 else ''
-        desc = f'{ranked_conquest}{ranked_duel}{ranked_joust}{ranked_conquest_controller}{ranked_duel_controller}{ranked_joust_controller}'
-        if desc == '':
-            await message.channel.send(embed=discord.Embed(color=discord.Color.yellow(), \
-            description=f'{player["Name"]} has no ranks...'))
-            return
-        await message.channel.send(embed=discord.Embed(color=discord.Color.blue(), \
-            description=desc, title=f'{player["Name"]} Ranks:'))
-
-    @commands.command(aliases=['w'])
-    async def worshippers(self, message: discord.Message, *args: tuple):
-        async def send_invalid(additional_info: str = 'Invalid command!', include_command_info: bool = True):
-            desc = f'{additional_info}'
-            if include_command_info:
-                    desc += f' {self.__bot.user.mention} accepts the command `$worshippers [playername] [godname]` '\
-                    '(or `$w [playername] [godname]`)'
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
-                description=desc))
-        flatten_args = [''.join(arg) for arg in args]
-        if not any(flatten_args):
-            await send_invalid()
-            return
-
-        player_name = flatten_args[0]
-        god_name: str | None = None
-        god_id: GodId | None = None
-        if len(flatten_args) > 1:
-            god_name = ' '.join(flatten_args[1:])
-
-            try:
-                god_id = GodId[god_name.upper().replace(' ', '_')\
-                    .replace("'", '')]
-            except KeyError:
-                await send_invalid(f'{god_name} is not a valid god!')
-                return
-
-        players = await self.__smite_client.get_player_id_by_name(player_name)
-        if not any(players):
-            await send_invalid('No players with that name found!', False)
-            return
-        if players[0]['privacy_flag'] == 'y':
-            await send_invalid(f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>', False)
-            return
-
-        god_ranks = await self.__smite_client.get_god_ranks(players[0]['player_id'])
-        stats = {
-            GodId(int(god['god_id'])):{
-                'assists': int(god['Assists']),
-                'deaths': int(god['Deaths']),
-                'kills': int(god['Kills']),
-                'losses': int(god['Losses']),
-                'rank': int(god['Rank']),
-                'wins': int(god['Wins']),
-                'worshippers': int(god['Worshippers']),
-                'minions': int(god['MinionKills']),
-            } for god in god_ranks
-        }
-
-        player_details = (await self.__smite_client.get_player(players[0]['player_id']))[0]
-        stats_embed = discord.Embed(
-                color=discord.Color.blue(), title=f'{player_details["Name"]}\'s {self.__gods[god_id].name if god_id is not None else "Overall"} Stats')
-        if god_id is not None:
-            if god_id not in stats:
-                await send_invalid(f'{player_name} doesn\'t have any worshippers for {self.__gods[god_id].name}!', False)
-                return
-
-            god_stats = stats[god_id]
-            kills = god_stats['kills']
-            assists = god_stats['assists']
-            deaths = god_stats['deaths']
-            avg_kda = (kills + (assists / 2)) / (deaths if deaths > 0 else 1)
-            kda = f'• _Kills_: {kills:,}\n• _Deaths_: {deaths:,}\n• _Assists_: {assists:,}'\
-                f'\n• _Avg. KDA_: {avg_kda:.2f}\n• _Minion Kills_: {god_stats["minions"]:,}'
-            wins = god_stats['wins']
-            losses = god_stats['losses']
-            wlr = f'• _Wins_: {wins:,}\n• _Losses_: {losses:,}\n• _Win Percent_: {int((wins / (wins + losses)) * 100)}%'
-            worshippers = f'_Worshippers_: {god_stats["worshippers"]:,} (_Rank {god_stats["rank"]:,}_)'
-
-            stats_embed.add_field(name='KDA', value=kda)
-            stats_embed.add_field(name='Win/Loss Ratio', value=wlr)
-            stats_embed.add_field(name='Worshippers', value=worshippers)
-            stats_embed.set_thumbnail(url=self.__gods[god_id].icon_url)
-
-            await message.channel.send(embed=stats_embed)
-            return
-        
-        total_kills = sum(god['kills'] for _, god in stats.items())
-        total_assists = sum(god['assists'] for _, god in stats.items())
-        total_deaths = sum(god['deaths'] for _, god in stats.items())
-        total_avg_kda = (total_kills + (total_assists / 2)) / (total_deaths if total_deaths > 0 else 1)
-        total_minions = sum(god['minions'] for _, god in stats.items())
-        total_kda = f'• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}'\
-            f'\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Minion Kills_: {total_minions:,}'
-
-        total_wins = sum(god['wins'] for _, god in stats.items())
-        total_losses = sum(god['losses'] for _, god in stats.items())
-        total_wlr = f'• _Total Wins_: {total_wins:,}\n• _Total Losses_: {total_losses:,}\n• _Overall Win Percent_: {int((total_wins / (total_wins + total_losses)) * 100)}%'
-
-        total_worshippers = sum(god['worshippers'] for _, god in stats.items())
-        total_worshippers_str = f'_Total Worshippers_: {total_worshippers:,}'
-
-        stats_embed.add_field(name='Overall KDA', value=total_kda)
-        stats_embed.add_field(name='Overall Win/Loss Ratio', value=total_wlr)
-        stats_embed.add_field(name='Overall Worshippers', value=total_worshippers_str)
-        stats_embed.set_thumbnail(url=player_details['Avatar_URL'])
-
-        await message.channel.send(embed=stats_embed)
-
-    @commands.command(aliases=['live', 'current'])
-    async def livematch(self, message: discord.Message, *args: tuple):
-        async def send_invalid(additional_info: str = 'Invalid command!', include_command_info: bool = True):
-            desc = f'{additional_info}'
-            if include_command_info:
-                    desc += f' {self.__bot.user.mention} accepts the command `$livematch [playername]` '\
-                    '(or `$live [playername]`)'
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
-                description=desc))
-        flatten_args = [''.join(arg) for arg in args]
-        if not any(flatten_args) or len(flatten_args) > 1:
-            await send_invalid()
-            return
-
-        player_name = flatten_args[0]
-        players = await self.__smite_client.get_player_id_by_name(player_name)
-        if not any(players):
-            await send_invalid('No players with that name found!', False)
-            return
-        if players[0]['privacy_flag'] == 'y':
-            await send_invalid(f'{player_name} has their profile hidden... <:reeratbig:849771936509722634>', False)
-            return
-        player_status = await self.__smite_client.get_player_status(players[0]['player_id'])
-        if int(player_status[0]['status']) != 3:
-            await send_invalid(f'{player_name} is not currently in a game!', False)
-            return
-        live_match = await self.__smite_client.get_match_player_details(player_status[0]['Match'])
-        try:
-            queue_id = QueueId(int(live_match[0]['Queue']))
-        except (KeyError, ValueError):
-            print(f'Unsupported queue type: {live_match[0]["Queue"]}')
-            await send_invalid('Unfortunately, the match type this player is playing is not currently supported.', False)
-            return
-        team_order = list(filter(lambda p: int(p['taskForce']) == 1, live_match))
-        team_chaos = list(filter(lambda p: int(p['taskForce']) == 2, live_match))
-
-        def get_rank_string(tier_id: TierId, mmr: float) -> str:
-            emoji = '🥉' if tier_id.value <= 5 \
-                else '🥈' if tier_id.value <= 10 \
-                else '🥇' if tier_id.value <= 15 \
-                else '🏅' if tier_id.value <= 20 \
-                else '💎' if tier_id.value <= 25 \
-                else '🏆' if tier_id.value == 26 else '💯'
-            tier_name = tier_id.name.replace('_', ' ').title()\
-                .replace('Iv', 'IV')\
-                .replace('Iii', 'III')\
-                .replace('Ii', 'II')
-            return f'{emoji} **{tier_name}** ({int(mmr)} MMR)'
-
-        is_ranked = queue_id in (
-            QueueId.RANKED_CONQUEST,
-            QueueId.RANKED_CONQUEST_CONTROLLER,
-            QueueId.RANKED_DUEL,
-            QueueId.RANKED_DUEL_CONTROLLER,
-            QueueId.RANKED_JOUST,
-            QueueId.RANKED_JOUST_CONTROLLER)
-
-        def create_team_output(team_list: list) -> str:
-            output = ''
-            for player in team_list:
-                ranked = ''
-                if is_ranked:
-                    ranked += f' - {get_rank_string(TierId(int(player["Tier"])), float(player["Rank_Stat"]))}'
-                player_name = player['playerName']
-                if player_name == '':
-                    player_name = 'Hidden Player'
-                output += f'• **{player_name}** ({player["GodName"]}){ranked}\n'
-            return output
-
-        players_embed = discord.Embed(
-                color=discord.Color.blue(),
-                title=f'{player_name}\'s Live '\
-                      f'{queue_id.name.replace("_", " ").title()} Details')
-
-        players_embed.add_field(name='🔵 Order Side', value=create_team_output(team_order))
-        players_embed.add_field(name='🔴 Chaos Side', value=create_team_output(team_chaos))
-
-        await message.channel.send(embed=players_embed)
 
     @commands.command()
     async def crymore(self, context: commands.Context):
@@ -1306,8 +1076,10 @@ if __name__ == '__main__':
     bot = commands.Bot(command_prefix='$', intents=intents)
     provider = SmiteProvider()
     asyncio.run(provider.create())
+    player_stats = PlayerStats(bot, provider)
     smitele = Smitele(bot, provider)
     smite_triva = SmiteTrivia(bot, provider.gods, provider.items)
     asyncio.run(bot.add_cog(smitele))
     asyncio.run(bot.add_cog(smite_triva))
+    asyncio.run(bot.add_cog(player_stats))
     smitele.start_bot()

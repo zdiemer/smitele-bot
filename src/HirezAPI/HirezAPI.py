@@ -16,6 +16,8 @@ import aiohttp
 
 from god_types import GodId
 
+HIREZ_DATE_FORMAT = '%m/%d/%Y %I:%M:%S %p'
+
 class _Base:
     """_Base implements base Hirez API functionality.
 
@@ -128,20 +130,249 @@ class _Base:
         return str(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
 
 class QueueId(Enum):
+    # Main Game Modes
     ARENA = 435
     ASSAULT = 445
-    CLASH = 466
     CONQUEST = 426
     JOUST = 448
     MOTD = 434
+    SLASH = 10189
+
+    # Ranked (Keyboard)
     RANKED_CONQUEST = 451
     RANKED_DUEL = 440
     RANKED_JOUST = 450
-    SIEGE = 459
-    SLASH = 10189
+
+    # Ranked (Controller)
     RANKED_CONQUEST_CONTROLLER = 504
     RANKED_DUEL_CONTROLLER = 502
     RANKED_JOUST_CONTROLLER = 504
+
+    # Under 30 Queues
+    UNDER_30_ARENA = 10195
+    UNDER_30_CONQUEST = 10193
+    UNDER_30_JOUST = 10197
+
+    # Custom
+    CUSTOM_ARENA = 438
+    CUSTOM_ASSAULT = 446
+    CUSTOM_CLASH = 467
+    CUSTOM_CONQUEST_CLASSIC = 10206
+    CUSTOM_CLASSIC_JOUST = 10177
+    CUSTOM_CONQUEST = 429
+    CUSTOM_DOMINATION = 10174
+    CUSTOM_DUEL = 10190
+    CUSTOM_JOUST = 441
+    CUSTOM_SEASON_7_JOUST = 10152
+    CUSTOM_SIEGE = 460
+    CUSTOM_SLASH = 10191
+
+    # Tutorials
+    ARENA_TUTORIAL = 462
+    BASIC_TUTORIAL = 436
+    CLASH_TUTORIAL = 471
+    CONQUEST_TUTORIAL = 463
+
+    # Practice
+    ARENA_PRACTICE_EASY = 443
+    ARENA_PRACTICE_MEDIUM = 472
+    ARENA_PRACTICE_HARD = 10167
+
+    ASSAULT_PRACTICE_EASY = 479
+    ASSAULT_PRACTICE_MEDIUM = 480
+    ASSAULT_PRACTICE_HARD = 10168
+
+    CONQUEST_PRACTICE_EASY = 458
+    CONQUEST_PRACTICE_MEDIUM = 475
+    CONQUEST_PRACTICE_HARD = 10170
+
+    JOUST_PRACTICE_EASY = 464
+    JOUST_PRACTICE_MEDIUM = 473
+    JOUST_PRACTICE_HARD = 10171
+
+    JUNGLE_PRACTICE = 444
+
+    SLASH_PRACTICE_EASY = 10201
+    SLASH_PRACTICE_MEDIUM = 10202
+    SLASH_PRACTICE_HARD = 10203
+
+    # vs. AI
+    ARENA_VS_AI_VERY_EASY = 457
+    ARENA_VS_AI_MEDIUM = 456
+    ARENA_VS_AI_VERY_HARD = 10158
+
+    ASSAULT_VS_AI_EASY = 481
+    ASSAULT_VS_AI_MEDIUM = 454
+    ASSAULT_VS_AI_HARD = 10159
+
+    CONQUEST_VS_AI_EASY = 476
+    CONQUEST_VS_AI_MEDIUM = 461
+    CONQUEST_VS_AI_HARD = 10161
+
+    JOUST_VS_AI_VERY_EASY = 474
+    JOUST_VS_AI_MEDIUM = 456
+    JOUST_VS_AI_VERY_HARD = 10162
+
+    SLASH_VS_AI_EASY = 10198
+    SLASH_VS_AI_MEDIUM = 10199
+    SLASH_VS_AI_HARD = 10200
+
+    # Deprecated Queues
+    ARENA_TRAINING = 483
+    CLASH = 466
+    CONQUEST_5V5 = 423
+    DOMINATION = 433
+    RANKED_ARENA = 452
+    RANKED_CONQUEST_SOLO = 430
+    SIEGE = 459
+
+    # Adventures
+    ADVENTURE_CH10 = 500
+    ADVENTURE_HORDE = 495
+    ADVENTURE_JOUST = 499
+    LOKI_DUNGEON = 501
+
+    @staticmethod
+    def is_normal(value) -> bool:
+        return value in (
+            QueueId.ARENA,
+            QueueId.ASSAULT,
+            QueueId.CONQUEST,
+            QueueId.JOUST,
+            QueueId.MOTD,
+            QueueId.SLASH,
+            QueueId.UNDER_30_ARENA,
+            QueueId.UNDER_30_CONQUEST,
+            QueueId.UNDER_30_JOUST,
+        )
+
+    @staticmethod
+    def is_ranked(value) -> bool:
+        return value in (
+            QueueId.RANKED_CONQUEST,
+            QueueId.RANKED_CONQUEST_CONTROLLER,
+            QueueId.RANKED_DUEL,
+            QueueId.RANKED_DUEL_CONTROLLER,
+            QueueId.RANKED_JOUST,
+            QueueId.RANKED_JOUST_CONTROLLER,
+        )
+
+    @staticmethod
+    def is_custom(value) -> bool:
+        return value in (
+            QueueId.CUSTOM_ARENA,
+            QueueId.CUSTOM_ASSAULT,
+            QueueId.CUSTOM_CLASH,
+            QueueId.CUSTOM_CONQUEST_CLASSIC,
+            QueueId.CUSTOM_CLASSIC_JOUST,
+            QueueId.CUSTOM_CONQUEST,
+            QueueId.CUSTOM_DUEL,
+            QueueId.CUSTOM_JOUST,
+            QueueId.CUSTOM_SEASON_7_JOUST,
+            QueueId.CUSTOM_SIEGE,
+            QueueId.CUSTOM_SLASH,
+        )
+
+    @staticmethod
+    def is_tutorial(value) -> bool:
+        return value in (
+            QueueId.ARENA_TUTORIAL,
+            QueueId.BASIC_TUTORIAL,
+            QueueId.CLASH_TUTORIAL,
+            QueueId.CONQUEST_TUTORIAL,
+        )
+
+    @staticmethod
+    def is_practice(value) -> bool:
+        return value in (
+            QueueId.ARENA_PRACTICE_EASY,
+            QueueId.ARENA_PRACTICE_MEDIUM,
+            QueueId.ARENA_PRACTICE_HARD,
+            QueueId.ASSAULT_PRACTICE_EASY,
+            QueueId.ASSAULT_PRACTICE_MEDIUM,
+            QueueId.ASSAULT_PRACTICE_HARD,
+            QueueId.CONQUEST_PRACTICE_EASY,
+            QueueId.CONQUEST_PRACTICE_MEDIUM,
+            QueueId.CONQUEST_PRACTICE_HARD,
+            QueueId.JOUST_PRACTICE_EASY,
+            QueueId.JOUST_PRACTICE_MEDIUM,
+            QueueId.JOUST_PRACTICE_HARD,
+            QueueId.JUNGLE_PRACTICE,
+            QueueId.SLASH_PRACTICE_EASY,
+            QueueId.SLASH_PRACTICE_MEDIUM,
+            QueueId.SLASH_PRACTICE_HARD,
+        )
+
+    @staticmethod
+    def is_vs_ai(value) -> bool:
+        return value in (
+            QueueId.ARENA_VS_AI_VERY_EASY,
+            QueueId.ARENA_VS_AI_MEDIUM,
+            QueueId.ARENA_VS_AI_VERY_HARD,
+            QueueId.ASSAULT_VS_AI_EASY,
+            QueueId.ASSAULT_VS_AI_MEDIUM,
+            QueueId.ASSAULT_VS_AI_HARD,
+            QueueId.CONQUEST_VS_AI_EASY,
+            QueueId.CONQUEST_VS_AI_MEDIUM,
+            QueueId.CONQUEST_VS_AI_HARD,
+            QueueId.JOUST_VS_AI_VERY_EASY,
+            QueueId.JOUST_VS_AI_MEDIUM,
+            QueueId.JOUST_VS_AI_VERY_HARD,
+            QueueId.SLASH_VS_AI_EASY,
+            QueueId.SLASH_VS_AI_MEDIUM,
+            QueueId.SLASH_VS_AI_HARD,
+        )
+
+    @staticmethod
+    def is_deprecated(value) -> bool:
+        return value in (
+            QueueId.ARENA_TRAINING,
+            QueueId.CLASH,
+            QueueId.CONQUEST_5V5,
+            QueueId.DOMINATION,
+            QueueId.RANKED_ARENA,
+            QueueId.RANKED_CONQUEST_SOLO,
+            QueueId.SIEGE,
+        )
+
+    @staticmethod
+    def is_adventure(value) -> bool:
+        return value in (
+            QueueId.ADVENTURE_CH10,
+            QueueId.ADVENTURE_HORDE,
+            QueueId.ADVENTURE_JOUST,
+            QueueId.LOKI_DUNGEON,
+        )
+
+    @property
+    def display_name(self) -> str:
+        if self == QueueId.MOTD:
+            return self.name
+        queue = self.name.lower().replace('_', ' ').title()
+        if QueueId.is_ranked(self):
+            queue = queue.replace('Controller', '(Controller)')
+        if QueueId.is_vs_ai(self):
+            queue = queue.replace('Vs Ai', 'vs. AI')
+            queue_split = queue.split()
+            ai_index = queue_split.index('AI')
+            queue_split[ai_index + 1] = f'({queue_split[ai_index + 1]}'
+            queue = f'{" ".join(queue_split)})'
+        if QueueId.is_practice(self):
+            if self == QueueId.JUNGLE_PRACTICE:
+                return queue
+            queue_split = queue.split()
+            pidx = queue_split.index('Practice')
+            queue_split[pidx + 1] = f'({queue_split[pidx + 1]}'
+            queue = f'{" ".join(queue_split)})'
+        if QueueId.is_deprecated(self):
+            queue = queue.replace('5V5', '5v5')
+        if QueueId.is_adventure(self):
+            queue = 'Adventure: '
+            queue += 'Celestial Domination' if self == QueueId.ADVENTURE_CH10 \
+                else 'Legend of the Foxes' if self == QueueId.ADVENTURE_HORDE \
+                else 'Classic Joust' if self == QueueId.ADVENTURE_JOUST \
+                else 'Shadows Over Hercopolis'
+        return queue
 
 class LanguageCode(Enum):
     ENGLISH = 1
@@ -175,12 +406,29 @@ class TierId(Enum):
     MASTERS = 26
     GRANDMASTER = 27
 
+    @property
+    def display_name(self) -> str:
+        split_name = self.name.replace('_', ' ')\
+            .title().split()
+        if len(split_name) > 1:
+            split_name[1] = split_name[1].upper()
+        return ' '.join(split_name)
+
 class PlayerRole(Enum):
     CARRY = 'carry'
     JUNGLE = 'jungle'
     MID = 'mid'
     SOLO = 'solo'
     SUPPORT = 'support'
+
+class PortalId(Enum):
+    HI_REZ = 1
+    STEAM = 5
+    PS4 = 9
+    XBOX = 10
+    SWITCH = 22
+    DISCORD = 25
+    EPIC_GAMES = 28
 
 class Smite(_Base):
     BASE_URL: str = 'https://api.smitegame.com/smiteapi.svc'
@@ -210,19 +458,19 @@ class Smite(_Base):
 
     # Players
 
-    async def get_player(self, player: int, portal_id: int = None):
+    async def get_player(self, player: int, portal_id: PortalId | None = None):
         if portal_id is None:
             return await self._make_request('getplayer', player)
-        return await self._make_request('getplayer', player, portal_id)
+        return await self._make_request('getplayer', player, portal_id.value)
 
     async def get_player_id_by_name(self, player_name: str):
         return await self._make_request('getplayeridbyname', player_name)
 
-    async def get_player_id_by_portal_user_id(self, portal_id: int):
-        return await self._make_request('getplayeridbyportaluserid', portal_id)
+    async def get_player_id_by_portal_user_id(self, portal_id: PortalId, portal_user_id: int):
+        return await self._make_request('getplayeridbyportaluserid', portal_id.value, portal_user_id)
 
-    async def get_player_ids_by_gamer_tag(self, portal_id: int, gamer_tag: str):
-        return await self._make_request('getplayeridsbygamertag', portal_id, gamer_tag)
+    async def get_player_ids_by_gamer_tag(self, portal_id: PortalId, gamer_tag: str):
+        return await self._make_request('getplayeridsbygamertag', portal_id.value, gamer_tag)
 
     async def get_friends(self, player_id: int):
         return await self._make_request('getfriends', player_id)

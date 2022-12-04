@@ -1,4 +1,4 @@
-from HirezAPI.HirezAPI import Smite, PlayerRole, QueueId, TierId
+from HirezAPI.HirezAPI import *
 from HirezAPI.ability import Ability
 from HirezAPI.god import *
 from HirezAPI.god_types import *
