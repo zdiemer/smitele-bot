@@ -23,6 +23,7 @@ import os
 import random
 import time
 import traceback
+from enum import Enum
 from json.decoder import JSONDecodeError
 from typing import Any, Callable, Coroutine, Dict, List, Set, Tuple
 
@@ -37,12 +38,91 @@ from unidecode import unidecode
 from build_optimizer import BuildOptimizer
 from god import God
 from god_types import GodId, GodType
-from item import Item, ItemType
+from item import Item, ItemAttribute, ItemType
 from player_stats import PlayerStats
+from player import Player
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import Smite, PlayerRole, QueueId
+
+class InvalidOptionError(Exception):
+    pass
+
+class BuildCommandType(Enum):
+    OPTIMIZE = 'optimize'
+    RANDOM = 'random'
+    TOP = 'top'
+
+class BuildPrioritization(Enum):
+    POWER = 'power'
+    DEFENSE = 'defense'
+
+class BuildOptions:
+    build_type: BuildCommandType
+    god_id: GodId
+    prioritization: BuildPrioritization
+    queue_id: QueueId
+    role: PlayerRole
+    stat: ItemAttribute
+    __random_god: bool = False
+
+    def __init__(
+            self, god_id: GodId = None,
+            build_type: BuildCommandType = BuildCommandType.RANDOM,
+            prioritization: BuildPrioritization = None,
+            queue_id: QueueId = None,
+            role: PlayerRole = None,
+            stat: ItemAttribute = None):
+        if god_id is not None:
+            self.god_id = god_id
+        else:
+            self.god_id = random.choice(list(GodId))
+            self.__random_god = True
+        self.build_type = build_type
+        self.prioritization = prioritization
+        self.queue_id = queue_id
+        self.role = role
+        self.stat = stat
+
+    def set_option(self, option: str, value: str):
+        if option in ('-g', '--god'):
+            self.god_id = GodId[value.upper().replace(' ', '_')\
+                .replace("'", '')] # handles Chang'e case
+            self.__random_god = False
+        elif option in ('-p', '--prioritize'):
+            self.prioritization = BuildPrioritization(value.lower())
+        elif option in ('-q', '--queue'):
+            self.queue_id = QueueId[value.upper().replace(' ', '_')]
+        elif option in ('-r', '--role'):
+            self.role = PlayerRole(value.lower())
+        elif option in ('-s', '--stat'):
+            self.stat = ItemAttribute(value.lower())
+        elif option in ('-t', '--type'):
+            self.build_type = BuildCommandType(value.lower())
+        else:
+            raise InvalidOptionError
+
+    def validate(self) -> str | None:
+        if self.build_type != BuildCommandType.RANDOM and \
+            self.prioritization is not None:
+            return 'The prioritize option can only be used with the random build type.'
+        if self.build_type != BuildCommandType.TOP and \
+            self.role is not None:
+            return 'The role option can only be used with the top build type.'
+        if self.role is not None and self.queue_id is not None:
+            if self.queue_id not in (
+                    QueueId.CONQUEST,
+                    QueueId.CUSTOM_CONQUEST,
+                    QueueId.RANKED_CONQUEST,
+                    QueueId.RANKED_CONQUEST_CONTROLLER):
+                return 'Cannot specify both role and queue for a non-Conquest game mode!'
+        if self.stat is not None and self.build_type == BuildCommandType.TOP:
+            return 'Cannot prioritize a specific stat when pulling a top player\'s build.'
+        return None
+
+    def was_random_god(self) -> bool:
+        return self.__random_god
 
 class SmiteleGameContext:
     """A class for holding Discord context for a Smitele Game.
@@ -280,30 +360,29 @@ class Smitele(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def sessionid(self, message: discord.Message, *args: tuple) -> None:
-        game_session_id = hash(SmiteleGameContext(message.author, message.channel))
+    async def sessionid(self, context: commands.Context) -> None:
+        game_session_id = hash(SmiteleGameContext(context.message.author, context.message.channel))
         if game_session_id in self.__running_sessions:
-            await message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
+            await context.message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
                 description=f'Running session ID = {game_session_id}'))
         else:
-            await message.channel.send(embed=discord.Embed(\
+            await context.message.channel.send(embed=discord.Embed(\
                 color=discord.Color.red(), \
                 title='No running game session!'))
 
     @commands.command()
     @commands.is_owner()
-    async def sessions(self, message: discord.Message, *args: tuple) -> None:
+    async def sessions(self, context: commands.Context) -> None:
         if len(self.__running_sessions) == 0:
-            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+            await context.message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
                 title='No running game sessions!'))
         else:
             output_msg = ''
             for game_session_id, game in self.__running_sessions.items():
-                context = game.context
-                output_msg += f'> {context.player.mention} '\
-                    f'({context.channel.mention}): **{game_session_id}**\n'
+                output_msg += f'> {game.context.player.mention} '\
+                    f'({game.context.channel.mention}): **{game_session_id}**\n'
 
-            await message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
+            await context.message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
                 description=output_msg))
 
     @commands.command()
@@ -316,9 +395,12 @@ class Smitele(commands.Cog):
             await context.channel.send(discord.Embed(
                 color=discord.Color.gold(), title='Data Usage', description='Nothing to report.'))
             return
-        desc = f'Active Sessions: {data_used["Active_Sessions"]}/{data_used["Concurrent_Sessions"]}\n'\
-            f'Total Requests Today: {data_used["Total_Requests_Today"]}/{data_used["Request_Limit_Daily"]}\n'\
-            f'Total Sessions Today: {data_used["Total_Sessions_Today"]}/{data_used["Session_Cap"]}\n'
+        desc = f'Active Sessions: {data_used["Active_Sessions"]}/'\
+            f'{data_used["Concurrent_Sessions"]}\n'\
+            f'Total Requests Today: {data_used["Total_Requests_Today"]}/'\
+            f'{data_used["Request_Limit_Daily"]}\n'\
+            f'Total Sessions Today: {data_used["Total_Sessions_Today"]}/'\
+            f'{data_used["Session_Cap"]}\n'
         await context.channel.send(embed=discord.Embed(
             color=discord.Color.gold(), title='Data Usage', description=desc))
 
@@ -370,30 +452,72 @@ class Smitele(commands.Cog):
             embed=discord.Embed(
                 color=discord.Color.blue(), title='You\'ve got the wrong bot.'))
 
+    def __parse_build_opts(self, args: List[str]) -> BuildOptions:
+        build_options = BuildOptions()
+        idx = 0
+        while idx < len(args):
+            arg = args[idx]
+            if arg.startswith('-'):
+                eq_idx = None
+                try:
+                    eq_idx = arg.index('=')
+                except ValueError:
+                    pass
+                option = arg[:eq_idx]
+                delimiter = arg[eq_idx + 1] if eq_idx is not None else ''
+                value = ''
+                if delimiter in ("'", '"'):
+                    end_char = ''
+                    inner_idx = idx
+                    while end_char != delimiter:
+                        end_char = args[inner_idx][-1]
+                        start = 0 if inner_idx != idx else eq_idx + 2
+                        if end_char == delimiter:
+                            value += f'{"" if inner_idx == idx else " "}'\
+                                f'{args[inner_idx][start:-1].replace(delimiter, "")}'
+                            build_options.set_option(option, value)
+                            idx = inner_idx + 1
+                            continue
+                        value += f'{"" if inner_idx == idx else " "}{args[inner_idx][start:]}'
+                        inner_idx += 1
+                    continue
+                else:
+                    if eq_idx is not None:
+                        value = arg[eq_idx + 1:]
+                    elif len(args) > idx + 1:
+                        value = args[idx + 1]
+                        idx += 1
+                build_options.set_option(option, value)
+            idx += 1
+        return build_options
+
     @commands.command(aliases=['b'])
     @commands.max_concurrency(1, per=commands.BucketType.guild)
     async def build(self, message: discord.Message, *args: tuple):
-        async def send_invalid(additional_info: str = 'Invalid command!'):
-            desc = f'{additional_info} {self.__bot.user.mention} '\
-                    'accepts the command `$build [godname] [random [power|defense]|top|optimize statname]` '\
-                    '(or `$b [godname] [random [power|defense]|top|optimize statname]`)'
+        async def send_invalid(additional_info: str = ''):
+            desc = f'Invalid command! {self.__bot.user.mention} '\
+                    'accepts the command `$[build, b] [-g god, --god="god name"] [-t, --type] '\
+                    '[-r, --role] [-p, --prioritize]`. Valid build types are "top," (build '\
+                    'from a top ranked leaderboard player for this god) "optimize," (have '\
+                    'the Build Optimizer™ create you a build) or "random" (a completely'\
+                    ' random build)`)'
+            if additional_info != '':
+                desc = additional_info
             await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
                 description=desc))
-
-        no_god_arg = not any(args)
-        flatten_args = [''.join(arg) for arg in args]
-        option_index: int = None
-
-        for idx, arg in enumerate(flatten_args):
-            if arg in ('random', 'top', 'optimize'):
-                option_index = idx
-                break
-
         god: God = None
         god_id: GodId = None
-        if no_god_arg:
-            god_id = random.choice(list(GodId))
-        else:
+        flatten_args = [''.join(arg) for arg in args]
+        option_index: int = None
+        legacy_command = False
+
+        if any(flatten_args) and \
+                not any(list(filter(lambda arg: arg.startswith('-'), flatten_args))):
+            legacy_command = True
+            for idx, arg in enumerate(flatten_args):
+                if arg in ('random', 'top', 'optimize'):
+                    option_index = idx
+                    break
             try:
                 god_name: str
                 if option_index is not None:
@@ -403,17 +527,34 @@ class Smitele(commands.Cog):
                 god_id = GodId[god_name.upper().replace(' ', '_')\
                     .replace("'", '')] # handles Chang'e case
             except KeyError:
-                await send_invalid(f'{god_name} is not a valid god!')
+                await send_invalid(f'"**{god_name}**" is not a valid god!')
                 return
+
+        build_options: BuildOptions | None = None
+        if legacy_command:
+            build_options = BuildOptions(god_id)
+            if option_index is not None:
+                build_options.build_type = BuildCommandType(flatten_args[option_index])
+        else:
+            try:
+                build_options = self.__parse_build_opts(flatten_args)
+            except (InvalidOptionError, KeyError, ValueError):
+                await send_invalid()
+                return
+        if build_options.god_id is None:
+            await send_invalid('Invalid god!')
+            return
+        error_msg = build_options.validate()
+        if error_msg is not None:
+            await send_invalid(error_msg)
+            return
         try:
-            god = self.__gods[god_id]
+            god = self.__gods[build_options.god_id]
         except KeyError:
-            await send_invalid(f'{god_id.name.title()} not mapped to a god!')
+            await send_invalid(f'{build_options.god_id.name.title()} not mapped to a god!')
             return
 
         await message.channel.typing()
-
-        option = flatten_args[option_index] if option_index is not None else None
 
         items_for_god = list(filter(
             lambda item: item.type == ItemType.ITEM and item.active and
@@ -433,35 +574,63 @@ class Smitele(commands.Cog):
 
         optimizer = BuildOptimizer(god, items_for_god, self.__items)
 
-        if option is None or option == 'random':
-            prioritize = flatten_args[option_index + 1] \
-                if option_index is not None and len(flatten_args) > option_index + 1 else None
-            if prioritize is not None and prioritize not in ('power', 'defense'):
-                await send_invalid(f'{prioritize} is not a valid option for random!')
-                return
+        if build_options.queue_id is not None:
+            items_for_god = optimizer.filter_queue_items(
+                items_for_god,
+                build_options.queue_id
+            )
+
+        if build_options.build_type == BuildCommandType.RANDOM:
+            if legacy_command:
+                prioritize = flatten_args[option_index + 1] \
+                    if option_index is not None and len(flatten_args) > option_index + 1 else None
+                if prioritize is not None and prioritize not in ('power', 'defense'):
+                    await send_invalid(f'{prioritize} is not a valid option for random!')
+                    return
+                else:
+                    build_options.prioritization = BuildPrioritization(prioritize)
             build = []
 
             unfiltered_items = items_for_god # Needed for Ratatoskr
-            if prioritize is not None:
-                items_for_god = optimizer.filter_prioritize(items_for_god, prioritize)
+            if build_options.prioritization is not None:
+                items_for_god = optimizer.filter_prioritize(
+                    items_for_god,
+                    build_options.prioritization.value)
+            if build_options.stat is not None:
+                items_for_god = optimizer.filter_by_stat(
+                    items_for_god,
+                    build_options.stat
+                )
             # Filter to just tier 3 items
             items = optimizer.filter_evolution_parents(
                 optimizer.filter_acorns(
                     optimizer.filter_tiers(items_for_god)))
 
             # Ratatoskr always has his acorn!
-            should_include_starter = random.randint(0, 1)
+            should_include_starter = int(not QueueId.is_duel(build_options.queue_id) \
+                and bool(random.randint(0, 1)))
             should_include_glyph = bool(random.randint(0, 1))
             is_ratatoskr = god.id == GodId.RATATOSKR
             build_size = 6 - should_include_starter - int(is_ratatoskr)
 
+            glyphs = optimizer.get_glyphs(items_for_god)
+            starters = optimizer.get_starters(items_for_god)
+
+            if bool(should_include_starter) and not any(starters):
+                build_size += 1
+                should_include_starter = 0
+
             # Add a glyph... maybe!!
-            if should_include_glyph:
-                glyphs = optimizer.get_glyphs(items_for_god)
+            if should_include_glyph and any(glyphs):
                 glyph = random.choice(glyphs)
                 build.append(glyph)
                 build_size = build_size - 1
                 items = optimizer.filter_glyph_parent(items, glyph)
+
+            if len(items) < build_size:
+                await send_invalid(
+                    f'Failed to randomize a build for {self.__gods[build_options.god_id].name}.')
+                return
 
             # Add build_size random items from our tier 3 items, then shuffle the build order
             build.extend(random.sample(items, build_size))
@@ -475,8 +644,7 @@ class Smitele(commands.Cog):
 
             # Adding a starter to the beginning of the build if random demands it
             if bool(should_include_starter):
-                starter_evolutions = optimizer.get_starters(items_for_god)
-                build.insert(0 + int(is_ratatoskr), random.choice(starter_evolutions))
+                build.insert(0 + int(is_ratatoskr), random.choice(starters))
 
             # If we decided to not have a random glyph, but still included a
             # direct parent of a glyph... upgrade it anyway! Random!
@@ -485,40 +653,59 @@ class Smitele(commands.Cog):
                 if glyph is not None:
                     build[parent_idx] = glyph
 
-            desc = 'here\'s your random build!\n\n'\
+            prioritize_str = f', with only {build_options.prioritization.value} items' \
+                if build_options.prioritization is not None else ''
+            desc = f'here\'s your random build{prioritize_str}!\n\n'\
                    f'{optimizer.get_build_stats_string(build)}'
 
             await self.__send_generated_build(
-                build, message, desc, god, no_god_arg)
+                build, message, desc, god, build_options.was_random_god())
             return
-        if option == 'top':
-            role: str | PlayerRole = flatten_args[option_index + 1] \
-                if option_index is not None and len(flatten_args) > option_index + 1 else None
-            try:
-                if role is not None:
-                    role = PlayerRole(role.lower())
-                    desc = f'Trying to find a game with {god.name} in '\
-                           f'{role.value.title()}... This may take a while...'
-                    await message.channel.send(
-                        embed=discord.Embed(color=discord.Color.blue(), description=desc))
-            except KeyError:
-                await send_invalid(f'{role} is not a valid role!')
-                return
+        elif build_options.build_type == BuildCommandType.TOP:
+            if legacy_command:
+                role: str | PlayerRole = flatten_args[option_index + 1] \
+                    if option_index is not None and len(flatten_args) > option_index + 1 else None
+                try:
+                    if role is not None:
+                        role = PlayerRole(role.lower())
+                except KeyError:
+                    await send_invalid(f'{role} is not a valid role!')
+                    return
+            else:
+                role = build_options.role
+            if role is not None:
+                desc = f'Trying to find a game with {god.name} in '\
+                    f'{role.value.title()}... This may take a while...'
+                await message.channel.send(
+                    embed=discord.Embed(color=discord.Color.blue(), description=desc))
+            elif build_options.queue_id is not None:
+                desc = f'Trying to find a game with {god.name} in '\
+                    f'{build_options.queue_id.display_name}... This may take a while...'
+                await message.channel.send(
+                    embed=discord.Embed(color=discord.Color.blue(), description=desc))
             build = []
+            leaderboard_queue = QueueId.RANKED_CONQUEST
+            if build_options.queue_id is not None and QueueId.is_ranked(build_options.queue_id):
+                leaderboard_queue = build_options.queue_id
             god_leaderboard = await self.__smite_client.get_god_leaderboard(\
-                god.id, QueueId.RANKED_CONQUEST)
+                god.id, leaderboard_queue)
 
             build_match = None
+            match_player_id = None
             while len(build) == 0:
                 try:
                     # Fetching a random player from the leaderboard
                     random_player = random.choice(god_leaderboard)
                     god_leaderboard.remove(random_player)
                 except IndexError:
+                    addtl_err = ''
                     if role is not None:
-                        desc = f'Failed to find any games with {god.name} in {role.value.title()}!'
-                        await message.channel.send(
-                            embed=discord.Embed(color=discord.Color.red(), description=desc))
+                        addtl_err += f' in {role.value.title()}'
+                    elif build_options.queue_id is not None:
+                        addtl_err += f' playing {build_options.queue_id.display_name}'
+                    desc = f'Failed to find any games with {god.name}{addtl_err}!'
+                    await message.channel.send(
+                        embed=discord.Embed(color=discord.Color.red(), description=desc))
                     return
 
                 # Scraping their recent match history to try and find a current build
@@ -531,7 +718,11 @@ class Smitele(commands.Cog):
                         match_role = match['Role']
                         if match_role is not None and match_role.lower() != role.value:
                             continue
+                    if build_options.queue_id is not None:
+                        if int(match['Match_Queue_Id']) != build_options.queue_id.value:
+                            continue
                     build_match = match
+                    match_player_id = int(match['playerId'])
                     # Get a full build for this god
                     if int(match['GodId']) == god.id.value and int(match['ItemId6']) != 0:
                         for i in range(1, 7):
@@ -544,26 +735,56 @@ class Smitele(commands.Cog):
                                 build = []
                                 break
                             build.append(self.__items[item_id])
+            playing_str = f'playing {QueueId(int(build_match["Match_Queue_Id"])).display_name}'
+            if role is not None and build_options.queue_id is not None:
+                playing_str = f'playing {role.value.title()} in '\
+                    f'{build_options.queue_id.display_name}'
+            elif role is not None:
+                playing_str = f'playing {role.value.title()}'
+            elif build_options.queue_id is not None:
+                playing_str = f'playing {build_options.queue_id.display_name}'
+            if QueueId.is_duel(build_options.queue_id):
+                match_details = await self.__smite_client.get_match_details(
+                    int(build_match['Match']))
+                enemy_player_god = None
+                for detail in match_details:
+                    if int(detail['playerId']) != match_player_id:
+                        enemy_player_god = self.__gods[GodId(int(detail['GodId']))]
+                        break
+                if enemy_player_god is not None:
+                    playing_str += f' against {enemy_player_god.name}'
+            rank_str = ''
+            if QueueId.is_ranked(leaderboard_queue):
+                players = await self.__smite_client.get_player(match_player_id)
+                if any(players):
+                    player = Player.from_json(players[0])
+                    if leaderboard_queue in player.ranked_stats:
+                        rank_stat = player.ranked_stats[leaderboard_queue]
+                        rank_str = ', who has a rank of '\
+                            f'{PlayerStats.get_tier_string(rank_stat.tier, rank_stat.mmr)}'
+
             desc = f'here\'s your build, '\
                 f'courtesy of #{random_player["rank"]} {god.name} '\
-                f'**{random_player["player_name"]}**! '\
-                f'({"they won!" if build_match["Win_Status"] == "Win" else "they lost..."})\n\n'\
-                f'They were playing {role.value.title() if role is not None else match["Queue"]} '\
+                f'**{random_player["player_name"]}**{rank_str}! '\
+                f'{"They won!" if build_match["Win_Status"] == "Win" else "They lost..."}\n\n'\
+                f'They were {playing_str} '\
                 f'and they went {build_match["Kills"]}/'\
                 f'{build_match["Deaths"]}/{build_match["Assists"]}!\n\n'\
                 f'{optimizer.get_build_stats_string(build)}'
-            await self.__send_generated_build(build, message, desc, god)
+            await self.__send_generated_build(
+                build, message, desc, god, build_options.was_random_god())
             return
-        if option == 'optimize':
+        elif build_options.build_type == BuildCommandType.OPTIMIZE:
             stat_name = ''
-            if len(flatten_args) > option_index:
-                stat_name = ' '.join(arg for arg in flatten_args[option_index + 1:])
-                if stat_name != '':
-                    try:
-                        optimizer.set_stat(stat_name)
-                    except ValueError as ex:
-                        await send_invalid(str(ex))
-                        return
+            if legacy_command:
+                if len(flatten_args) > option_index:
+                    stat_name = ' '.join(arg for arg in flatten_args[option_index + 1:])
+                    if stat_name != '':
+                        try:
+                            optimizer.set_stat(stat_name)
+                        except ValueError as ex:
+                            await send_invalid(str(ex))
+                            return
             async def send_failed():
                 prioritizing_stat = f' prioritizing {stat_name}' if stat_name != '' else ''
                 desc = f'Failed to optimize a build for {god.name}{prioritizing_stat}!'
@@ -591,7 +812,8 @@ class Smitele(commands.Cog):
                    f'**{len(builds):,}** viable builds. '\
                    f'Here\'s one of them, hopefully it\'s a winner!\n\n'\
                    f'{optimizer.get_build_stats_string(build)}'
-            await self.__send_generated_build(build, message, desc, god)
+            await self.__send_generated_build(
+                build, message, desc, god, build_options.was_random_god())
             return
 
     def start_bot(self) -> None:
@@ -1061,7 +1283,8 @@ class Smitele(commands.Cog):
                 channel.last_message.author == game.context.player
 
     async def __check_answer_is_god(self, guess: discord.Message, game: SmiteleGame) -> bool:
-        if any(self.__check_answer_message(guess.content, god.name) for god in list(self.__gods.values())):
+        if any(self.__check_answer_message(guess.content, god.name) for \
+                god in list(self.__gods.values())):
             return True
         await guess.add_reaction('❓')
         desc = f'**{guess.content}** is not a known god name!'

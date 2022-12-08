@@ -125,6 +125,11 @@ class GodId(Enum):
     ZEUS = 1672
     ZHONG_KUI = 1926
 
+    @classmethod
+    def has_value(self, value):
+        # pylint: disable=no-member
+        return value in self._value2member_map_
+
 class GodPro(Enum):
     GREAT_JUNGLER = 'great jungler'
     HIGH_AREA_DAMAGE = 'high area damage'
@@ -154,6 +159,11 @@ class GodRole(Enum):
     HUNTER = 'hunter'
     MAGE = 'mage'
     WARRIOR = 'warrior'
+ 
+    @classmethod
+    def has_value(self, value):
+        # pylint: disable=no-member
+        return value in self._value2member_map_
 
 class GodType(Enum):
     MAGICAL = 'magical'

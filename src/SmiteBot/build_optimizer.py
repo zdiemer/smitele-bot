@@ -6,6 +6,7 @@ from typing import Dict, FrozenSet, List, Set, Tuple, Union
 
 from god import God
 from god_types import GodId, GodPro, GodRole, GodType
+from HirezAPI import QueueId
 from item import Item, ItemAttribute, ItemProperty
 from passive_parser import PassiveAttribute
 
@@ -1291,6 +1292,26 @@ class BuildOptimizer:
             return filter_items(defense_allowed)
         raise ValueError
 
+    def filter_queue_items(self, items: List[Item], queue_id: QueueId) -> List[Item]:
+        if queue_id == QueueId.ASSAULT:
+            filtered_items = []
+            for item in items:
+                if item.id in (7539, 15316):
+                    # Special case for Soul Eater
+                    filtered_items.append(item)
+                    continue
+                if PassiveAttribute.EVOLVES_WITH_MINION_KILLS in item.passive_properties:
+                    continue
+                if item.tier == 4 and \
+                        PassiveAttribute.EVOLVES_WITH_MINION_KILLS in \
+                            self.__all_items[item.parent_item_id].passive_properties:
+                    continue
+                filtered_items.append(item)
+            return filtered_items
+        if queue_id in (QueueId.RANKED_DUEL, QueueId.RANKED_DUEL_CONTROLLER):
+            return list(filter(lambda i: not i.is_starter, items))
+        return items
+
     @staticmethod
     def get_glyphs(items: List[Item]) -> List[Item]:
         return list(filter(lambda item: item.glyph, items))
@@ -1323,6 +1344,10 @@ class BuildOptimizer:
 
     def filter_acorns(self, items: List[Item]) -> List[Item]:
         return list(filter(lambda item: item.root_item_id != self.MAGIC_ACORN_ID, items))
+
+    @staticmethod
+    def filter_by_stat(items: List[Item], stat: ItemAttribute) -> List[Item]:
+        return list(filter(lambda i: stat in (p.attribute for p in i.item_properties), items))
 
     def get_build_stats_string(self, build: List[Item]) -> str:
         build_stats = self.compute_build_stats(build)

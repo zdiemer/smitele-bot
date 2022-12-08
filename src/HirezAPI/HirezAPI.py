@@ -258,6 +258,13 @@ class QueueId(Enum):
         )
 
     @staticmethod
+    def is_duel(value) -> bool:
+        return value in (
+            QueueId.RANKED_DUEL,
+            QueueId.RANKED_DUEL_CONTROLLER,
+        )
+
+    @staticmethod
     def is_custom(value) -> bool:
         return value in (
             QueueId.CUSTOM_ARENA,

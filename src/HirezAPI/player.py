@@ -1,23 +1,37 @@
 from datetime import datetime
+from enum import Enum
 from typing import Dict, List
+from SmiteProvider import SmiteProvider
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
 
-class PlayerId:
-    id: int
-    portal_id: PortalId
-    private: bool
+class StatusId(Enum):
+    OFFLINE = 0
+    IN_LOBBY = 1
+    GOD_SELECTION = 2
+    IN_GAME = 3
+    ONLINE = 4
+    UNKNOWN = 5
 
-    def __init__(self, id: int, portal_id: PortalId, private: bool):
-        self.id = id
-        self.portal_id = portal_id
-        self.private = private
+class PlayerStatus:
+    match_id: int | None
+    queue_id: QueueId | None
+    status: StatusId
+
+    def __init__(self, status: StatusId, match_id: int, queue_id: QueueId):
+        self.match_id = match_id
+        self.queue_id = queue_id
+        self.status = status
 
     @staticmethod
     def from_json(value):
-        return PlayerId(
-            int(value['player_id']),
-            PortalId(int(value['portal_id'])),
-            value['privacy_flag'] == 'y'
+        match_id = int(value['Match'])
+        queue_id: QueueId | None = None
+        if match_id != 0:
+            queue_id = QueueId(int(value['match_queue_id']))
+        return PlayerStatus(
+            StatusId(int(value['status'])),
+            match_id if match_id != 0 else None,
+            queue_id
         )
 
 class RankedStat:
@@ -92,13 +106,14 @@ class Player:
     wins: int
     name: str
     ranked_stats: Dict[QueueId, RankedStat]
+    __provider: SmiteProvider
 
-    def __init__(self):
-        pass
+    def __init__(self, provider: SmiteProvider = None):
+        self.__provider = provider
 
     @staticmethod
-    def from_json(value):
-        player = Player()
+    def from_json(value, provider: SmiteProvider = None):
+        player = Player(provider)
         player.active_player_id = int(value['ActivePlayerId'])
         player.id = int(value['Id'])
         player.avatar_url = value['Avatar_URL']
@@ -133,3 +148,37 @@ class Player:
         player.wins = int(value['Wins'])
         player.name = value['hz_player_name'] or player.account_name
         return player
+
+    async def get_player_status(self) -> PlayerStatus | None:
+        player_statuses = await self.__provider.get_player_status(self.id)
+        if not any(player_statuses):
+            return None
+        return PlayerStatus.from_json(player_statuses[0])
+
+class PlayerId:
+    id: int
+    portal_id: PortalId
+    private: bool
+    __provider: SmiteProvider
+
+    def __init__(self, id: int, private: bool, portal_id: PortalId = None, provider: SmiteProvider = None):
+        self.id = id
+        self.portal_id = portal_id
+        self.private = private
+        self.__provider = provider
+
+    @staticmethod
+    def from_json(value, provider: SmiteProvider = None):
+        return PlayerId(
+            int(value['player_id']),
+            value['privacy_flag'] == 'y',
+            PortalId(int(value['portal_id'])),
+            provider
+        )
+
+    async def get_player(self, id_override: int = None) -> Player | None:
+        id = id_override or self.id
+        players = await self.__provider.get_player(id)
+        if not any(players):
+            return None
+        return Player.from_json(players[0], self.__provider)

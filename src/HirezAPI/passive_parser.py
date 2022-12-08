@@ -236,8 +236,7 @@ class PassiveParser:
         if 'magical damage per second' in passive_string:
             properties.add(PassiveAttribute.DAMAGING_AURA)
 
-        if 'god kill or assist' in passive_string or \
-                'kill or assist on an enemy god' in passive_string:
+        if 'god kill or assist' in passive_string:
             properties.add(PassiveAttribute.EVOLVES_WITH_GOD_KILLS)
 
         if 'assists on a minion' in passive_string:

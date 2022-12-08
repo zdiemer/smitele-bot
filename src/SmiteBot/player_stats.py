@@ -3,8 +3,8 @@ import datetime
 import discord
 from discord.ext import commands
 
-from god import GodId
-from player import Player, PlayerId
+from god import GodId, GodRole
+from player import Player, PlayerId, StatusId
 from SmiteProvider import SmiteProvider
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
 
@@ -55,9 +55,11 @@ class QueueStats:
             queue_stats.total_wins += god_wins
             queue_stats.total_losses += god_losses
             queue_stats.total_minutes += int(god['Minutes'])
-            god_last_played = \
-                datetime.datetime.strptime(god['LastPlayed'], HIREZ_DATE_FORMAT)
-            queue_stats.last_played = max(god_last_played, queue_stats.last_played)
+            last_played_str = god['LastPlayed']
+            if last_played_str != '':
+                god_last_played = \
+                    datetime.datetime.strptime(god['LastPlayed'], HIREZ_DATE_FORMAT)
+                queue_stats.last_played = max(god_last_played, queue_stats.last_played)
 
             if god_matches >= 10:
                 god_win_percent = god_wins / god_matches
@@ -117,24 +119,18 @@ class PlayerStats(commands.Cog):
             return player_ids
         return []
 
-    async def __get_player_from_id(self, id: int) -> Player | None:
-        players = await self.__provider.get_player(id)
-        if not any(players):
-            return None
-        return Player.from_json(players[0])
-
     async def __get_player(self, username: str) -> Player | None:
         player_ids = await self.__provider.get_player_id_by_name(username)
         if not any(player_ids):
             player_ids = await self.__get_non_pc_player_ids(username)
             if not any(player_ids):
                 return None
-        player_id_info = PlayerId.from_json(player_ids[0])
+        player_id_info = PlayerId.from_json(player_ids[0], self.__provider)
         if player_id_info.private:
             raise PlayerPrivacyError
-        player = await self.__get_player_from_id(player_id_info.id)
+        player = await player_id_info.get_player()
         if player is not None and player.active_player_id != player.id:
-            player = await self.__get_player_from_id(player.active_player_id)
+            player = await player_id_info.get_player(id_override=player.active_player_id)
         if player is None:
             return None
         return player
@@ -160,7 +156,7 @@ class PlayerStats(commands.Cog):
         return player
 
     @staticmethod
-    def __get_tier_string(tier_id: TierId, mmr: float) -> str:
+    def get_tier_string(tier_id: TierId, mmr: float) -> str:
         emoji = '🥉' if tier_id.value <= 5 \
             else '🥈' if tier_id.value <= 10 \
             else '🥇' if tier_id.value <= 15 \
@@ -182,39 +178,53 @@ class PlayerStats(commands.Cog):
         player = await self.__get_player_or_return_invalid(player_name, message)
         if player is None:
             return
-        player_status = await self.__provider.get_player_status(player.id)
-        if int(player_status[0]['status']) != 3:
-            await self.__send_invalid(
-                message, base,
-                f'{player.name} is not currently in a game!', False)
-            return
-        live_match = await self.__provider.get_match_player_details(player_status[0]['Match'])
         try:
-            queue_id = QueueId(int(live_match[0]['Queue']))
-        except (KeyError, ValueError):
-            print(f'Unsupported queue type: {live_match[0]["Queue"]}')
-            await self.__send_invalid(message, base,
-                'Unfortunately, the match type this player is playing is not currently supported.', False)
+            player_status = await player.get_player_status()
+        except (KeyError, ValueError) as ex:
+            print(f'Unsupported queue type: {ex}')
+            await self.__send_invalid(
+                message,
+                base,
+                'Unfortunately, the match type this player is playing is not currently supported.',
+                False)
             return
+        invalid_msg = ''
+        if player_status is None or player_status.status == StatusId.UNKNOWN or \
+                (player_status.status == StatusId.IN_GAME and player_status.match_id is None):
+            invalid_msg = \
+                f"You must've broken something. I can't tell what {player.name} is doing right now."
+        elif player_status.status == StatusId.OFFLINE:
+            invalid_msg = f'{player.name} is currently offline.'
+        elif player_status.status in (StatusId.IN_LOBBY, StatusId.ONLINE):
+            invalid_msg = f'{player.name} is online, but not currently in a game.'
+        elif player_status.status == StatusId.GOD_SELECTION:
+            invalid_msg = \
+                f'{player.name} is in god select, try again shortly to get live match details!'
+        if invalid_msg != '':
+            await self.__send_invalid(message, base, invalid_msg, False)
+            return
+        live_match = await self.__provider.get_match_player_details(player_status.match_id)
         team_order = list(filter(lambda p: int(p['taskForce']) == 1, live_match))
         team_chaos = list(filter(lambda p: int(p['taskForce']) == 2, live_match))
 
         def create_team_output(team_list: list) -> str:
             output = ''
             for member in team_list:
-                ranked = ''
-                if QueueId.is_ranked(queue_id):
-                    ranked += f' - {self.__get_tier_string(TierId(int(member["Tier"])), float(member["Rank_Stat"]))}'
+                member_info = ''
+                if QueueId.is_ranked(player_status.queue_id):
+                    member_info += f' - {self.get_tier_string(TierId(int(member["Tier"])), float(member["Rank_Stat"]))}'
+                else:
+                    member_info +=f' - Level {member["Account_Level"]} (God Mastery {member["GodLevel"]})'
                 player_name = member['playerName']
                 if player_name == '':
                     player_name = 'Hidden Player'
-                output += f'• **{player_name}** ({member["GodName"]}){ranked}\n'
+                output += f'• **{player_name}** ({member["GodName"]}){member_info}\n'
             return output
 
         players_embed = discord.Embed(
                 color=discord.Color.blue(),
                 title=f'{player.name}\'s Live '\
-                      f'{queue_id.name.replace("_", " ").title()} Details')
+                      f'{player_status.queue_id.display_name} Details')
 
         players_embed.add_field(name='🔵 Order Side', value=create_team_output(team_order))
         players_embed.add_field(name='🔴 Chaos Side', value=create_team_output(team_chaos))
@@ -254,7 +264,7 @@ class PlayerStats(commands.Cog):
                 await self.__send_invalid(
                     message,
                     base,
-                    f'{player_name} doesn\'t have any playtime for {queue_id.display_name}!',
+                    f'{player.name} doesn\'t have any playtime for {queue_id.display_name}!',
                     False)
                 return
             queue_stats = QueueStats.from_json(queue_list)
@@ -394,7 +404,7 @@ class PlayerStats(commands.Cog):
             return
         def get_rank_string(queue_id: QueueId, tier_id: TierId, mmr: float) -> str:
             return f'• {queue_id.display_name.replace("Controller", "🎮")}: '\
-                   f'{self.__get_tier_string(tier_id, mmr)}\n'
+                   f'{self.get_tier_string(tier_id, mmr)}\n'
         rank_string = ''
         for queue, stats in sorted(player.ranked_stats.items(), key=lambda q: q[0].name):
             rank_string += get_rank_string(queue, stats.tier, stats.mmr)
@@ -418,12 +428,20 @@ class PlayerStats(commands.Cog):
         player_name = flatten_args[0]
         god_name: str | None = None
         god_id: GodId | None = None
+        god_role: GodRole | None = None
         if len(flatten_args) > 1:
             god_name = ' '.join(flatten_args[1:])
-            try:
-                god_id = GodId[god_name.upper().replace(' ', '_')\
-                    .replace("'", '')]
-            except KeyError:
+            cleaned_god_name = god_name.upper().replace(' ', '_')\
+                .replace("'", '')
+            if cleaned_god_name in list(g.name for g in list(GodId)):
+                god_id = GodId[cleaned_god_name]
+            elif cleaned_god_name in list(g.name for g in list(GodRole)) or \
+                    cleaned_god_name[0:-1] in list(g.name for g in list(GodRole)):
+                try:
+                    god_role = GodRole[cleaned_god_name]
+                except KeyError:
+                    god_role = GodRole[cleaned_god_name[0:-1]]
+            else:
                 await self.__send_invalid(message, base, f'{god_name} is not a valid god!')
                 return
 
@@ -446,7 +464,8 @@ class PlayerStats(commands.Cog):
         }
 
         stats_embed = discord.Embed(
-                color=discord.Color.blue(), title=f'{player.name}\'s {self.__provider.gods[god_id].name if god_id is not None else "Overall"} Stats')
+                color=discord.Color.blue(), title=f'{player.name}\'s '\
+                f'{self.__provider.gods[god_id].name if god_id is not None else god_role.name.title() if god_role is not None else "Overall"} Stats')
         if god_id is not None:
             if god_id not in stats:
                 await self.__send_invalid(message, base, f'{player.name} doesn\'t have any worshippers for {self.__provider.gods[god_id].name}!', False)
@@ -472,19 +491,30 @@ class PlayerStats(commands.Cog):
             await message.channel.send(embed=stats_embed)
             return
         
-        total_kills = sum(god['kills'] for _, god in stats.items())
-        total_assists = sum(god['assists'] for _, god in stats.items())
-        total_deaths = sum(god['deaths'] for _, god in stats.items())
+        if god_role is not None:
+            stats = dict(filter(lambda g: self.__provider.gods[g[0]].role == god_role, stats.items()))
+
+        total_kills = 0
+        total_assists = 0
+        total_deaths = 0
+        total_minions = 0
+        total_wins = 0
+        total_losses = 0
+        total_worshippers = 0
+        for _, god in stats.items():
+            total_kills += god['kills']
+            total_assists += god['assists']
+            total_deaths += god['deaths']
+            total_minions += god['minions']
+            total_wins += god['wins']
+            total_losses += god['losses']
+            total_worshippers += god['worshippers']
         total_avg_kda = (total_kills + (total_assists / 2)) / (total_deaths if total_deaths > 0 else 1)
-        total_minions = sum(god['minions'] for _, god in stats.items())
         total_kda = f'• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}'\
             f'\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Minion Kills_: {total_minions:,}'
 
-        total_wins = sum(god['wins'] for _, god in stats.items())
-        total_losses = sum(god['losses'] for _, god in stats.items())
         total_wlr = f'• _Total Wins_: {total_wins:,}\n• _Total Losses_: {total_losses:,}\n• _Overall Win Rate_: {int((total_wins / (total_wins + total_losses)) * 100)}%'
 
-        total_worshippers = sum(god['worshippers'] for _, god in stats.items())
         total_worshippers_str = f'_Total Worshippers_: {total_worshippers:,}'
 
         stats_embed.add_field(name='Overall KDA', value=total_kda)
