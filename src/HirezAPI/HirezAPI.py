@@ -146,7 +146,7 @@ class QueueId(Enum):
     # Ranked (Controller)
     RANKED_CONQUEST_CONTROLLER = 504
     RANKED_DUEL_CONTROLLER = 502
-    RANKED_JOUST_CONTROLLER = 504
+    RANKED_JOUST_CONTROLLER = 503
 
     # Under 30 Queues
     UNDER_30_ARENA = 10195
@@ -160,6 +160,7 @@ class QueueId(Enum):
     CUSTOM_CONQUEST_CLASSIC = 10206
     CUSTOM_CLASSIC_JOUST = 10177
     CUSTOM_CONQUEST = 429
+    CUSTOM_CORRUPTED_ARENA = 10151
     CUSTOM_DOMINATION = 10174
     CUSTOM_DUEL = 10190
     CUSTOM_JOUST = 441
@@ -198,7 +199,7 @@ class QueueId(Enum):
 
     # vs. AI
     ARENA_VS_AI_VERY_EASY = 457
-    ARENA_VS_AI_MEDIUM = 456
+    ARENA_VS_AI_MEDIUM = 468
     ARENA_VS_AI_VERY_HARD = 10158
 
     ASSAULT_VS_AI_EASY = 481
@@ -220,17 +221,37 @@ class QueueId(Enum):
     # Deprecated Queues
     ARENA_TRAINING = 483
     CLASH = 466
+    CLASSIC_JOUST = 499
     CONQUEST_5V5 = 423
+    CONQUEST_NOVICE = 424
     DOMINATION = 433
+    JOUST_OBSOLETE = 431
     RANKED_ARENA = 452
     RANKED_CONQUEST_SOLO = 430
     SIEGE = 459
 
     # Adventures
-    ADVENTURE_CH10 = 500
-    ADVENTURE_HORDE = 495
-    ADVENTURE_JOUST = 499
-    LOKI_DUNGEON = 501
+    CELESTIAL_DOMINATION = 500
+    LEGEND_OF_THE_FOXES = 495
+    ADVENTURE_CLASSIC_JOUST = 10153
+    SHADOWS_OVER_HERCOPOLIS = 501
+    CORRUPTED_ARENA = 508
+    CLASSIC_DOMINATION = 10173
+    FAFNIRS_WONDERLAND = 484
+    FAFNIRS_WONDERLAND_HARD = 485
+    HEIMDALLRS_CROSSING = 10155
+
+    # Unknown
+    NORMAL_SPECIAL_EVENT = 465
+    NORMAL_ADVENTURE_1 = 486
+    NORMAL_ADVENTURE_2 = 488
+    NORMAL_ADVENTURE_DUNGEON = 489
+    NORMAL_ADVENTURE_DUNGEON_HARD = 490
+    NORMAL_ADVENTURE_4 = 491
+    NORMAL_ADVENTURE_5 = 492
+    NORMAL_ADVENTURE_5_HARD = 493
+    NORMAL_ADVENTURE_6 = 497
+    NORMAL_ADVENTURE_7 = 498
 
     @staticmethod
     def is_normal(value) -> bool:
@@ -335,20 +356,28 @@ class QueueId(Enum):
         return value in (
             QueueId.ARENA_TRAINING,
             QueueId.CLASH,
+            QueueId.CLASSIC_JOUST,
             QueueId.CONQUEST_5V5,
             QueueId.DOMINATION,
             QueueId.RANKED_ARENA,
             QueueId.RANKED_CONQUEST_SOLO,
             QueueId.SIEGE,
+            QueueId.CONQUEST_NOVICE,
+            QueueId.JOUST_OBSOLETE,
         )
 
     @staticmethod
     def is_adventure(value) -> bool:
         return value in (
-            QueueId.ADVENTURE_CH10,
-            QueueId.ADVENTURE_HORDE,
-            QueueId.ADVENTURE_JOUST,
-            QueueId.LOKI_DUNGEON,
+            QueueId.CELESTIAL_DOMINATION,
+            QueueId.LEGEND_OF_THE_FOXES,
+            QueueId.ADVENTURE_CLASSIC_JOUST,
+            QueueId.SHADOWS_OVER_HERCOPOLIS,
+            QueueId.CORRUPTED_ARENA,
+            QueueId.CLASSIC_DOMINATION,
+            QueueId.FAFNIRS_WONDERLAND,
+            QueueId.FAFNIRS_WONDERLAND_HARD,
+            QueueId.HEIMDALLRS_CROSSING,
         )
 
     @property
@@ -374,11 +403,11 @@ class QueueId(Enum):
         if QueueId.is_deprecated(self):
             queue = queue.replace('5V5', '5v5')
         if QueueId.is_adventure(self):
-            queue = 'Adventure: '
-            queue += 'Celestial Domination' if self == QueueId.ADVENTURE_CH10 \
-                else 'Legend of the Foxes' if self == QueueId.ADVENTURE_HORDE \
-                else 'Classic Joust' if self == QueueId.ADVENTURE_JOUST \
-                else 'Shadows Over Hercopolis'
+            queue = f'Adventure: {queue.replace("Adventure ", "")}'\
+                .replace('Of The', 'of the')\
+                .replace('Fafnirs', "Fafnir's")\
+                .replace('Hard', '(Hard)')\
+                .replace('Heimdallrs', "Heimdallr's")
         return queue
 
 class LanguageCode(Enum):
