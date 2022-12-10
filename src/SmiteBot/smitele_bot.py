@@ -499,21 +499,59 @@ class Smitele(commands.Cog):
                 children.append(i)
         return children
 
-    def __build_item_tree(self, item: Item) -> ItemTreeNode:
-        root = ItemTreeNode(self.__items[item.root_item_id])
+    def __build_item_tree(self, root: ItemTreeNode) -> ItemTreeNode:
         children = self.__get_direct_children(root.item)
+        level_width = 0
+        child_depth = 0
         for child in children:
-            root.add_child(self.__build_item_tree(child))
+            if child.tier == 4 and not child.glyph:
+                continue
+            child_node = self.__build_item_tree(ItemTreeNode(child, root.depth + 1))
+            root.add_child(child_node)
+            level_width += len(child_node.children)
+            child_depth = max(child_depth, child_node.depth)
+        root.width = max(root.width, level_width)
+        root.depth = max(root.depth, child_depth)
         return root
 
-    def __walk_tree(self, root: ItemTreeNode):
-        print(root.item.name)
+    def __walk_tree_by_level(self, root: ItemTreeNode):
+        yield root.children
         for child in root.children:
-           self.__walk_tree(child)
+           self.__walk_tree_by_level(child)
 
     async def __generate_build_tree(self, item: Item) -> io.BytesIO:
-        root = self.__build_item_tree(item)
-        self.__walk_tree(root)
+        spacing = 24
+        thumb_size = 48
+        if item.type != ItemType.ITEM:
+            raise ValueError
+        root = self.__build_item_tree(ItemTreeNode(self.__items[item.root_item_id]))
+        width = (thumb_size * root.width) + (spacing * (root.width - 1))
+        height = (thumb_size * root.depth) + (spacing * (root.depth - 1))
+        pos_x, pos_y (int((width / 2) - (thumb_size / 2)), height - thumb_size)
+        with Image.new('RGBA', (width, height), (250, 250, 250, 0)) as output_image:
+            pos_x, pos_y = (0, 0)
+            for idx, item in enumerate(build):
+                # First requesting and saving the image from the URLs we got
+                with await item.get_icon_bytes() as item_bytes:
+                    try:
+                        with Image.open(item_bytes) as image:
+                            # Resize the image if necessary, Hirez doesn't return a consistent size
+                            if image.size != (thumb_size, thumb_size):
+                                image = image.resize((thumb_size, thumb_size))
+                            if image.mode != 'RGBA':
+                                image = image.convert('RGBA')
+                            output_image.paste(image, (pos_x, pos_y))
+                            if idx != 2:
+                                pos_x += thumb_size
+                            if idx == 2:
+                                pos_x, pos_y = (0, thumb_size)
+                    except Exception as ex:
+                        print(f'Unable to create an image for {item.name}, {ex}')
+
+            file = io.BytesIO()
+            output_image.save(file, format='JPEG', quality=95)
+            file.seek(0)
+            return file
 
     @commands.command(aliases=['i'])
     async def item(self, message: discord.Message, *args: tuple):
@@ -561,6 +599,7 @@ class Smitele(commands.Cog):
         elif item.description is not None and item.description != '':
             stats += f'\n_{item.description}_\n'
         item_embed.add_field(name='Base Attributes:', value=stats)
+        await self.__generate_build_tree(item)
         await message.channel.send(embed=item_embed)
 
     @commands.command(aliases=['b'])

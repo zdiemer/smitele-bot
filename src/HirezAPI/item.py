@@ -156,10 +156,14 @@ class Item:
 class ItemTreeNode:
     item: Item
     children: List[ItemTreeNode]
+    width: int
+    depth: int
 
-    def __init__(self, item: Item):
+    def __init__(self, item: Item, depth: int = 1):
         self.item = item
         self.children = []
+        self.width = 1
+        self.depth = depth
 
     def add_child(self, item: ItemTreeNode):
         self.children.append(item)
