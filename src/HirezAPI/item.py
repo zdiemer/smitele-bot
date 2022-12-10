@@ -1,3 +1,5 @@
+
+from __future__ import annotations
 import io
 from enum import Enum
 from typing import List, Set
@@ -150,3 +152,14 @@ class Item:
         async with aiohttp.ClientSession() as session:
             async with session.get(self.icon_url) as res:
                 return io.BytesIO(await res.content.read())
+
+class ItemTreeNode:
+    item: Item
+    children: List[ItemTreeNode]
+
+    def __init__(self, item: Item):
+        self.item = item
+        self.children = []
+
+    def add_child(self, item: ItemTreeNode):
+        self.children.append(item)

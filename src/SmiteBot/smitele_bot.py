@@ -15,6 +15,7 @@ Typical usage example:
     bot.start_bot()
 """
 
+from __future__ import annotations
 import asyncio
 import io
 import json
@@ -38,7 +39,7 @@ from unidecode import unidecode
 from build_optimizer import BuildOptimizer
 from god import God
 from god_types import GodId, GodType
-from item import Item, ItemAttribute, ItemType
+from item import Item, ItemAttribute, ItemType, ItemTreeNode
 from player_stats import PlayerStats
 from player import Player
 from skin import Skin
@@ -490,6 +491,77 @@ class Smitele(commands.Cog):
                 build_options.set_option(option, value)
             idx += 1
         return build_options
+
+    def __get_direct_children(self, item: Item) -> List[Item]:
+        children: List[Item] = []
+        for i in self.__items.values():
+            if i.parent_item_id == item.id:
+                children.append(i)
+        return children
+
+    def __build_item_tree(self, item: Item) -> ItemTreeNode:
+        root = ItemTreeNode(self.__items[item.root_item_id])
+        children = self.__get_direct_children(root.item)
+        for child in children:
+            root.add_child(self.__build_item_tree(child))
+        return root
+
+    def __walk_tree(self, root: ItemTreeNode):
+        print(root.item.name)
+        for child in root.children:
+           self.__walk_tree(child)
+
+    async def __generate_build_tree(self, item: Item) -> io.BytesIO:
+        root = self.__build_item_tree(item)
+        self.__walk_tree(root)
+
+    @commands.command(aliases=['i'])
+    async def item(self, message: discord.Message, *args: tuple):
+        async def send_invalid(additional_info: str = ''):
+            desc = f'Invalid command! {self.__bot.user.mention} '\
+                    'accepts the command `$item itemname` or `$i itemname `'
+            if additional_info != '':
+                desc = additional_info
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=desc))
+
+        flatten_args = [''.join(arg) for arg in args]
+
+        if not any(flatten_args):
+            await send_invalid('No item name provided!')
+            return
+
+        item_name = ' '.join(flatten_args).lower()
+        item: Item | None = None
+
+        for i in self.__items.values():
+            if i.name.lower() == item_name:
+                item = i
+        if item is None:
+            await send_invalid(f'{item_name} is not an item!')
+            return
+        item_embed = discord.Embed(color=discord.Color.blue(), title=f'{item.name} Info:')
+        item_embed.set_thumbnail(url=item.icon_url)
+
+        stats = '\n'
+        if not item.active:
+            stats += '**Inactive Item** ❌\n\n'
+        elif item.is_starter:
+            stats += '**Starter Item** 1️⃣\n\n'
+        elif item.glyph:
+            stats += '**Glyph** ⬆️\n\n'
+        for prop in item.item_properties:
+            stats += f'**{prop.attribute.display_name}**: '\
+                f'{int(prop.flat_value or (prop.percent_value * 100))}'\
+                f'{"%" if prop.percent_value is not None else ""}\n'
+        if item.passive is not None and item.passive != '':
+            stats += f'\n**Passive**:\n_{item.passive}_\n'
+        elif item.aura is not None and item.aura != '':
+            stats += f'\n**Aura**:\n_{item.aura}_\n'
+        elif item.description is not None and item.description != '':
+            stats += f'\n_{item.description}_\n'
+        item_embed.add_field(name='Base Attributes:', value=stats)
+        await message.channel.send(embed=item_embed)
 
     @commands.command(aliases=['b'])
     @commands.max_concurrency(1, per=commands.BucketType.guild)
