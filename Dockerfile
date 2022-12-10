@@ -21,7 +21,7 @@ RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 FROM base AS runtime
 
 # ffmpeg is needed to send audio in voice channels
-RUN apt-get install -y ffmpeg
+RUN apt-get install -y --no-install-recommends ffmpeg
 
 # Copy virtual env from python-deps stage
 COPY --from=python-deps /.venv /.venv
