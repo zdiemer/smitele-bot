@@ -34,7 +34,7 @@ import discord
 import edit_distance
 from bs4 import BeautifulSoup
 from discord.ext import commands
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 from unidecode import unidecode
 
 from build_optimizer import BuildOptimizer
@@ -528,8 +528,9 @@ class Smitele(commands.Cog):
                 nodes.put((child, level + 1))
 
     async def __generate_build_tree(self, tree_item: Item) -> io.BytesIO:
-        spacing = 12
-        thumb_size = 48
+        spacing = 24
+        thumb_size = 96
+        border_width = 2
         if tree_item.type != ItemType.ITEM:
             raise ValueError
         root = self.__build_item_tree(ItemTreeNode(self.__items[tree_item.root_item_id]))
@@ -541,17 +542,27 @@ class Smitele(commands.Cog):
                 continue
             item_levels[level] = [node.item]
 
-        width = (thumb_size * root.width) + (spacing * (root.width - 1))
-        height = (thumb_size * root.depth) + (spacing * (root.depth - 1))
-        pos_y = height - thumb_size
+        width = (thumb_size * root.width) + \
+            (spacing * (root.width - 1)) + \
+            (border_width * (root.width + 1))
+
+        height = (thumb_size * root.depth) + \
+            (spacing * (root.depth - 1)) + \
+            (border_width * (root.depth + 1))
+
+        pos_y = height - thumb_size - 2*border_width
+        image_middles: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]] = {}
 
         with Image.new('RGBA', (width, height), (250, 250, 250, 0)) as output_image:
             for level, items in sorted(item_levels.items(), key=lambda k: k[0]):
-                level_width = (thumb_size * len(items)) + (spacing * (len(items) - 1))
+                level_width = (thumb_size * len(items)) + \
+                    (spacing * (len(items) - 1)) + \
+                    (border_width * (len(items) + 1))
+
                 level_pos_x = 0
                 if level_width < width:
                     level_pos_x = int((width / 2) - (level_width / 2))
-                level_pos_y = pos_y - level * (thumb_size + spacing)
+                level_pos_y = pos_y - level * (thumb_size + spacing + border_width)
                 for item in items:
                     with await item.get_icon_bytes() as item_bytes:
                         with Image.open(item_bytes) as image:
@@ -559,8 +570,24 @@ class Smitele(commands.Cog):
                                 image = image.resize((thumb_size, thumb_size))
                             if image.mode != 'RGBA':
                                 image = image.convert('RGBA')
+                            image = ImageOps.expand(image, border=border_width, fill='white')
                             output_image.paste(image, (level_pos_x, level_pos_y))
-                    level_pos_x = level_pos_x + spacing + thumb_size
+                            middle_x = level_pos_x + int(((thumb_size + 2*border_width) / 2))
+                            image_middles[item.id] = (
+                                # Top Middle
+                                (middle_x, level_pos_y),
+                                # Bottom Middle
+                                (middle_x, level_pos_y + thumb_size + 2*border_width)
+                            )
+                    level_pos_x = level_pos_x + spacing + thumb_size + border_width
+            for node, _ in self.__level_order(root):
+                if not any(node.children):
+                    continue
+                for child in node.children:
+                    ImageDraw.Draw(output_image).line(
+                        [image_middles[node.item.id][0], image_middles[child.item.id][1]],
+                        fill='white',
+                        width=3)
 
             file = io.BytesIO()
             output_image.save(file, format='PNG')
@@ -592,6 +619,7 @@ class Smitele(commands.Cog):
         if item is None:
             await send_invalid(f'{item_name} is not an item!')
             return
+        await message.channel.typing()
         item_embed = discord.Embed(color=discord.Color.blue(), title=f'{item.name} Info:')
         item_embed.set_thumbnail(url=item.icon_url)
 
@@ -630,6 +658,7 @@ class Smitele(commands.Cog):
             value=f'**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}')
 
         await message.channel.send(embed=item_embed)
+        await message.channel.typing()
 
         if item.type == ItemType.ITEM and item.active:
             tree_embed = discord.Embed(
@@ -639,6 +668,10 @@ class Smitele(commands.Cog):
                 file = discord.File(tree_image, filename='tree.png')
                 tree_embed.set_image(url='attachment://tree.png')
                 await message.channel.send(file=file, embed=tree_embed)
+
+    @commands.command(aliases=['g'])
+    async def god(self, message: discord.Message, *args: tuple):
+        pass
 
     @commands.command(aliases=['b'])
     @commands.max_concurrency(1, per=commands.BucketType.guild)
