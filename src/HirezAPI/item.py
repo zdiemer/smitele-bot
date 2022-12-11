@@ -135,7 +135,9 @@ class Item:
 
         secondary: str = obj['ItemDescription']['SecondaryDescription']
         if secondary is not None and secondary != '':
-            secondary = secondary.replace('<n>', '')
+            secondary = secondary.replace('<n>', '')\
+                .replace("<font color='#F44242'>", '')\
+                .replace("<font color='#42F46E'>", '')
             if secondary.startswith('AURA'):
                 item.aura = secondary.replace('AURA - ', '', 1)
             else:

@@ -21,12 +21,13 @@ import io
 import json
 import math
 import os
+import queue
 import random
 import time
 import traceback
 from enum import Enum
 from json.decoder import JSONDecodeError
-from typing import Any, Callable, Coroutine, Dict, List, Set, Tuple
+from typing import Any, Callable, Coroutine, Dict, Generator, List, Set, Tuple
 
 import aiohttp
 import discord
@@ -495,61 +496,74 @@ class Smitele(commands.Cog):
     def __get_direct_children(self, item: Item) -> List[Item]:
         children: List[Item] = []
         for i in self.__items.values():
-            if i.parent_item_id == item.id:
+            if i.parent_item_id == item.id and i.active:
                 children.append(i)
         return children
 
     def __build_item_tree(self, root: ItemTreeNode) -> ItemTreeNode:
         children = self.__get_direct_children(root.item)
+        child_count = 0
         level_width = 0
         child_depth = 0
         for child in children:
             if child.tier == 4 and not child.glyph:
                 continue
+            child_count += 1
             child_node = self.__build_item_tree(ItemTreeNode(child, root.depth + 1))
             root.add_child(child_node)
             level_width += len(child_node.children)
             child_depth = max(child_depth, child_node.depth)
-        root.width = max(root.width, level_width)
+        root.width = max(root.width, level_width, child_count)
         root.depth = max(root.depth, child_depth)
         return root
 
-    def __walk_tree_by_level(self, root: ItemTreeNode):
-        yield root.children
-        for child in root.children:
-           self.__walk_tree_by_level(child)
+    def __level_order(self, root: ItemTreeNode) -> Generator[Tuple[ItemTreeNode, int], None, None]:
+        nodes: queue.Queue[Tuple[ItemTreeNode, int]] = queue.Queue()
+        nodes.put((root, 0))
 
-    async def __generate_build_tree(self, item: Item) -> io.BytesIO:
-        spacing = 24
+        while nodes.qsize() > 0:
+            node, level = nodes.get()
+            yield (node, level)
+            for child in node.children:
+                nodes.put((child, level + 1))
+
+    async def __generate_build_tree(self, tree_item: Item) -> io.BytesIO:
+        spacing = 12
         thumb_size = 48
-        if item.type != ItemType.ITEM:
+        if tree_item.type != ItemType.ITEM:
             raise ValueError
-        root = self.__build_item_tree(ItemTreeNode(self.__items[item.root_item_id]))
+        root = self.__build_item_tree(ItemTreeNode(self.__items[tree_item.root_item_id]))
+
+        item_levels: Dict[int, List[Item]] = {}
+        for node, level in self.__level_order(root):
+            if level in item_levels:
+                item_levels[level].append(node.item)
+                continue
+            item_levels[level] = [node.item]
+
         width = (thumb_size * root.width) + (spacing * (root.width - 1))
         height = (thumb_size * root.depth) + (spacing * (root.depth - 1))
-        pos_x, pos_y (int((width / 2) - (thumb_size / 2)), height - thumb_size)
+        pos_y = height - thumb_size
+
         with Image.new('RGBA', (width, height), (250, 250, 250, 0)) as output_image:
-            pos_x, pos_y = (0, 0)
-            for idx, item in enumerate(build):
-                # First requesting and saving the image from the URLs we got
-                with await item.get_icon_bytes() as item_bytes:
-                    try:
+            for level, items in sorted(item_levels.items(), key=lambda k: k[0]):
+                level_width = (thumb_size * len(items)) + (spacing * (len(items) - 1))
+                level_pos_x = 0
+                if level_width < width:
+                    level_pos_x = int((width / 2) - (level_width / 2))
+                level_pos_y = pos_y - level * (thumb_size + spacing)
+                for item in items:
+                    with await item.get_icon_bytes() as item_bytes:
                         with Image.open(item_bytes) as image:
-                            # Resize the image if necessary, Hirez doesn't return a consistent size
                             if image.size != (thumb_size, thumb_size):
                                 image = image.resize((thumb_size, thumb_size))
                             if image.mode != 'RGBA':
                                 image = image.convert('RGBA')
-                            output_image.paste(image, (pos_x, pos_y))
-                            if idx != 2:
-                                pos_x += thumb_size
-                            if idx == 2:
-                                pos_x, pos_y = (0, thumb_size)
-                    except Exception as ex:
-                        print(f'Unable to create an image for {item.name}, {ex}')
+                            output_image.paste(image, (level_pos_x, level_pos_y))
+                    level_pos_x = level_pos_x + spacing + thumb_size
 
             file = io.BytesIO()
-            output_image.save(file, format='JPEG', quality=95)
+            output_image.save(file, format='PNG')
             file.seek(0)
             return file
 
@@ -582,25 +596,49 @@ class Smitele(commands.Cog):
         item_embed.set_thumbnail(url=item.icon_url)
 
         stats = '\n'
-        if not item.active:
-            stats += '**Inactive Item** ❌\n\n'
-        elif item.is_starter:
-            stats += '**Starter Item** 1️⃣\n\n'
-        elif item.glyph:
-            stats += '**Glyph** ⬆️\n\n'
-        for prop in item.item_properties:
-            stats += f'**{prop.attribute.display_name}**: '\
-                f'{int(prop.flat_value or (prop.percent_value * 100))}'\
-                f'{"%" if prop.percent_value is not None else ""}\n'
+        if item.type == ItemType.ITEM:
+            if not item.active:
+                stats += '**Inactive Item** ❌\n\n'
+            elif item.is_starter:
+                stats += '**Starter Item** 1️⃣\n\n'
+            elif item.glyph:
+                stats += '**Glyph** ⬆️\n\n'
+
+            for prop in item.item_properties:
+                stats += f'**{prop.attribute.display_name}**: '\
+                    f'{int(prop.flat_value or (prop.percent_value * 100))}'\
+                    f'{"%" if prop.percent_value is not None else ""}\n'
+            if any(item.restricted_roles):
+                stats += '\n**Can\'t Build On**:\n'\
+                    + ', '.join([f'_{role.name.title()}s_' for role in item.restricted_roles])\
+                    + '\n'
+
+        header = '**Passive**:\n' if item.type == ItemType.ITEM else ''
         if item.passive is not None and item.passive != '':
-            stats += f'\n**Passive**:\n_{item.passive}_\n'
+            stats += f'\n{header}_{item.passive}_\n'
         elif item.aura is not None and item.aura != '':
             stats += f'\n**Aura**:\n_{item.aura}_\n'
         elif item.description is not None and item.description != '':
             stats += f'\n_{item.description}_\n'
-        item_embed.add_field(name='Base Attributes:', value=stats)
-        await self.__generate_build_tree(item)
+
+        item_embed.add_field(name=f'{item.type.name.title()} Properties:', value=stats)
+
+        optimizer = BuildOptimizer(self.__gods[GodId.AGNI], [], self.__items)
+        total_cost = optimizer.compute_item_price(item)
+        item_embed.add_field(
+            name='Cost:',
+            value=f'**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}')
+
         await message.channel.send(embed=item_embed)
+
+        if item.type == ItemType.ITEM and item.active:
+            tree_embed = discord.Embed(
+                color=discord.Color.blue(),
+                title=f'{self.__items[item.root_item_id].name} Tree:')
+            with await self.__generate_build_tree(item) as tree_image:
+                file = discord.File(tree_image, filename='tree.png')
+                tree_embed.set_image(url='attachment://tree.png')
+                await message.channel.send(file=file, embed=tree_embed)
 
     @commands.command(aliases=['b'])
     @commands.max_concurrency(1, per=commands.BucketType.guild)
