@@ -1,4 +1,5 @@
 import datetime
+from typing import Any, Dict, List
 
 import discord
 from discord.ext import commands
@@ -163,7 +164,7 @@ class PlayerStats(commands.Cog):
             else '🏅' if tier_id.value <= 20 \
             else '💎' if tier_id.value <= 25 \
             else '🏆' if tier_id.value == 26 else '💯'
-        return f'{emoji} **{tier_id.display_name}** ({int(mmr)} MMR)'
+        return f'{emoji} **{tier_id.display_name}** ({int(round(mmr))} MMR)'
 
     @commands.command(aliases=['live'])
     async def livematch(self, message: discord.Message, *args: tuple):
@@ -204,8 +205,14 @@ class PlayerStats(commands.Cog):
             await self.__send_invalid(message, base, invalid_msg, False)
             return
         live_match = await self.__provider.get_match_player_details(player_status.match_id)
-        team_order = list(filter(lambda p: int(p['taskForce']) == 1, live_match))
-        team_chaos = list(filter(lambda p: int(p['taskForce']) == 2, live_match))
+
+        teams: Dict[int, List[Any]] = {}
+        for p in live_match:
+            team = int(p['taskForce'])
+            if team in teams:
+                teams[team].append(p)
+            else:
+                teams[team] = [p]
 
         def create_team_output(team_list: list) -> str:
             output = ''
@@ -226,8 +233,13 @@ class PlayerStats(commands.Cog):
                 title=f'{player.name}\'s Live '\
                       f'{player_status.queue_id.display_name} Details')
 
-        players_embed.add_field(name='🔵 Order Side', value=create_team_output(team_order))
-        players_embed.add_field(name='🔴 Chaos Side', value=create_team_output(team_chaos))
+        if len(teams) == 2:
+            players_embed.add_field(name='🔵 Order Side', value=create_team_output(teams[1]))
+            players_embed.add_field(name='🔴 Chaos Side', value=create_team_output(teams[2]))
+        else:
+            for team_id, players in sorted(teams.items(), key=lambda t: t[0]):
+                players_embed.add_field(
+                    name=f'Team {team_id}', value=create_team_output(players))
 
         await message.channel.send(embed=players_embed)
 
@@ -402,12 +414,23 @@ class PlayerStats(commands.Cog):
         player = await self.__get_player_or_return_invalid(player_name, message)
         if player is None:
             return
-        def get_rank_string(queue_id: QueueId, tier_id: TierId, mmr: float) -> str:
+        def get_rank_string(
+                queue_id: QueueId,
+                tier_id: TierId,
+                mmr: float,
+                points: int, 
+                wins: int,
+                losses: int) -> str:
+            points_str = ''
+            if tier_id.value < 25:
+                points_str = f' {points}/100 TP'
             return f'• {queue_id.display_name.replace("Controller", "🎮")}: '\
-                   f'{self.get_tier_string(tier_id, mmr)}\n'
+                   f'{self.get_tier_string(tier_id, mmr)}{points_str} - '\
+                   f'{wins} wins / {losses} losses ({wins + losses} total)\n'
         rank_string = ''
         for queue, stats in sorted(player.ranked_stats.items(), key=lambda q: q[0].name):
-            rank_string += get_rank_string(queue, stats.tier, stats.mmr)
+            rank_string += get_rank_string(
+                queue, stats.tier, stats.mmr, stats.points, stats.wins, stats.losses)
         if rank_string == '':
             await message.channel.send(embed=discord.Embed(color=discord.Color.yellow(), \
             description=f'{player.name} has no ranks...'))

@@ -43,6 +43,8 @@ class ItemAttribute(Enum):
 
         if value == 'magical protections':
             return ItemAttribute.MAGICAL_PROTECTION
+        if value == 'ccr':
+            return ItemAttribute.CROWD_CONTROL_REDUCTION
 
         return ItemAttribute(value)
 
@@ -121,10 +123,7 @@ class Item:
         item.price = int(obj['Price'])
         item.is_starter = bool(obj['StartingItem'])
         item.type = ItemType(obj['Type'].lower())
-        # Temporary correction for this mistake in Hirez's response
-        item.icon_url = obj['itemIcon_URL']\
-            .replace('manticores-spikes', 'manticores-spike')\
-            .replace('sphinxs-baubles', 'sphinxs-bauble')
+        item.icon_url = obj['itemIcon_URL']
         item.passive_properties = set()
 
         restricted = obj['RestrictedRoles'].lower()

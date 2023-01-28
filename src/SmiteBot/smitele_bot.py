@@ -39,7 +39,7 @@ from unidecode import unidecode
 
 from build_optimizer import BuildOptimizer
 from god import God
-from god_types import GodId, GodType
+from god_types import GodId, GodRole, GodType
 from item import Item, ItemAttribute, ItemType, ItemTreeNode
 from player_stats import PlayerStats
 from player import Player
@@ -59,6 +59,65 @@ class BuildCommandType(Enum):
 class BuildPrioritization(Enum):
     POWER = 'power'
     DEFENSE = 'defense'
+
+class GodOptions:
+    god_id: GodId
+    build: List[Item]
+    level: int
+    include_abilities: bool
+    __items: Dict[int, Item]
+
+    def __init__(self, items: Dict[int, Item]):
+        self.god_id = None
+        self.build = []
+        self.level = 20
+        self.include_abilities = False
+        self.__items = items
+
+    def set_option(self, option: str, value: str):
+        if option in ('-g', '--god'):
+            self.god_id = GodId[value.upper().replace(' ', '_')\
+                .replace("'", '')] # handles Chang'e case
+        elif option in ('-b', '--build'):
+            split_build = value.split(',')
+            build_ids = []
+            build: List[Item] = []
+
+            # First try parsing as integers
+            try:
+                for i in split_build:
+                    build_ids.append(int(i))
+            except ValueError:
+                build_ids = []
+
+            if not any(build_ids):
+                for _bi in split_build:
+                    found_item = False
+                    for i in self.__items.values():
+                        if i.active and i.type == ItemType.ITEM and \
+                                i.name.lower() == _bi.lower().strip():
+                            build.append(i)
+                            found_item = True
+                            break
+                    if not found_item:
+                        raise ValueError
+            else:
+                for _id in build_ids:
+                    build.append(self.__items[_id])
+            self.build = build
+        elif option in ('-l', '--level'):
+            self.level = int(value)
+        elif option in ('-ia', '--include-abilities'):
+            self.include_abilities = True
+        else:
+            raise InvalidOptionError
+
+    def validate(self) -> str | None:
+        if self.god_id is None:
+            return 'Must specify a god using the -g or --god option.'
+        if self.level > 20 or self.level < 1:
+            return 'Level must be between 1 and 20'
+        return None
 
 class BuildOptions:
     build_type: BuildCommandType
@@ -176,11 +235,11 @@ class _SmiteleRoundContext:
     file_name: str
     round_number: int
 
-    __total_rounds: int
+    total_rounds: int
 
     def __init__(self, total_rounds: int) -> None:
         """Inits _SmiteleRoundContext given a number of rounds"""
-        self.__total_rounds = total_rounds
+        self.total_rounds = total_rounds
 
     def has_file(self) -> bool:
         """Checks whether this round context has a file.
@@ -200,7 +259,7 @@ class _SmiteleRoundContext:
         Returns:
             A boolean indicating whether this is the final round's context.
         """
-        return self.round_number == self.__total_rounds
+        return self.round_number == self.total_rounds
 
     def reset_file(self):
         self.file_bytes = None
@@ -324,12 +383,12 @@ class Smitele(commands.Cog):
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = \
         lambda self, name: f'https://smite.fandom.com/wiki/{name}_voicelines'
 
-    def __init__(self, _bot: commands.Bot, provider: SmiteProvider) -> None:
+    def __init__(self, _bot: commands.Bot, _provider: SmiteProvider) -> None:
         # Setting our intents so that Discord knows what our bot is going to do
         self.__bot = _bot
-        self.__smite_client = provider
-        self.__gods = provider.gods
-        self.__items = provider.items
+        self.__smite_client = _provider
+        self.__gods = _provider.gods
+        self.__items = _provider.items
         self.__running_sessions = {}
 
         if self.__config is None:
@@ -352,15 +411,31 @@ class Smitele(commands.Cog):
         await self.__bot.change_presence(status=discord.Status.online, activity=activity)
         print('Smite-le Bot is ready!')
 
-    @commands.command(aliases=["smite-le", "st"])
+    @commands.command(
+        aliases=['smite-le', 'st'],
+        brief='Starts a game of Smite-le.',
+        description='Starts a game of Smite-le. This is a five round game where '\
+            'you must guess the god or goddess given different information per round.',
+        usage='[options]\n\nOptions:\n\t**easy** - gives you a list of gods to guess from\n\n'\
+            'Example Usage:\n\n$smitele easy\n'
+    )
     async def smitele(self, message: discord.Message, *args: tuple) -> None:
         await self.__smitele(message, *args)
 
-    @commands.command()
+    @commands.command(
+        brief='Stops a running game of Smite-le.',
+        description='This command allows you to stop a running game of Smite-le. '\
+            'If you\'re not the bot owner, you\'ll only be able to stop your own game.',
+        usage='[session_id]'
+    )
     async def stop(self, message: discord.Message, *args: tuple) -> None:
         await self.__stop(message, *args)
 
-    @commands.command()
+    @commands.command(
+        brief='Returns the session ID for the running Smite-le game.',
+        description='Returns the session ID for the running Smite-le game. '\
+            'This command will only function for the bot owner.'
+    )
     @commands.is_owner()
     async def sessionid(self, context: commands.Context) -> None:
         game_session_id = hash(SmiteleGameContext(context.message.author, context.message.channel))
@@ -372,7 +447,12 @@ class Smitele(commands.Cog):
                 color=discord.Color.red(), \
                 title='No running game session!'))
 
-    @commands.command()
+    @commands.command(
+        brief='Lists all running sessions of Smite-le.',
+        description='Lists all running sessions of Smite-le, '\
+            'including the player who started the game. This command '\
+            'will only function for the bot owner.'
+    )
     @commands.is_owner()
     async def sessions(self, context: commands.Context) -> None:
         if len(self.__running_sessions) == 0:
@@ -387,7 +467,11 @@ class Smitele(commands.Cog):
             await context.message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
                 description=output_msg))
 
-    @commands.command()
+    @commands.command(
+        brief='Lists Hirez API usage.',
+        description='Lists resources currently exhausted according to Hirez API limitations. '\
+            'This command will only function for the bot owner.'
+    )
     @commands.is_owner()
     async def usage(self, context: commands.Context):
         data_used = await self.__smite_client.get_data_used()
@@ -406,7 +490,11 @@ class Smitele(commands.Cog):
         await context.channel.send(embed=discord.Embed(
             color=discord.Color.gold(), title='Data Usage', description=desc))
 
-    @commands.command()
+    @commands.command(
+        brief='Resigns the running Smite-le game.',
+        description='Resigns the player\'s current running Smite-le game. '\
+            'This command will return the answer for the game.'
+    )
     async def resign(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))
         if game_session_id in self.__running_sessions:
@@ -418,7 +506,12 @@ class Smitele(commands.Cog):
                 color=discord.Color.red(), \
                 title='No running game session!'))
 
-    @commands.command(aliases=["quit"])
+    @commands.command(
+        aliases=['quit'],
+        brief='Closes Smite-le Bot.',
+        description='Shuts down Smite-le Bot gracefully. This command '\
+            'can only be used by the bot owner.'
+    )
     @commands.is_owner()
     async def shutdown(self, message: discord.Message) -> None:
         await message.channel.send(embed=discord.Embed(color=discord.Color.gold(), \
@@ -426,7 +519,11 @@ class Smitele(commands.Cog):
         await self.__bot.change_presence(status=discord.Status.offline)
         await self.__bot.close()
 
-    @commands.command()
+    @commands.command(
+        brief='Triggers the bot to join call and play a cheeky noise.',
+        description='Using this command will trigger the bot to join the sender\'s '\
+            'audio channel and play the audio clip "Cry More" from Cabrakan\'s Nerd Rage skin.'
+    )
     async def crymore(self, context: commands.Context):
         cry_more_url = 'https://static.wikia.nocookie.net/smite_gamepedia/'\
             'images/3/3e/Nerd_Rage_Cabrakan_Other_S.ogg/revision/latest?cb=20170325002129'
@@ -448,14 +545,17 @@ class Smitele(commands.Cog):
                         after=lambda _: asyncio.run_coroutine_threadsafe(\
                             coro=disconnect(), loop=voice_client.loop).result())
 
-    @commands.command()
+    @commands.command(
+        brief='Swog.',
+        description='Swog.'
+    )
     async def swog(self, context: commands.Context):
         await context.channel.send(
             embed=discord.Embed(
                 color=discord.Color.blue(), title='You\'ve got the wrong bot.'))
 
-    def __parse_build_opts(self, args: List[str]) -> BuildOptions:
-        build_options = BuildOptions()
+    @staticmethod
+    def __parse_opts(args: List[str]) -> Generator[Tuple[str, str], None, None]:
         idx = 0
         while idx < len(args):
             arg = args[idx]
@@ -477,21 +577,36 @@ class Smitele(commands.Cog):
                         if end_char == delimiter:
                             value += f'{"" if inner_idx == idx else " "}'\
                                 f'{args[inner_idx][start:-1].replace(delimiter, "")}'
-                            build_options.set_option(option, value)
+                            yield (option, value)
                             idx = inner_idx + 1
                             continue
                         value += f'{"" if inner_idx == idx else " "}{args[inner_idx][start:]}'
                         inner_idx += 1
                     continue
-                else:
-                    if eq_idx is not None:
-                        value = arg[eq_idx + 1:]
-                    elif len(args) > idx + 1:
+                if eq_idx is not None:
+                    value = arg[eq_idx + 1:]
+                elif len(args) > idx + 1:
+                    if not args[idx + 1].startswith('-'):
                         value = args[idx + 1]
                         idx += 1
-                build_options.set_option(option, value)
+                    else:
+                        value = None
+                else:
+                    value = None
+                yield (option, value)
             idx += 1
+
+    def __parse_build_opts(self, args: List[str]) -> BuildOptions:
+        build_options = BuildOptions()
+        for option, value in self.__parse_opts(args):
+            build_options.set_option(option, value)
         return build_options
+
+    def __parse_god_opts(self, args: List[str]) -> GodOptions:
+        god_options = GodOptions(self.__items)
+        for option, value in self.__parse_opts(args):
+            god_options.set_option(option, value)
+        return god_options
 
     def __get_direct_children(self, item: Item) -> List[Item]:
         children: List[Item] = []
@@ -594,11 +709,16 @@ class Smitele(commands.Cog):
             file.seek(0)
             return file
 
-    @commands.command(aliases=['i'])
+    @commands.command(
+        aliases=['i'],
+        brief='Fetches information about a given item.',
+        description='Given an item name, this command fetches and returns information about the item.',
+        usage='item name (required)\n\nExample Usage:\n\n$item breastplate of valor\n'
+    )
     async def item(self, message: discord.Message, *args: tuple):
         async def send_invalid(additional_info: str = ''):
             desc = f'Invalid command! {self.__bot.user.mention} '\
-                    'accepts the command `$item itemname` or `$i itemname `'
+                    'accepts the command `$item item name` or `$i item name `'
             if additional_info != '':
                 desc = additional_info
             await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
@@ -669,11 +789,201 @@ class Smitele(commands.Cog):
                 tree_embed.set_image(url='attachment://tree.png')
                 await message.channel.send(file=file, embed=tree_embed)
 
-    @commands.command(aliases=['g'])
+    @commands.command(
+        aliases=['g'],
+        brief='Fetches information about a given god or goddess.',
+        description='Given a god or goddess, this command will return the god\'s stats, '\
+            'along with other information based on the provided options.',
+        usage='[options]\n\nOptions:\n\t**-g (--god)** [Required] - The name of the god or goddess'\
+            '\n\t**-b (--build)** - A comma separated list of items (IDs or names) to compute god/goddess stats with'\
+            '\n\t**-l (--level)** - The level to compute stats at'\
+            '\n\t**-ia (--include-abilities)** - No arguments, prints out ability information if provided.\n\n'\
+            'Example Usage:\n\n$god --god=\'Yu Huang\' --build=\'Evolved Book of Thoth, Soul Reaver\' --level 15 --include-abilities\n'
+    )
     async def god(self, message: discord.Message, *args: tuple):
-        pass
+        async def send_invalid(additional_info: str = ''):
+            desc = f'Invalid command! {self.__bot.user.mention} '\
+                    'accepts the command `$god -g god -b=\'comma '\
+                    'separated build (IDs or names)\' -l level`'
+            if additional_info != '':
+                desc = additional_info
+            await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
+                description=desc))
+        flatten_args = [''.join(arg) for arg in args]
 
-    @commands.command(aliases=['b'])
+        if not any(flatten_args):
+            await send_invalid()
+            return
+
+        god_options = self.__parse_god_opts(flatten_args)
+        god = self.__gods[god_options.god_id]
+
+        def check_invalid_item(item: Item) -> bool:
+            if all([p.attribute.god_type is not None \
+                    and p.attribute.god_type != god.type for p in item.item_properties]):
+                return True
+            # Odysseus' Bow
+            if item.id == 10482 and god.type == GodType.MAGICAL:
+                return True
+            # Magic Acorn
+            if item.root_item_id == 18703 and god.id != GodId.RATATOSKR:
+                return True
+            if god.role in item.restricted_roles:
+                return True
+            return False
+
+        def check_invalid_build(items: List[Item]) -> bool:
+            if any(filter(check_invalid_item, items)):
+                return True
+            glyph_count = 0
+            starter_count = 0
+            acorn_count = 0
+
+            for i in items:
+                if i.glyph:
+                    glyph_count += 1
+                if i.is_starter:
+                    starter_count += 1
+                if i.root_item_id == 18703:
+                    acorn_count += 1
+            return glyph_count > 1 or starter_count > 1 or acorn_count > 1
+
+        if check_invalid_build(god_options.build):
+            await send_invalid(f'Build contained an item that {god.name} cannot build.')
+            return
+
+        god_embed = discord.Embed(
+            color=discord.Color.blue(),
+            title=f'{god.name} Stats @ Level {god_options.level}:')
+
+        god_embed.set_thumbnail(url=god.icon_url)
+
+        stats = ''
+        for attr in list(ItemAttribute):
+            stat_at_level = god.get_stat_at_level(attr, god_options.level)
+            if stat_at_level == 0:
+                continue
+            stats += f'**{attr.display_name}**: {stat_at_level:g}\n'
+
+        god_embed.add_field(name='Base Attributes:', value=stats, inline=True)
+
+        def basic_attack(base: float, per_level: float, scaling: float):
+            return f'{(base + ((god_options.level - 1) * per_level)):g} '\
+                f'@ Level {god_options.level} '\
+                f'(+{int(scaling * 100)}% of '\
+                f'{god.type.name.title()} Power)'
+
+        basic_attrs = basic_attack(
+            god.stats.basic_attack.base_damage,
+            god.stats.basic_attack.per_level,
+            god.stats.basic_attack.scaling
+        )
+
+        if god.stats.basic_attack.base_damage_back > 0:
+            back = basic_attack(
+                god.stats.basic_attack.base_damage_back,
+                god.stats.basic_attack.per_level_back,
+                god.stats.basic_attack.scaling_back
+            )
+            basic_attrs += f' out, {back} back'
+
+        god_embed.add_field(name='Basic Attack Attributes:', value=basic_attrs, inline=True)
+
+        def get_role_emoji(role: GodRole):
+            if role == GodRole.ASSASSIN:
+                return '🗡️'
+            if role == GodRole.GUARDIAN:
+                return '🛡️'
+            if role == GodRole.HUNTER:
+                return '🏹'
+            if role == GodRole.MAGE:
+                return '🪄'
+            if role == GodRole.WARRIOR:
+                return '⚔️'
+            return '❓'
+
+        additional_info = f'**Role**: {god.role.name.title()} {get_role_emoji(god.role)}\n'\
+            f'**Range**: {god.range.name.title()}\n'\
+            f'**Title**: {god.title}\n'\
+            f'**Pantheon**: {god.pantheon}\n'\
+            f'**Pro{"s" if len(god.pros) > 1 else ""}**: '\
+            f'{", ".join(p.name.replace("_", " ").title() for p in god.pros)}\n'\
+
+        god_embed.add_field(name='Additional Info:', value=additional_info)
+
+        if any(god_options.build):
+            optimizer = BuildOptimizer(god, [], self.__items)
+            god_embed.add_field(
+                name='Build Attributes:',
+                value=optimizer.get_build_stats_string(
+                    god_options.build, god_options.level),
+                inline=True)
+            with await self.__make_build_image(god_options.build) as file:
+                dfile = discord.File(file, filename=self.BUILD_IMAGE_FILE)
+                god_embed.set_image(url=f'attachment://{self.BUILD_IMAGE_FILE}')
+                await message.channel.send(file=dfile, embed=god_embed)
+        else:
+            await message.channel.send(embed=god_embed)
+
+        if not god_options.include_abilities:
+            return
+
+        for idx, ability in enumerate(god.abilities):
+            passive = ' (Passive)' if idx == 4 else ''
+            ability_embed = discord.Embed(
+                color=discord.Color.blue(),
+                title=f'{god.name} - {ability.name}{passive}')
+            ability_embed.set_thumbnail(url=ability.icon_url)
+
+            desc = f'_{ability.description}_\n'
+            for prop in ability.ability_properties:
+                desc += f'\n**{prop.name}** - {prop.value}'
+
+            ability_embed.add_field(name='Description:', value=desc)
+
+            rank = ''
+            for prop in ability.rank_properties:
+                rank += f'**{prop.name}** - {prop.rank_values}\n'
+            if rank != '':
+                ability_embed.add_field(name='Properties:', value=rank)
+
+            if any(ability.cooldown_by_rank):
+                cooldown = '/'.join([f'{int(c):,}' for c in ability.cooldown_by_rank])
+                ability_embed.add_field(name='Cooldown:', value=cooldown)
+
+            if any(ability.cost_by_rank):
+                modifier = ability.cost_modifier
+                cost = '/'.join([f'{int(c):,}' for c in ability.cost_by_rank])
+                ability_embed.add_field(name='Cost:', value=f'{cost} {modifier or "Mana"}')
+
+            await message.channel.send(embed=ability_embed)
+
+    @commands.command(
+        aliases=['b'],
+        brief='Returns a build for a god, given configuration.',
+        description='The build command will return a final build for a '\
+            'god given a number of configuration options. By default, it '\
+            'returns a random build for a random god, but parameters '\
+            'are able to configure the output.',
+        usage='[options]\n\nOptions:\n\t**-g (--god)** - The name of the god '\
+            'or goddess. If not provided, will be random.\n\t**-t (--type)** - '\
+            'The type of build to provide. Options are _random_ (default), _top_ '\
+            '(build from a top leaderboard player for this god), or _optimize_ '\
+            '(the bot will attempt to construct a build that achieves pre-configured '\
+            'stat targets)\n\t**-r (--role)** - The role (mid, carry, etc) to attempt '\
+            'to find a build for. Only valid with _top_\n\t**-p (--prioritize)** - '\
+            'Either power or defense, used to configure the _random_ option. Will '\
+            'prioritize items of the entered type\n\t**-q (--queue)** - The queue to fetch'\
+            ' a build for. In the _top_ type, only games of the passed in type will be '\
+            'queried. Else, in the _random_ or _optimize_ command, banned items for the '\
+            'queue will be respected. Defaults to Ranked Conquest. When used in combination '\
+            'with --role, this must be a Conquest game mode\n\t**-s (--stat)** - '\
+            'If configured, the _random_ or _optimize_ types will attempt to generate a '\
+            'build prioritizing the stat that\'s configured by this option\n\n'\
+            'Example Usages:\n$build --god=\'Zhong Kui\' --type top --role mid --queue '\
+            'conquest\n$build -g Bakasura -p power\n$build -g Ratatoskr -s=\'physical '\
+            'power\'\n$build -g Aphrodite -t optimize\n'
+    )
     @commands.max_concurrency(1, per=commands.BucketType.guild)
     async def build(self, message: discord.Message, *args: tuple):
         async def send_invalid(additional_info: str = ''):
@@ -769,7 +1079,7 @@ class Smitele(commands.Cog):
                 if prioritize is not None and prioritize not in ('power', 'defense'):
                     await send_invalid(f'{prioritize} is not a valid option for random!')
                     return
-                else:
+                elif prioritize is not None:
                     build_options.prioritization = BuildPrioritization(prioritize)
             build = []
 
@@ -1088,22 +1398,29 @@ class Smitele(commands.Cog):
             return
 
         easy_mode = False
+        god_arg = None
         if any(args):
             async def send_invalid():
                 desc = f'Invalid command! {self.__bot.user.mention} '\
                        f'accepts the command `$smitele [easy]` (or `$st [easy]`)'
                 await message.channel.send(embed=discord.Embed(color=discord.Color.red(), \
                     description=desc))
-            if len(args) > 1:
+            try:
+                god_arg = self.__gods[GodId['_'.join([''.join(arg) for arg in args]).upper()\
+                    .replace("'", '')]] # handles Chang'e case
+            except KeyError:
+                pass
+            if god_arg is None and len(args) > 1:
                 await send_invalid()
                 return
-            if ''.join(args[0]) != 'easy':
+            if ''.join(args[0]) == 'easy':
+                easy_mode = True
+            elif god_arg is not None and not await self.__bot.is_owner(message.author):
                 await send_invalid()
                 return
-            easy_mode = True
 
         # Fetching a random god from our list of cached gods
-        game = SmiteleGame(random.choice(list(self.__gods.values())), context)
+        game = SmiteleGame(god_arg or random.choice(list(self.__gods.values())), context)
         if easy_mode:
             game.generate_easy_mode_choices(list(self.__gods.values()))
         self.__running_sessions[game_session_id] = game
@@ -1145,16 +1462,21 @@ class Smitele(commands.Cog):
                        f'{len(round_methods)} attempts.'))
 
         session.current_round = _SmiteleRoundContext(len(round_methods))
+        error_rounds = 0
         for idx, method in enumerate(round_methods):
-            session.current_round.round_number = idx + 1
+            session.current_round.round_number = idx + 1 - error_rounds
             await session.context.channel.typing()
-            if await session.add_task(self.__bot.loop.create_task(method())):
-                return
+            try:
+                if await session.add_task(self.__bot.loop.create_task(method())):
+                    return
+            except IndexError:
+                error_rounds += 1
+                session.current_round.total_rounds -= 1
 
     async def __make_build_image(self, build: List[Item]) -> io.BytesIO:
         # Appending the images into a single build image
         thumb_size = 96
-        with Image.new('RGB', (thumb_size*3, thumb_size*2), (250, 250, 250)) as output_image:
+        with Image.new('RGBA', (thumb_size*3, thumb_size*2), (250, 250, 250, 0)) as output_image:
             pos_x, pos_y = (0, 0)
             for idx, item in enumerate(build):
                 # First requesting and saving the image from the URLs we got
@@ -1164,8 +1486,8 @@ class Smitele(commands.Cog):
                             # Resize the image if necessary, Hirez doesn't return a consistent size
                             if image.size != (thumb_size, thumb_size):
                                 image = image.resize((thumb_size, thumb_size))
-                            if image.mode != 'RGB':
-                                image = image.convert('RGB')
+                            if image.mode != 'RGBA':
+                                image = image.convert('RGBA')
                             output_image.paste(image, (pos_x, pos_y))
                             if idx != 2:
                                 pos_x += thumb_size
@@ -1175,7 +1497,7 @@ class Smitele(commands.Cog):
                         print(f'Unable to create an image for {item.name}, {ex}')
 
             file = io.BytesIO()
-            output_image.save(file, format='JPEG', quality=95)
+            output_image.save(file, format='PNG')
             file.seek(0)
             return file
 
@@ -1474,6 +1796,14 @@ class Smitele(commands.Cog):
             embed=discord.Embed(color=discord.Color.red(), description=desc))
         return False
 
+class SmiteBotHelpCommand(commands.MinimalHelpCommand):
+    async def send_pages(self):
+        destination = self.get_destination()
+        embed = discord.Embed(color=discord.Color.blurple(), description='')
+        for page in self.paginator.pages:
+            embed.description += page
+        await destination.send(embed=embed)
+
 if __name__ == '__main__':
     intents = discord.Intents.default()
     # pylint: disable=assigning-non-slot
@@ -1487,4 +1817,5 @@ if __name__ == '__main__':
     asyncio.run(bot.add_cog(smitele))
     asyncio.run(bot.add_cog(smite_triva))
     asyncio.run(bot.add_cog(player_stats))
+    bot.help_command = SmiteBotHelpCommand()
     smitele.start_bot()

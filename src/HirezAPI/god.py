@@ -73,21 +73,6 @@ class GodStat:
 
 class GodStats:
     values: Dict[ItemAttribute, GodStat]
-    health: float
-    health_per_level: float
-    mp5: float
-    mp5_per_level: float
-    magic_protection: float
-    magic_protection_per_level: float
-    magical_power: float
-    magical_power_per_level: float
-    mana: float
-    mana_per_level: float
-    physical_power: float
-    physical_power_per_level: float
-    physical_protection: float
-    physical_protection_per_level: float
-    speed: float
     basic_attack: _basicAttackProperties
 
     def __init__(self):
@@ -212,17 +197,28 @@ class God(object):
 
     def get_stat_at_level(self, stat: ItemAttribute, level: int) -> float:
         try:
-            if ItemAttribute == ItemAttribute.BASIC_ATTACK_DAMAGE:
+            if stat == ItemAttribute.BASIC_ATTACK_DAMAGE:
                 basic = self.stats.basic_attack.base_damage + \
-                    self.stats.basic_attack.per_level * level
+                    self.stats.basic_attack.per_level * (level - 1)
                 basic_back = self.stats.basic_attack.base_damage_back + \
-                    self.stats.basic_attack.per_level_back * level
-                return basic + basic_back
-            if ItemAttribute == ItemAttribute.MOVEMENT_SPEED:
+                    self.stats.basic_attack.per_level_back * (level - 1)
+                total_basic = (basic + basic_back)
+                return total_basic + \
+                    (0.005 * level * total_basic) if self.role == GodRole.HUNTER else 0
+            if stat == ItemAttribute.MOVEMENT_SPEED:
                 level = 8 if level > 8 else level
                 speed = self.stats.values[stat].base
-                return speed + (speed * 0.3 * level)
+                return speed + (speed * 0.03 * (level - 1))
+            if stat == ItemAttribute.COOLDOWN_REDUCTION and self.role == GodRole.WARRIOR:
+                return 0.05 + (0.0025 * level)
+            if stat == ItemAttribute.PHYSICAL_PENETRATION and self.role == GodRole.ASSASSIN:
+                return 5 + (0.25 * level)
+            if stat == ItemAttribute.MAGICAL_POWER and self.role == GodRole.MAGE:
+                mpower = self.stats.values[stat]
+                return (mpower.base + mpower.per_level * (level - 1)) + 20 + level
+            if stat == ItemAttribute.CROWD_CONTROL_REDUCTION and self.role == GodRole.GUARDIAN:
+                return 0.10 + (0.005 * level)
             god_stat = self.stats.values[stat]
-            return god_stat.base + god_stat.per_level * level
+            return god_stat.base + god_stat.per_level * (level - 1)
         except KeyError:
             return 0

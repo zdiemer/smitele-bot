@@ -104,6 +104,7 @@ class GodId(Enum):
     SOBEK = 1747
     SOL = 2074
     SUN_WUKONG = 1944
+    SURTR = 4191
     SUSANO = 2123
     SYLVANUS = 2030
     TERRA = 2147

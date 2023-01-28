@@ -142,6 +142,7 @@ class QueueId(Enum):
     RANKED_CONQUEST = 451
     RANKED_DUEL = 440
     RANKED_JOUST = 450
+    UNLIMITED_CONQUEST_RANKED = 10210
 
     # Ranked (Controller)
     RANKED_CONQUEST_CONTROLLER = 504
@@ -240,6 +241,7 @@ class QueueId(Enum):
     FAFNIRS_WONDERLAND = 484
     FAFNIRS_WONDERLAND_HARD = 485
     HEIMDALLRS_CROSSING = 10155
+    ODINS_ONSLAUGHT = 10204
 
     # Unknown
     NORMAL_SPECIAL_EVENT = 465
@@ -378,6 +380,7 @@ class QueueId(Enum):
             QueueId.FAFNIRS_WONDERLAND,
             QueueId.FAFNIRS_WONDERLAND_HARD,
             QueueId.HEIMDALLRS_CROSSING,
+            QueueId.ODINS_ONSLAUGHT,
         )
 
     @property
@@ -407,7 +410,8 @@ class QueueId(Enum):
                 .replace('Of The', 'of the')\
                 .replace('Fafnirs', "Fafnir's")\
                 .replace('Hard', '(Hard)')\
-                .replace('Heimdallrs', "Heimdallr's")
+                .replace('Heimdallrs', "Heimdallr's")\
+                .replace('Odins', "Odin's")
         return queue
 
 class LanguageCode(Enum):

@@ -575,7 +575,6 @@ class BuildOptimizer:
                 ItemAttribute.MANA: 200,
                 ItemAttribute.PHYSICAL_PENETRATION: (20, 0.30),
                 ItemAttribute.PHYSICAL_POWER: 320,
-                ItemAttribute.PHYSICAL_PROTECTION: 35,
             },
             BuildArchetype.AUTO_ATTACK_ASSASSIN: {
                 ItemAttribute.ATTACK_SPEED: 0.70,
@@ -598,18 +597,14 @@ class BuildOptimizer:
                 ItemAttribute.HEALTH: 300,
                 ItemAttribute.MAGICAL_PROTECTION: 100,
                 ItemAttribute.MANA: 1000,
-                ItemAttribute.MP5: 10,
-                ItemAttribute.PHYSICAL_PENETRATION: (15, 0),
                 ItemAttribute.PHYSICAL_POWER: 150,
                 ItemAttribute.PHYSICAL_PROTECTION: 130,
             },
             BuildArchetype.SUPPORT_GUARDIAN: {
-                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 1000,
-                ItemAttribute.HP5: 30,
-                ItemAttribute.MAGICAL_PROTECTION: 175,
-                ItemAttribute.MP5: 10,
-                ItemAttribute.PHYSICAL_PROTECTION: 150,
+                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
+                ItemAttribute.HEALTH: 1100,
+                ItemAttribute.MAGICAL_PROTECTION: 225,
+                ItemAttribute.PHYSICAL_PROTECTION: 225,
             },
             BuildArchetype.SOLO_GUARDIAN: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.20,
@@ -623,16 +618,14 @@ class BuildOptimizer:
             },
             BuildArchetype.CARRY_HUNTER: {
                 ItemAttribute.ATTACK_SPEED: 0.80,
-                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.75,
                 ItemAttribute.PHYSICAL_LIFESTEAL: 0.25,
-                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 210,
+                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.10),
+                ItemAttribute.PHYSICAL_POWER: 200,
             },
             BuildArchetype.ABILITY_BASED_HUNTER: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.10,
                 ItemAttribute.HEALTH: 100,
-                ItemAttribute.MANA: 1050,
-                ItemAttribute.MP5: 10,
+                ItemAttribute.MANA: 1000,
                 ItemAttribute.PHYSICAL_PENETRATION: (15, 0.20),
                 ItemAttribute.PHYSICAL_POWER: 285,
             },
@@ -694,12 +687,9 @@ class BuildOptimizer:
             BuildArchetype.ABILITY_BASED_WARRIOR: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.20,
                 ItemAttribute.HEALTH: 500,
-                ItemAttribute.HP5: 30,
-                ItemAttribute.MAGICAL_PROTECTION: 100,
+                ItemAttribute.MAGICAL_PROTECTION: 120,
                 ItemAttribute.MANA: 150,
-                ItemAttribute.MP5: 40,
-                ItemAttribute.PHYSICAL_POWER: 100,
-                ItemAttribute.PHYSICAL_PROTECTION: 120,
+                ItemAttribute.PHYSICAL_PROTECTION: 150,
             },
             BuildArchetype.AUTO_ATTACK_WARRIOR: {
                 ItemAttribute.ATTACK_SPEED: 0.30,
@@ -1029,6 +1019,14 @@ class BuildOptimizer:
             if attr in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
                 pct_value = prop.percent_value
                 pct_cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]
+                if attr == ItemAttribute.COOLDOWN_REDUCTION:
+                    if self.god.role == GodRole.WARRIOR:
+                        pct_value += self.god.get_stat_at_level(attr, 20)
+                    if PassiveAttribute.INCREASES_COOLDOWN_CAP in passives:
+                        pct_cap = 0.50
+                if attr == ItemAttribute.CROWD_CONTROL_REDUCTION \
+                        and self.god.role == GodRole.GUARDIAN:
+                    pct_value += self.god.get_stat_at_level(attr, 20)
                 if float(f'{pct_value:.2f}') > float(f'{pct_cap:.2f}'):
                     if attr == ItemAttribute.ATTACK_SPEED:
                         if PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED in \
@@ -1175,12 +1173,12 @@ class BuildOptimizer:
                 add_attribute(attr, prop)
         if protections is not None:
             if ItemAttribute.MAGICAL_PROTECTION in attributes:
-                attributes[ItemAttribute.MAGICAL_PROTECTION] *= protections
+                attributes[ItemAttribute.MAGICAL_PROTECTION].flat_value *= protections
             if ItemAttribute.PHYSICAL_PROTECTION in attributes:
-                attributes[ItemAttribute.PHYSICAL_PROTECTION] *= protections
+                attributes[ItemAttribute.PHYSICAL_PROTECTION].flat_value *= protections
         if maximum_health is not None:
             if ItemAttribute.HEALTH in attributes:
-                attributes[ItemAttribute.HEALTH] *= maximum_health
+                attributes[ItemAttribute.HEALTH].flat_value *= maximum_health
         return attributes
 
     def compute_item_price(self, item: Item) -> int:
@@ -1349,17 +1347,19 @@ class BuildOptimizer:
     def filter_by_stat(items: List[Item], stat: ItemAttribute) -> List[Item]:
         return list(filter(lambda i: stat in (p.attribute for p in i.item_properties), items))
 
-    def get_build_stats_string(self, build: List[Item]) -> str:
+    def get_build_stats_string(self, build: List[Item], level: int = 20) -> str:
         build_stats = self.compute_build_stats(build)
         total_price = self.compute_price(build)
         desc = f'**Stats** _(Total Price - {total_price:,})_:\n\n'
         stats = build_stats.values()
-        def get_level_20(attr: ItemAttribute, value: float) -> str:
-            stat = self.__level_20_stats[attr]
+        def get_level_stats(attr: ItemAttribute, value: float) -> str:
+            stat = self.god.get_stat_at_level(attr, level)
             if stat > 0:
                 if attr in (ItemAttribute.ATTACK_SPEED, ItemAttribute.MOVEMENT_SPEED):
-                    return f'_({(stat + stat * value):.1f} @ Level 20)_'
-                return f'_({int(stat + value)} @ Level 20)_'
+                    return f'_({(stat + stat * value):.1f} @ Level {level})_'
+                elif attr in (ItemAttribute.COOLDOWN_REDUCTION, ItemAttribute.CROWD_CONTROL_REDUCTION):
+                    return f'_({round((stat + value) * 100)}% @ Level {level})_'
+                return f'_({int(stat + value)} @ Level {level})_'
             return ''
         for stat in sorted(stats, key=lambda s: s.attribute.value):
             percent_prefix = stat.attribute in (
@@ -1370,9 +1370,9 @@ class BuildOptimizer:
             if stat.flat_value > 0:
                 desc += f'**{"Flat " if percent_prefix else ""}'\
                         f'{stat.attribute.display_name}**: {int(stat.flat_value)} '\
-                        f'{get_level_20(stat.attribute, stat.flat_value)}\n'
+                        f'{get_level_stats(stat.attribute, stat.flat_value)}\n'
             if stat.percent_value > 0:
                 desc += f'**{"Percent " if percent_prefix else ""}'\
                         f'{stat.attribute.display_name}**: {round(stat.percent_value * 100)}% '\
-                        f'{get_level_20(stat.attribute, stat.percent_value)}\n'
+                        f'{get_level_stats(stat.attribute, stat.percent_value)}\n'
         return desc
