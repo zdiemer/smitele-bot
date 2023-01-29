@@ -218,6 +218,21 @@ class God(object):
                 return (mpower.base + mpower.per_level * (level - 1)) + 20 + level
             if stat == ItemAttribute.CROWD_CONTROL_REDUCTION and self.role == GodRole.GUARDIAN:
                 return 0.10 + (0.005 * level)
+            if self.id in (GodId.CU_CHULAINN, GodId.YEMOJA):
+                if stat == ItemAttribute.MANA:
+                    return 0
+                if stat == ItemAttribute.MP5:
+                    return 0
+                if stat == ItemAttribute.HEALTH:
+                    god_stat = self.stats.values[stat]
+                    mana_stat = self.stats.values[ItemAttribute.MANA]
+                    return (god_stat.base + god_stat.per_level * (level - 1)) + \
+                        (mana_stat.base + mana_stat.per_level * (level - 1))
+                if stat == ItemAttribute.MP5:
+                    god_stat = self.stats.values[stat]
+                    mana_stat = self.stats.values[ItemAttribute.MP5]
+                    return (god_stat.base + god_stat.per_level * (level - 1)) + \
+                        (mana_stat.base + mana_stat.per_level * (level - 1))
             god_stat = self.stats.values[stat]
             return god_stat.base + god_stat.per_level * (level - 1)
         except KeyError:

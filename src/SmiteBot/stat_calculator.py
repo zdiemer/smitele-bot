@@ -17,6 +17,28 @@ class BaseCalculator:
     def damage_dealt(damage: float, prots: float, red_pct: float, red_flat: float, pen_pct: float, pen_flat: int):
         return (100 * damage) / (BaseCalculator.protections(prots, red_pct, red_flat, pen_pct, pen_flat))
 
+class _Stats:
+    _stats: Dict[ItemAttribute, float]
+
+    def __init__(self):
+        self._stats = {}
+ 
+    def set_stat(self, stat: ItemAttribute, value: float):
+        self._stats[stat] = value
+
+    def get_stat(self, stat: ItemAttribute) -> float:
+        return self._stats[stat]
+
+    def has_stat(self, stat: ItemAttribute) -> bool:
+        return stat in self._stats
+
+    def merge(self, other):
+        for stat in filter(lambda s: other.has_stat(s), list(ItemAttribute)):
+            if self.has_stat(stat):
+                self.set_stat(self.get_stat(stat) + other.get_stat(stat))
+            else:
+                self.set_stat(other.get_stat(stat))
+
 class StatCalculator(BaseCalculator):
     build: List[Item]
     god: God
@@ -50,5 +72,30 @@ class StatCalculator(BaseCalculator):
         ItemAttribute.COOLDOWN_REDUCTION: 0.40,
     }
 
-    def __init__(self):
+    def __init__(self, god: God, build: List[Item]):
+        self.build = build
+        self.god = god
+
+    def _calculate_god_stats(self, level: int) -> _Stats:
+        god_stats = _Stats()
+        for stat in list(ItemAttribute):
+            god_stats.set_stat(stat, self.god.get_stat_at_level(stat, level))
+        return god_stats
+
+    def _calculate_build_stats(self) -> _Stats:
+        pass
+
+    def _calculate_item_stats(self, item: Item) -> _Stats:
+        item_stats = _Stats()
+        for prop in item.item_properties:
+            item_stats.set_stat(prop.attribute, prop.flat_value or prop.percent_value)
+        return item_stats
+
+    def _calculate_build_stats(self) -> _Stats:
+        build_stats = _Stats()
+        for item in self.build:
+            build_stats.merge(self._calculate_item_stats(item))
+        return build_stats
+
+    def _fix_overcapped(self, stats: _Stats) -> _Stats:
         pass
