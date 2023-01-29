@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, NamedTuple, Tuple, Union
 
-from god import God, GodId, GodType
+from god import God, GodId, GodRole, GodType
 from item import Item, ItemAttribute
 
 class BaseCalculator:
@@ -17,16 +17,20 @@ class BaseCalculator:
     def damage_dealt(damage: float, prots: float, red_pct: float, red_flat: float, pen_pct: float, pen_flat: int):
         return (100 * damage) / (BaseCalculator.protections(prots, red_pct, red_flat, pen_pct, pen_flat))
 
+class _Penetration(NamedTuple):
+    flat: int
+    percent: float
+
 class _Stats:
-    _stats: Dict[ItemAttribute, float]
+    _stats: Dict[ItemAttribute, float | _Penetration]
 
     def __init__(self):
         self._stats = {}
  
-    def set_stat(self, stat: ItemAttribute, value: float):
+    def set_stat(self, stat: ItemAttribute, value: float | _Penetration):
         self._stats[stat] = value
 
-    def get_stat(self, stat: ItemAttribute) -> float:
+    def get_stat(self, stat: ItemAttribute) -> float | _Penetration:
         return self._stats[stat]
 
     def has_stat(self, stat: ItemAttribute) -> bool:
@@ -35,11 +39,17 @@ class _Stats:
     def merge(self, other):
         for stat in filter(lambda s: other.has_stat(s), list(ItemAttribute)):
             if self.has_stat(stat):
-                self.set_stat(self.get_stat(stat) + other.get_stat(stat))
+                if stat in (ItemAttribute.MAGICAL_PENETRATION, ItemAttribute.PHYSICAL_PENETRATION):
+                    first = self.get_stat(stat)
+                    second = other.get_stat(stat)
+                    updated_tuple = _Penetration(first.flat + second.flat, first.percent + second.percent)
+                    self.set_stat(stat, updated_tuple)
+                    continue
+                self.set_stat(stat, self.get_stat(stat) + other.get_stat(stat))
             else:
-                self.set_stat(other.get_stat(stat))
+                self.set_stat(stat, other.get_stat(stat))
 
-class StatCalculator(BaseCalculator):
+class StatCalculator:
     build: List[Item]
     god: God
 
@@ -55,11 +65,6 @@ class StatCalculator(BaseCalculator):
         ItemAttribute.MP5: 100,
         ItemAttribute.MOVEMENT_SPEED: 1000,
         ItemAttribute.MANA: 4000,
-        # Power caps are soft, visual only
-        ItemAttribute.MAGICAL_POWER: 900,
-        ItemAttribute.PHYSICAL_POWER: 400,
-        # Only one item gives Damage Reduction and it's +5
-        ItemAttribute.DAMAGE_REDUCTION: 5,
     }
 
     PERCENT_ITEM_ATTRIBUTE_CAPS: Dict[ItemAttribute, float] = {
@@ -87,7 +92,13 @@ class StatCalculator(BaseCalculator):
 
     def _calculate_item_stats(self, item: Item) -> _Stats:
         item_stats = _Stats()
+
         for prop in item.item_properties:
+            if prop.attribute.god_type != self.god.type:
+                continue
+            if prop.attribute in (ItemAttribute.MAGICAL_PENETRATION, ItemAttribute.PHYSICAL_PENETRATION):
+                item_stats.set_stat(prop.attribute, _Penetration(prop.flat_value or 0, prop.percent_value or 0))
+                continue
             item_stats.set_stat(prop.attribute, prop.flat_value or prop.percent_value)
         return item_stats
 
@@ -98,4 +109,40 @@ class StatCalculator(BaseCalculator):
         return build_stats
 
     def _fix_overcapped(self, stats: _Stats) -> _Stats:
-        pass
+        for stat in filter(lambda s: stats.has_stat(s), list(ItemAttribute)):
+            if stat in self.FLAT_ITEM_ATTRIBUTE_CAPS:
+                value = stats.get_stat(stat)
+                cap = self.FLAT_ITEM_ATTRIBUTE_CAPS[stat]
+                if stat == ItemAttribute.ATTACK_SPEED:
+                    attack_speed = self.god.get_stat_at_level(stat, 20)
+                    value = attack_speed + attack_speed * value
+                    cap = float(cap) / (attack_speed + 1)
+                if stat in (ItemAttribute.MAGICAL_PENETRATION, ItemAttribute.PHYSICAL_PENETRATION):
+                    if self.god.role == GodRole.ASSASSIN:
+                        value.flat += self.god.get_stat_at_level(stat, 20)
+                    if float(f'{value.flat:.2f}') > float(f'{cap:.2f}'):
+                        stats.set_stat(stat, _Penetration(cap, value.percent))
+                    continue
+                if float(f'{value:.2f}') > float(f'{cap:.2f}'):
+                    stats.set_stat(stat, value)
+            if stat in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
+                value = stats.get_stat(stat)
+                cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat]
+                if stat in (ItemAttribute.MAGICAL_PENETRATION, ItemAttribute.PHYSICAL_PENETRATION):
+                    if float(f'{value.percent:.2f}') > float(f'{cap:.2f}'):
+                        stats.set_stat(stat, _Penetration(value.flat, cap))
+                    continue
+                if stat == ItemAttribute.COOLDOWN_REDUCTION and self.god.role == GodRole.WARRIOR:
+                    value += self.god.get_stat_at_level(stat, 20)
+                if stat == ItemAttribute.CROWD_CONTROL_REDUCTION \
+                        and self.god.role == GodRole.GUARDIAN:
+                    value += self.god.get_stat_at_level(stat, 20)
+                if float(f'{value:.2f}') > float(f'{cap:.2f}'):
+                    stats.set_stat(stat, cap)
+        return stats
+
+    def _calculate_god_build_stats(self, level: int) -> _Stats:
+        stats = self._calculate_god_stats(level)
+        stats.merge(self._calculate_build_stats())
+        stats = self._fix_overcapped(stats)
+        return stats

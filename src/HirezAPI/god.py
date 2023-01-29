@@ -37,7 +37,7 @@ class _basicAttackProperties:
             if idx == 1: # Izanami special case
                 self.base_damage_back = base_damage
                 self.per_level_back = per_level
-                self.scaling = scaling
+                self.scaling_back = scaling
             else:
                 self.base_damage = base_damage
                 self.per_level = per_level
