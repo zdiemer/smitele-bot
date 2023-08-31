@@ -6,9 +6,10 @@ from typing import Dict, FrozenSet, List, Set, Tuple, Union
 
 from god import God
 from god_types import GodId, GodPro, GodRole, GodType
-from HirezAPI import QueueId
 from item import Item, ItemAttribute, ItemProperty
 from passive_parser import PassiveAttribute
+from stat_calculator import BuildStatCalculator, GodBuild
+from HirezAPI import QueueId
 
 class BuildArchetype(Enum):
     # Assassin Archetypes
@@ -951,23 +952,22 @@ class BuildOptimizer:
                     self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]) * pct_weight
         return score
 
-    def __check_build_on_target(self, build: List[Item]) -> bool:
-        stats = self.compute_build_stats(build)
-        stat_targets = self.__archetype_stat_targets[self.__current_archetype]
+    def __check_build_on_target(self, build: List[Item], stat_targets: Dict[ItemAttribute, float] = None) -> bool:
+        stats = BuildStatCalculator(GodBuild(self.god, build, 20)).calculate_build_stats()
+        stat_targets = stat_targets or self.__archetype_stat_targets[self.__current_archetype]
         for stat in stat_targets:
-            if stat in stats:
-                flat_value = stats[stat].flat_value
-                pct_value = stats[stat].percent_value
+            if stat in stats.stats:
+                value = stats.get_stat(stat)
                 flat_target = pct_target = stat_targets[stat]
                 if stat in (ItemAttribute.MAGICAL_PENETRATION, \
-                        ItemAttribute.PHYSICAL_PENETRATION):
+                        ItemAttribute.PHYSICAL_PENETRATION): 
                     flat_target = flat_target[0]
                     pct_target = pct_target[1]
                     flat_value = 0.1 if flat_value == 0 else flat_value
                     pct_value = 0.01 if pct_value == 0 else pct_value
-                if 0 < float(f'{flat_value:.2f}') < float(f'{flat_target:.2f}'):
+                if 0 <= float(f'{flat_value:.2f}') < float(f'{flat_target:.2f}'):
                     return False
-                if 0 < float(f'{pct_value:.2f}') < float(f'{pct_target:.2f}'):
+                if 0 <= float(f'{pct_value:.2f}') < float(f'{pct_target:.2f}'):
                     return False
             else:
                 return False
@@ -1057,7 +1057,7 @@ class BuildOptimizer:
         for item in self.valid_items:
             self.__item_scores[item.id] = self.__compute_item_score(item, weights)
 
-    async def optimize(self) -> Tuple[List[List[Item]], int]:
+    async def optimize(self, stat_targets: Dict[ItemAttribute, float] = None) -> Tuple[List[List[Item]], int]:
         god_weights = self.__get_weights()
         self.__compute_scores(god_weights)
         starters = self.__filter_passive_denylist(
@@ -1073,6 +1073,7 @@ class BuildOptimizer:
 
         glyphs = self.get_glyphs(rated_items)
         items = self.filter_tiers(rated_items)
+        all_non_glyph_items = self.filter_glyph_parent(items)
 
         viable_builds: List[List[Item]] = []
         async def check_combinations(
@@ -1085,7 +1086,7 @@ class BuildOptimizer:
                 next_items = frozenset(combo)
                 item_build = existing_build.union(next_items)
                 build_n += 1
-                if self.__check_build_on_target(item_build):
+                if self.__check_build_on_target(item_build, stat_targets):
                     viable_builds.append(list(item_build))
             return build_n
 
@@ -1101,7 +1102,22 @@ class BuildOptimizer:
                 iterations += build_n
                 print(f'Iterated {iterations} times...')
             build_n = await check_combinations(
-                starter_build, self.filter_glyph_parent(items), build_size)
+                starter_build, all_non_glyph_items, build_size)
+            iterations += build_n
+            print(f'Iterated {iterations} times...')
+
+        build_size = 6
+        for glyph in glyphs:
+            non_glyph_items = self.filter_glyph_parent(items, glyph)
+            build_n = await check_combinations(
+                frozenset([glyph]), non_glyph_items, build_size - 1)
+            iterations += build_n
+            print(f'Iterated {iterations} times...')
+        for idx, item in enumerate(all_non_glyph_items):
+            non_self_items = all_non_glyph_items.copy()
+            non_self_items.pop(idx)
+            build_n = await check_combinations(
+                frozenset([item]), non_self_items, build_size - 1)
             iterations += build_n
             print(f'Iterated {iterations} times...')
 

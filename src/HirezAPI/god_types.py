@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class GodId(Enum):
     ACHILLES = 3492
     AGNI = 1737
@@ -30,6 +31,7 @@ class GodId(Enum):
     CERNUNNOS = 2268
     CHAAC = 1966
     CHANGE = 1921
+    CHARON = 4268
     CHARYBDIS = 4010
     CHERNOBOG = 3509
     CHIRON = 2075
@@ -61,6 +63,7 @@ class GodId(Enum):
     HOU_YI = 2040
     HUN_BATZ = 1673
     ISHTAR = 4137
+    IX_CHEL = 4242
     IZANAMI = 2179
     JANUS = 1999
     JING_WEI = 2122
@@ -73,6 +76,7 @@ class GodId(Enum):
     KUZENBO = 2260
     LANCELOT = 4075
     LOKI = 1797
+    MARTICHORAS = 4213
     MAUI = 4183
     MEDUSA = 2051
     MERCURY = 1941
@@ -131,44 +135,49 @@ class GodId(Enum):
         # pylint: disable=no-member
         return value in self._value2member_map_
 
+
 class GodPro(Enum):
-    GREAT_JUNGLER = 'great jungler'
-    HIGH_AREA_DAMAGE = 'high area damage'
-    HIGH_ATTACK_SPEED = 'high attack speed'
-    HIGH_CROWD_CONTROL = 'high crowd control'
-    HIGH_DEFENSE = 'high defense'
-    HIGH_MOBILITY = 'high mobility'
-    HIGH_MOVEMENT_SPEED = 'high movement speed'
-    HIGH_SINGLE_TARGET_DAMAGE = 'high single target damage'
-    HIGH_SUSTAIN = 'high sustain'
-    MEDIUM_AREA_DAMAGE = 'medium area damage'
-    MEDIUM_CROWD_CONTROL = 'medium crowd control'
-    PUSHER = 'pusher'
+    GREAT_JUNGLER = "great jungler"
+    HIGH_AREA_DAMAGE = "high area damage"
+    HIGH_ATTACK_SPEED = "high attack speed"
+    HIGH_CROWD_CONTROL = "high crowd control"
+    HIGH_DEFENSE = "high defense"
+    HIGH_MOBILITY = "high mobility"
+    HIGH_MOVEMENT_SPEED = "high movement speed"
+    HIGH_SINGLE_TARGET_DAMAGE = "high single target damage"
+    HIGH_SUSTAIN = "high sustain"
+    MEDIUM_AREA_DAMAGE = "medium area damage"
+    MEDIUM_CROWD_CONTROL = "medium crowd control"
+    PUSHER = "pusher"
+    MEDIUM_SINGLE_TARGET_DAMAGE = "medium single target damage"
+
 
 class GodRange(Enum):
-    MELEE = 'melee'
-    RANGED = 'ranged'
+    MELEE = "melee"
+    RANGED = "ranged"
 
     @classmethod
     def has_value(self, value):
         # pylint: disable=no-member
         return value in self._value2member_map_
+
 
 class GodRole(Enum):
-    ASSASSIN = 'assassin'
-    GUARDIAN = 'guardian'
-    HUNTER = 'hunter'
-    MAGE = 'mage'
-    WARRIOR = 'warrior'
- 
+    ASSASSIN = "assassin"
+    GUARDIAN = "guardian"
+    HUNTER = "hunter"
+    MAGE = "mage"
+    WARRIOR = "warrior"
+
     @classmethod
     def has_value(self, value):
         # pylint: disable=no-member
         return value in self._value2member_map_
 
+
 class GodType(Enum):
-    MAGICAL = 'magical'
-    PHYSICAL = 'physical'
+    MAGICAL = "magical"
+    PHYSICAL = "physical"
 
     @classmethod
     def has_value(self, value):

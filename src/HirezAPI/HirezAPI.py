@@ -81,7 +81,7 @@ class _Base:
                     raise
 
     async def _make_request(self, route: str, *args: tuple) -> any:
-        if self.__session_id is None or  self.__session_id == '':
+        if self.__session_id is None or self.__session_id == '':
             await self.__keep_alive()
         req_count = 0
         res = None
@@ -542,7 +542,8 @@ class Smite(_Base):
         return await self._make_request('getmatchdetails', match_id)
 
     async def get_match_details_batch(self, *match_ids: tuple):
-        return await self._make_request('getmatchdetailsbatch', *match_ids)
+        return await self._make_request(
+            'getmatchdetailsbatch', ','.join([str(id) for id in match_ids]))
 
     async def get_match_ids_by_queue(self, queue_id: QueueId, \
             date: int, hour: int, minute_window: int = 0):
