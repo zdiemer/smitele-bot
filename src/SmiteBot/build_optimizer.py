@@ -11,6 +11,7 @@ from passive_parser import PassiveAttribute
 from stat_calculator import BuildStatCalculator, GodBuild
 from HirezAPI import QueueId
 
+
 class BuildArchetype(Enum):
     # Assassin Archetypes
     ABILITY_BASED_ASSASSIN = 1
@@ -60,33 +61,34 @@ class BuildArchetype(Enum):
         if role == GodRole.WARRIOR:
             return BuildArchetype.ABILITY_BASED_WARRIOR
 
+
 class BuildOptimizer:
     JUNGLE_STARTERS = {
-        19500, # Manikin Scepter
-        19502, # Bumba's Dagger
-        19694, # Eye of the Jungle
+        19500,  # Manikin Scepter
+        19502,  # Bumba's Dagger
+        19694,  # Eye of the Jungle
     }
     SOLO_STARTERS = {
-        19490, # Bluestone Pendant
-        19496, # Warrior's Axe
-        19640, # Tainted Steel
-        19751, # Warding Sigil
-        19492, # Death's Toll
+        19490,  # Bluestone Pendant
+        19496,  # Warrior's Axe
+        19640,  # Tainted Steel
+        19751,  # Warding Sigil
+        19492,  # Death's Toll
     }
     SUPPORT_STARTERS = {
-        19609, # Sentinel's Gift
-        19634, # Benevolence
-        20698, # War Flag
+        19609,  # Sentinel's Gift
+        19634,  # Benevolence
+        20698,  # War Flag
     }
     MID_STARTERS = {
-        19677, # Conduit Gem
-        19510, # Vampiric Shroud
-        19508, # Sands of Time
+        19677,  # Conduit Gem
+        19510,  # Vampiric Shroud
+        19508,  # Sands of Time
     }
     CARRY_STARTERS = {
-        19492, # Death's Toll
-        19494, # Gilded Arrow
-        19672, # Leather Cowl
+        19492,  # Death's Toll
+        19494,  # Gilded Arrow
+        19672,  # Leather Cowl
     }
 
     ARCHETYPE_PREFERRED_STARTER: Dict[BuildArchetype, Set[int]] = {
@@ -99,23 +101,26 @@ class BuildOptimizer:
         BuildArchetype.SOLO_GUARDIAN: MID_STARTERS.copy().union({19496}),
         BuildArchetype.CARRY_HUNTER: CARRY_STARTERS,
         BuildArchetype.ABILITY_BASED_HUNTER: {
-            19500, # Manikin Scepter
-            19490, # Bluestone Pendant
+            19500,  # Manikin Scepter
+            19490,  # Bluestone Pendant
         },
         BuildArchetype.MID_MAGE: MID_STARTERS.copy().difference({19510}),
         BuildArchetype.LIFESTEAL_MID_MAGE: {
-            19510, # Vampiric Shroud
+            19510,  # Vampiric Shroud
         },
         BuildArchetype.JUNGLE_MAGE: JUNGLE_STARTERS,
         BuildArchetype.HEALER_MAGE: MID_STARTERS.copy().difference({19510}),
-        BuildArchetype.AUTO_ATTACK_MAGE: MID_STARTERS.copy().difference({19510}).union({19500}),
+        BuildArchetype.AUTO_ATTACK_MAGE: MID_STARTERS.copy()
+        .difference({19510})
+        .union({19500}),
         BuildArchetype.SOLO_MAGE: MID_STARTERS.copy()
-            .union(SOLO_STARTERS.union()).difference({19490, 19492}),
+        .union(SOLO_STARTERS.union())
+        .difference({19490, 19492}),
         BuildArchetype.SUPPORT_MAGE: SUPPORT_STARTERS.copy().union({23048}),
         BuildArchetype.ABILITY_BASED_WARRIOR: SOLO_STARTERS,
         BuildArchetype.HEALER_WARRIOR: SOLO_STARTERS,
         BuildArchetype.AUTO_ATTACK_WARRIOR: {
-            19492, # Death's Toll
+            19492,  # Death's Toll
         },
         BuildArchetype.JUNGLE_WARRIOR: JUNGLE_STARTERS,
         BuildArchetype.SUPPORT_WARRIOR: SUPPORT_STARTERS,
@@ -123,46 +128,28 @@ class BuildOptimizer:
 
     # Used for processing input to determine what stats to optimize for
     COLLOQUIAL_MAPPINGS: Dict[str, Set[ItemAttribute]] = {
-        'crit': {
+        "crit": {
             ItemAttribute.CRITICAL_STRIKE_CHANCE,
-            ItemAttribute.PHYSICAL_CRITICAL_STRIKE_CHANCE
+            ItemAttribute.PHYSICAL_CRITICAL_STRIKE_CHANCE,
         },
-        'ccr': {
-            ItemAttribute.CROWD_CONTROL_REDUCTION
-        },
-        'cdr': {
-            ItemAttribute.COOLDOWN_REDUCTION
-        },
-        'power': {
-            ItemAttribute.MAGICAL_POWER,
-            ItemAttribute.PHYSICAL_POWER
-        },
-        'speed': {
-            ItemAttribute.MOVEMENT_SPEED
-        },
-        'lifesteal': {
+        "ccr": {ItemAttribute.CROWD_CONTROL_REDUCTION},
+        "cdr": {ItemAttribute.COOLDOWN_REDUCTION},
+        "power": {ItemAttribute.MAGICAL_POWER, ItemAttribute.PHYSICAL_POWER},
+        "speed": {ItemAttribute.MOVEMENT_SPEED},
+        "lifesteal": {
             ItemAttribute.MAGICAL_LIFESTEAL,
-            ItemAttribute.PHYSICAL_LIFESTEAL
+            ItemAttribute.PHYSICAL_LIFESTEAL,
         },
-        'protection': {
+        "protection": {
             ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION
+            ItemAttribute.PHYSICAL_PROTECTION,
         },
-        'prots': {
-            ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION
-        },
-        'prot': {
-            ItemAttribute.MAGICAL_PROTECTION,
-            ItemAttribute.PHYSICAL_PROTECTION
-        },
-        'pen': {
+        "prots": {ItemAttribute.MAGICAL_PROTECTION, ItemAttribute.PHYSICAL_PROTECTION},
+        "prot": {ItemAttribute.MAGICAL_PROTECTION, ItemAttribute.PHYSICAL_PROTECTION},
+        "pen": {ItemAttribute.MAGICAL_PENETRATION, ItemAttribute.PHYSICAL_PENETRATION},
+        "penetration": {
             ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PHYSICAL_PENETRATION
-        },
-        'penetration': {
-            ItemAttribute.MAGICAL_PENETRATION,
-            ItemAttribute.PHYSICAL_PENETRATION
+            ItemAttribute.PHYSICAL_PENETRATION,
         },
     }
 
@@ -264,17 +251,24 @@ class BuildOptimizer:
     __level_20_stats: Dict[ItemAttribute, float]
     __current_archetype: BuildArchetype
 
-    def __init__(self, god: God, valid_items: List[Item],
-            all_items: Dict[int, Item], stat: str = None):
+    def __init__(
+        self,
+        god: God,
+        valid_items: List[Item],
+        all_items: Dict[int, Item],
+        stat: str = None,
+    ):
         self.god = god
         self.valid_items = valid_items
         self.__all_items = all_items
         archetype = None
         if god.id in self.GOD_ID_ARCHETYPE_MAPPINGS:
             archetype = self.GOD_ID_ARCHETYPE_MAPPINGS[god.id]
-        self.__current_archetype = \
-            BuildArchetype.default_archetype(self.god.role) \
-                if archetype is None else archetype
+        self.__current_archetype = (
+            BuildArchetype.default_archetype(self.god.role)
+            if archetype is None
+            else archetype
+        )
         self.__init_archetype_passive_denylist()
         self.__init_archetype_passive_wishlist()
         self.__init_archetype_stat_targets()
@@ -291,28 +285,40 @@ class BuildOptimizer:
                 self.__stat = self.COLLOQUIAL_MAPPINGS[stat_name]
             else:
                 raise
-        if isinstance(self.__stat, ItemAttribute) and \
-                self.__stat.god_type is not None and self.__stat.god_type != self.god.type:
-            raise ValueError(self.__stat.display_name, ' is not a valid stat for ', self.god.name)
+        if (
+            isinstance(self.__stat, ItemAttribute)
+            and self.__stat.god_type is not None
+            and self.__stat.god_type != self.god.type
+        ):
+            raise ValueError(
+                self.__stat.display_name, " is not a valid stat for ", self.god.name
+            )
         if self.__current_archetype in self.__archetype_stat_targets:
             stat_targets = self.__archetype_stat_targets[self.__current_archetype]
             for stat in stat_targets:
                 if stat in self.__stat:
-                    if stat in (ItemAttribute.ATTACK_SPEED, ItemAttribute.MOVEMENT_SPEED):
+                    if stat in (
+                        ItemAttribute.ATTACK_SPEED,
+                        ItemAttribute.MOVEMENT_SPEED,
+                    ):
                         stat_targets[stat] = 1
                         continue
                     if stat in (
-                            ItemAttribute.MAGICAL_PENETRATION,
-                            ItemAttribute.PHYSICAL_PENETRATION):
+                        ItemAttribute.MAGICAL_PENETRATION,
+                        ItemAttribute.PHYSICAL_PENETRATION,
+                    ):
                         stat_targets[stat] = (
                             self.FLAT_ITEM_ATTRIBUTE_CAPS[stat],
-                            self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat])
+                            self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat],
+                        )
                         continue
-                    stat_targets[stat] = self.FLAT_ITEM_ATTRIBUTE_CAPS[stat] \
-                        if stat in self.FLAT_ITEM_ATTRIBUTE_CAPS else \
-                            self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat] \
-                                if stat in self.PERCENT_ITEM_ATTRIBUTE_CAPS else \
-                                    stat_targets[stat]
+                    stat_targets[stat] = (
+                        self.FLAT_ITEM_ATTRIBUTE_CAPS[stat]
+                        if stat in self.FLAT_ITEM_ATTRIBUTE_CAPS
+                        else self.PERCENT_ITEM_ATTRIBUTE_CAPS[stat]
+                        if stat in self.PERCENT_ITEM_ATTRIBUTE_CAPS
+                        else stat_targets[stat]
+                    )
                     continue
                 stat_targets[stat] = 0
 
@@ -358,22 +364,26 @@ class BuildOptimizer:
             PassiveAttribute.ALLIED_GODS_BUFF_AURA,
         }
 
-        jungle_warrior = auto_assassin = jungle.copy()\
-            .difference({
+        jungle_warrior = auto_assassin = jungle.copy().difference(
+            {
                 PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED,
-                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS
-            })
-        jungle_mage = ability_hunter = jungle.copy()\
-            .difference({PassiveAttribute.EVOLVES_WITH_MINION_KILLS})\
+                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
+            }
+        )
+        jungle_mage = ability_hunter = (
+            jungle.copy()
+            .difference({PassiveAttribute.EVOLVES_WITH_MINION_KILLS})
             .union({PassiveAttribute.BASIC_ATTACK_PROC})
+        )
         defaults = {
             BuildArchetype.ABILITY_BASED_ASSASSIN: jungle,
             BuildArchetype.AUTO_ATTACK_ASSASSIN: auto_assassin,
             BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: auto_assassin,
             BuildArchetype.SUPPORT_ASSASSIN: support,
             BuildArchetype.SOLO_ASSASSIN: solo,
-            BuildArchetype.MID_ASSASSIN: jungle.copy()\
-                .difference({PassiveAttribute.EVOLVES_WITH_MINION_KILLS}),
+            BuildArchetype.MID_ASSASSIN: jungle.copy().difference(
+                {PassiveAttribute.EVOLVES_WITH_MINION_KILLS}
+            ),
             BuildArchetype.SUPPORT_GUARDIAN: support,
             BuildArchetype.SOLO_GUARDIAN: solo,
             BuildArchetype.MID_GUARDIAN: mid,
@@ -389,16 +399,21 @@ class BuildOptimizer:
             BuildArchetype.SOLO_MAGE: solo,
             BuildArchetype.LIFESTEAL_MID_MAGE: mid,
             BuildArchetype.ABILITY_BASED_WARRIOR: solo,
-            BuildArchetype.AUTO_ATTACK_WARRIOR: solo.copy()\
-                .difference({PassiveAttribute.BASIC_ATTACK_PROC}),
+            BuildArchetype.AUTO_ATTACK_WARRIOR: solo.copy().difference(
+                {PassiveAttribute.BASIC_ATTACK_PROC}
+            ),
             BuildArchetype.SUPPORT_WARRIOR: support,
             BuildArchetype.JUNGLE_WARRIOR: jungle_warrior,
             BuildArchetype.HEALER_WARRIOR: solo,
         }
 
-        if GodPro.HIGH_SUSTAIN not in self.god.pros and \
-                self.__current_archetype in defaults:
-            defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
+        if (
+            GodPro.HIGH_SUSTAIN not in self.god.pros
+            and self.__current_archetype in defaults
+        ):
+            defaults[self.__current_archetype].add(
+                PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL
+            )
             defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
             defaults[self.__current_archetype].add(PassiveAttribute.SELF_BUFF_ON_HEAL)
 
@@ -496,16 +511,20 @@ class BuildOptimizer:
             PassiveAttribute.STRIPS_PROTECTIONS,
             PassiveAttribute.IN_JUNGLE_EFFECT,
         }
-        auto_assassin_crit = auto_assassin.copy().union({
-            PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
-            PassiveAttribute.CRITICAL_HIT_EFFECT,
-            PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
-        })
-        mid_assassin = jungle.copy().difference({
-            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
-            PassiveAttribute.IN_JUNGLE_EFFECT,
-            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
-        })
+        auto_assassin_crit = auto_assassin.copy().union(
+            {
+                PassiveAttribute.INCREASES_CRITICAL_DAMAGE,
+                PassiveAttribute.CRITICAL_HIT_EFFECT,
+                PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS,
+            }
+        )
+        mid_assassin = jungle.copy().difference(
+            {
+                PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+                PassiveAttribute.IN_JUNGLE_EFFECT,
+                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+            }
+        )
         ability_hunter = {
             PassiveAttribute.ABILITY_PROC,
             PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
@@ -514,11 +533,13 @@ class BuildOptimizer:
             PassiveAttribute.ULTIMATE_PROC,
             PassiveAttribute.SCALING_BONUS_DAMAGE,
         }
-        jungle_mage = mid.copy().union({
-            PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
-            PassiveAttribute.IN_JUNGLE_EFFECT,
-            PassiveAttribute.BASIC_ATTACK_PROC,
-        })
+        jungle_mage = mid.copy().union(
+            {
+                PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE,
+                PassiveAttribute.IN_JUNGLE_EFFECT,
+                PassiveAttribute.BASIC_ATTACK_PROC,
+            }
+        )
         auto_mage = {
             PassiveAttribute.STACKS,
             PassiveAttribute.INCREASES_WITH_MISSING_STAT,
@@ -528,11 +549,13 @@ class BuildOptimizer:
             PassiveAttribute.STRIPS_PROTECTIONS,
             PassiveAttribute.BASIC_ATTACK_PROC,
         }
-        solo_mage = solo.copy().union({
-            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
-            PassiveAttribute.TRIGGERS_HEAL,
-            PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
-        })
+        solo_mage = solo.copy().union(
+            {
+                PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+                PassiveAttribute.TRIGGERS_HEAL,
+                PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD,
+            }
+        )
         defaults = {
             BuildArchetype.ABILITY_BASED_ASSASSIN: jungle,
             BuildArchetype.AUTO_ATTACK_ASSASSIN: auto_assassin,
@@ -553,7 +576,9 @@ class BuildOptimizer:
             BuildArchetype.HEALER_MAGE: mid,
             BuildArchetype.SOLO_MAGE: solo_mage,
             BuildArchetype.SUPPORT_MAGE: support,
-            BuildArchetype.LIFESTEAL_MID_MAGE: mid.copy().union({PassiveAttribute.INCREASES_LIFESTEAL}),
+            BuildArchetype.LIFESTEAL_MID_MAGE: mid.copy().union(
+                {PassiveAttribute.INCREASES_LIFESTEAL}
+            ),
             BuildArchetype.ABILITY_BASED_WARRIOR: solo,
             BuildArchetype.AUTO_ATTACK_WARRIOR: solo,
             BuildArchetype.SUPPORT_WARRIOR: support,
@@ -561,9 +586,13 @@ class BuildOptimizer:
             BuildArchetype.HEALER_WARRIOR: solo,
         }
 
-        if GodPro.HIGH_SUSTAIN in self.god.pros and \
-                self.__current_archetype in defaults:
-            defaults[self.__current_archetype].add(PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL)
+        if (
+            GodPro.HIGH_SUSTAIN in self.god.pros
+            and self.__current_archetype in defaults
+        ):
+            defaults[self.__current_archetype].add(
+                PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL
+            )
             defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
             defaults[self.__current_archetype].add(PassiveAttribute.SELF_BUFF_ON_HEAL)
 
@@ -724,10 +753,12 @@ class BuildOptimizer:
             },
         }
 
-        self.__archetype_stat_targets[BuildArchetype.HEALER_WARRIOR] = \
-            self.__archetype_stat_targets[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
-        self.__archetype_stat_targets[BuildArchetype.HEALER_GUARDIAN] = \
-            self.__archetype_stat_targets[BuildArchetype.SUPPORT_GUARDIAN].copy()
+        self.__archetype_stat_targets[
+            BuildArchetype.HEALER_WARRIOR
+        ] = self.__archetype_stat_targets[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
+        self.__archetype_stat_targets[
+            BuildArchetype.HEALER_GUARDIAN
+        ] = self.__archetype_stat_targets[BuildArchetype.SUPPORT_GUARDIAN].copy()
 
     def __init_archetype_weight_mappings(self):
         defaults = {
@@ -861,8 +892,9 @@ class BuildOptimizer:
         solo_guardian = defaults[BuildArchetype.SUPPORT_GUARDIAN].copy()
         solo_guardian[ItemAttribute.MAGICAL_POWER] = 5
         defaults[BuildArchetype.SOLO_GUARDIAN] = solo_guardian
-        defaults[BuildArchetype.HEALER_GUARDIAN] = \
-            defaults[BuildArchetype.SUPPORT_GUARDIAN].copy()
+        defaults[BuildArchetype.HEALER_GUARDIAN] = defaults[
+            BuildArchetype.SUPPORT_GUARDIAN
+        ].copy()
 
         # Additional Settings for Hunter Archetypes
         ability_hunter = defaults[BuildArchetype.CARRY_HUNTER].copy()
@@ -889,8 +921,9 @@ class BuildOptimizer:
         solo_mage[ItemAttribute.MAGICAL_PROTECTION] = 5
         solo_mage[ItemAttribute.MP5] = 1
         defaults[BuildArchetype.SOLO_MAGE] = solo_mage
-        defaults[BuildArchetype.SUPPORT_MAGE] = \
-            defaults[BuildArchetype.SUPPORT_GUARDIAN].copy()
+        defaults[BuildArchetype.SUPPORT_MAGE] = defaults[
+            BuildArchetype.SUPPORT_GUARDIAN
+        ].copy()
 
         # Additional Settings for Warrior Archetypes
         auto_warrior = defaults[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
@@ -902,8 +935,9 @@ class BuildOptimizer:
         jungle_warrior[ItemAttribute.MAGICAL_PROTECTION] = 1
         jungle_warrior[ItemAttribute.HEALTH] = 1
         defaults[BuildArchetype.JUNGLE_WARRIOR] = jungle_warrior
-        defaults[BuildArchetype.HEALER_WARRIOR] = \
-            defaults[BuildArchetype.ABILITY_BASED_WARRIOR].copy()
+        defaults[BuildArchetype.HEALER_WARRIOR] = defaults[
+            BuildArchetype.ABILITY_BASED_WARRIOR
+        ].copy()
         support_warrior = defaults[BuildArchetype.SUPPORT_GUARDIAN].copy()
         support_warrior[ItemAttribute.PHYSICAL_LIFESTEAL] = -1
         support_warrior[ItemAttribute.PHYSICAL_PENETRATION] = (0.1, 0.1)
@@ -922,98 +956,131 @@ class BuildOptimizer:
             self.__level_20_stats[attr] = self.god.get_stat_at_level(attr, 20)
 
     def __compute_item_score(
-            self,
-            item: Item,
-            weights: Dict[ItemAttribute, float]) -> float:
+        self, item: Item, weights: Dict[ItemAttribute, float]
+    ) -> float:
         build_stats = self.compute_build_stats([item])
         return self.__compute_properties_score(build_stats, weights)
 
     def __compute_properties_score(
-            self,
-            build_stats: Dict[ItemAttribute, ItemProperty],
-            weights: Dict[ItemAttribute, float]) -> float:
+        self,
+        build_stats: Dict[ItemAttribute, ItemProperty],
+        weights: Dict[ItemAttribute, float],
+    ) -> float:
         score = 0
         for attr, prop in build_stats.items():
             flat_weight = pct_weight = weights[attr]
-            if attr in (ItemAttribute.PHYSICAL_PENETRATION, ItemAttribute.MAGICAL_PENETRATION):
+            if attr in (
+                ItemAttribute.PHYSICAL_PENETRATION,
+                ItemAttribute.MAGICAL_PENETRATION,
+            ):
                 pct_weight = weights[attr][0]
                 flat_weight = weights[attr][1]
             if prop.flat_value > 0:
                 level_20_stat = self.__level_20_stats[attr]
-                score += (prop.flat_value / \
-                    (self.FLAT_ITEM_ATTRIBUTE_CAPS[attr] - level_20_stat)) * flat_weight
+                score += (
+                    prop.flat_value
+                    / (self.FLAT_ITEM_ATTRIBUTE_CAPS[attr] - level_20_stat)
+                ) * flat_weight
             if prop.percent_value > 0:
                 if attr in (ItemAttribute.ATTACK_SPEED, ItemAttribute.MOVEMENT_SPEED):
                     level_20_stat = self.__level_20_stats[attr]
-                    score += ((level_20_stat + (level_20_stat * prop.percent_value)) / \
-                        self.FLAT_ITEM_ATTRIBUTE_CAPS[attr]) * pct_weight
+                    score += (
+                        (level_20_stat + (level_20_stat * prop.percent_value))
+                        / self.FLAT_ITEM_ATTRIBUTE_CAPS[attr]
+                    ) * pct_weight
                     continue
-                score += (prop.percent_value / \
-                    self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]) * pct_weight
+                score += (
+                    prop.percent_value / self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]
+                ) * pct_weight
         return score
 
-    def __check_build_on_target(self, build: List[Item], stat_targets: Dict[ItemAttribute, float] = None) -> bool:
-        stats = BuildStatCalculator(GodBuild(self.god, build, 20)).calculate_build_stats()
-        stat_targets = stat_targets or self.__archetype_stat_targets[self.__current_archetype]
+    def __check_build_on_target(
+        self, build: List[Item], stat_targets: Dict[ItemAttribute, float] = None
+    ) -> bool:
+        stats = BuildStatCalculator(
+            GodBuild(self.god, build, 20)
+        ).calculate_build_stats()
+        stat_targets = (
+            stat_targets or self.__archetype_stat_targets[self.__current_archetype]
+        )
         for stat in stat_targets:
             if stat in stats.stats:
                 value = stats.get_stat(stat)
                 flat_target = pct_target = stat_targets[stat]
-                if stat in (ItemAttribute.MAGICAL_PENETRATION, \
-                        ItemAttribute.PHYSICAL_PENETRATION): 
+                if stat in (
+                    ItemAttribute.MAGICAL_PENETRATION,
+                    ItemAttribute.PHYSICAL_PENETRATION,
+                ):
                     flat_target = flat_target[0]
                     pct_target = pct_target[1]
                     flat_value = 0.1 if flat_value == 0 else flat_value
                     pct_value = 0.01 if pct_value == 0 else pct_value
-                if 0 <= float(f'{flat_value:.2f}') < float(f'{flat_target:.2f}'):
+                if 0 <= float(f"{flat_value:.2f}") < float(f"{flat_target:.2f}"):
                     return False
-                if 0 <= float(f'{pct_value:.2f}') < float(f'{pct_target:.2f}'):
+                if 0 <= float(f"{pct_value:.2f}") < float(f"{pct_target:.2f}"):
                     return False
             else:
                 return False
-        all_passives = {passive for item in build for passive in item.passive_properties}
+        all_passives = {
+            passive for item in build for passive in item.passive_properties
+        }
 
         # Evolutions (sometimes) don't have a passive so add passive properties
         # from their parents
         evos = list(filter(lambda item: item.tier == 4, build))
         if any(evos):
             for evo in evos:
-                all_passives.union({passive for passive \
-                    in self.__all_items[evo.parent_item_id].passive_properties})
-        if self.__check_overcapped(
-                stats,
-                all_passives):
+                all_passives.union(
+                    {
+                        passive
+                        for passive in self.__all_items[
+                            evo.parent_item_id
+                        ].passive_properties
+                    }
+                )
+        if self.__check_overcapped(stats, all_passives):
             return False
         if self.__current_archetype in self.__archetype_passive_wishlist:
-            if len(all_passives & \
-                    self.__archetype_passive_wishlist[self.__current_archetype]) < 2:
+            if (
+                len(
+                    all_passives
+                    & self.__archetype_passive_wishlist[self.__current_archetype]
+                )
+                < 2
+            ):
                 return False
         return True
 
     def __check_overcapped(
-            self,
-            stats: Dict[ItemAttribute, ItemProperty],
-            passives: Set[PassiveAttribute]) -> bool:
+        self, stats: Dict[ItemAttribute, ItemProperty], passives: Set[PassiveAttribute]
+    ) -> bool:
         for attr, prop in stats.items():
             if attr in self.FLAT_ITEM_ATTRIBUTE_CAPS:
                 flat_value = prop.flat_value
                 if attr == ItemAttribute.ATTACK_SPEED:
                     attack_speed = self.god.get_stat_at_level(attr, 20)
                     flat_value = attack_speed + attack_speed * prop.percent_value
-                elif attr not in (\
-                        ItemAttribute.MAGICAL_PENETRATION, \
-                        ItemAttribute.PHYSICAL_PENETRATION):
+                elif attr not in (
+                    ItemAttribute.MAGICAL_PENETRATION,
+                    ItemAttribute.PHYSICAL_PENETRATION,
+                ):
                     flat_value += self.god.get_stat_at_level(attr, 20)
                 flat_cap = self.FLAT_ITEM_ATTRIBUTE_CAPS[attr]
-                if float(f'{flat_value:.2f}') > float(f'{flat_cap:.2f}'):
-                    if attr in (ItemAttribute.MAGICAL_POWER, \
-                            ItemAttribute.PHYSICAL_POWER):
+                if float(f"{flat_value:.2f}") > float(f"{flat_cap:.2f}"):
+                    if attr in (
+                        ItemAttribute.MAGICAL_POWER,
+                        ItemAttribute.PHYSICAL_POWER,
+                    ):
                         # Soft cap for these two
                         return False
-                    if attr in (ItemAttribute.MAGICAL_PENETRATION, \
-                            ItemAttribute.PHYSICAL_PENETRATION):
-                        if PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY in \
-                            passives:
+                    if attr in (
+                        ItemAttribute.MAGICAL_PENETRATION,
+                        ItemAttribute.PHYSICAL_PENETRATION,
+                    ):
+                        if (
+                            PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY
+                            in passives
+                        ):
                             continue
                     return True
             if attr in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
@@ -1024,61 +1091,81 @@ class BuildOptimizer:
                         pct_value += self.god.get_stat_at_level(attr, 20)
                     if PassiveAttribute.INCREASES_COOLDOWN_CAP in passives:
                         pct_cap = 0.50
-                if attr == ItemAttribute.CROWD_CONTROL_REDUCTION \
-                        and self.god.role == GodRole.GUARDIAN:
+                if (
+                    attr == ItemAttribute.CROWD_CONTROL_REDUCTION
+                    and self.god.role == GodRole.GUARDIAN
+                ):
                     pct_value += self.god.get_stat_at_level(attr, 20)
-                if float(f'{pct_value:.2f}') > float(f'{pct_cap:.2f}'):
+                if float(f"{pct_value:.2f}") > float(f"{pct_cap:.2f}"):
                     if attr == ItemAttribute.ATTACK_SPEED:
-                        if PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED in \
-                            passives:
+                        if PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED in passives:
                             continue
                     return True
         return False
 
     def __get_weights(self) -> Dict[ItemAttribute, float]:
-        inverted_type = GodType.PHYSICAL if self.god.type != GodType.PHYSICAL else GodType.MAGICAL
-        self_stat: Set[ItemAttribute] = set() if self.__stat is None else self.__stat if \
-            isinstance(self.__stat, set) else set([self.__stat])
-        stats_to_optimize: Set[ItemAttribute] = self_stat\
-            .difference(self.GOD_TYPE_MAPPINGS[inverted_type])
+        inverted_type = (
+            GodType.PHYSICAL if self.god.type != GodType.PHYSICAL else GodType.MAGICAL
+        )
+        self_stat: Set[ItemAttribute] = (
+            set()
+            if self.__stat is None
+            else self.__stat
+            if isinstance(self.__stat, set)
+            else set([self.__stat])
+        )
+        stats_to_optimize: Set[ItemAttribute] = self_stat.difference(
+            self.GOD_TYPE_MAPPINGS[inverted_type]
+        )
         god_weights = self.__archetype_weight_mappings[self.__current_archetype]
         if any(stats_to_optimize):
             for stat in stats_to_optimize:
                 if stat in (
-                        ItemAttribute.PHYSICAL_PENETRATION,
-                        ItemAttribute.MAGICAL_PENETRATION):
+                    ItemAttribute.PHYSICAL_PENETRATION,
+                    ItemAttribute.MAGICAL_PENETRATION,
+                ):
                     god_weights[stat] = (15, 15)
                     continue
                 god_weights[stat] = 15
         return god_weights
 
-    def __compute_scores(self, weights: Dict[ItemAttribute, float]) -> Dict[ItemAttribute, float]:
+    def __compute_scores(
+        self, weights: Dict[ItemAttribute, float]
+    ) -> Dict[ItemAttribute, float]:
         self.__item_scores = {}
         for item in self.valid_items:
             self.__item_scores[item.id] = self.__compute_item_score(item, weights)
 
-    async def optimize(self, stat_targets: Dict[ItemAttribute, float] = None) -> Tuple[List[List[Item]], int]:
+    async def optimize(
+        self, stat_targets: Dict[ItemAttribute, float] = None
+    ) -> Tuple[List[List[Item]], int]:
         god_weights = self.__get_weights()
         self.__compute_scores(god_weights)
-        starters = self.__filter_passive_denylist(
-            self.get_preferred_starters())
+        starters = self.__filter_passive_denylist(self.get_preferred_starters())
 
-        sorted_ids = list([id for id, _ in sorted(
-            self.__item_scores.items(), key=lambda item: item[1], reverse=True)])
+        sorted_ids = list(
+            [
+                id
+                for id, _ in sorted(
+                    self.__item_scores.items(), key=lambda item: item[1], reverse=True
+                )
+            ]
+        )
         rated_items = [self.__all_items[id] for id in sorted_ids]
         rated_items = self.__filter_passive_denylist(
-            self.filter_evolution_parents(
-                self.filter_tiers_with_glyphs(rated_items)))
-        rated_items = rated_items[:int(min(len(rated_items) + 1, 28))]
+            self.filter_evolution_parents(self.filter_tiers_with_glyphs(rated_items))
+        )
+        rated_items = rated_items[: int(min(len(rated_items) + 1, 28))]
 
         glyphs = self.get_glyphs(rated_items)
         items = self.filter_tiers(rated_items)
         all_non_glyph_items = self.filter_glyph_parent(items)
 
         viable_builds: List[List[Item]] = []
+
         async def check_combinations(
-                existing_build: FrozenSet[Item],
-                combo_items: List[Item], size: int) -> int:
+            existing_build: FrozenSet[Item], combo_items: List[Item], size: int
+        ) -> int:
             build_n = 1
             combinations = itertools.combinations(combo_items, size)
             for combo in combinations:
@@ -1098,28 +1185,32 @@ class BuildOptimizer:
                 glyph_build = starter_build.union(frozenset([glyph]))
                 non_glyph_items = self.filter_glyph_parent(items, glyph)
                 build_n = await check_combinations(
-                    glyph_build, non_glyph_items, build_size - 1)
+                    glyph_build, non_glyph_items, build_size - 1
+                )
                 iterations += build_n
-                print(f'Iterated {iterations} times...')
+                print(f"Iterated {iterations} times...")
             build_n = await check_combinations(
-                starter_build, all_non_glyph_items, build_size)
+                starter_build, all_non_glyph_items, build_size
+            )
             iterations += build_n
-            print(f'Iterated {iterations} times...')
+            print(f"Iterated {iterations} times...")
 
         build_size = 6
         for glyph in glyphs:
             non_glyph_items = self.filter_glyph_parent(items, glyph)
             build_n = await check_combinations(
-                frozenset([glyph]), non_glyph_items, build_size - 1)
+                frozenset([glyph]), non_glyph_items, build_size - 1
+            )
             iterations += build_n
-            print(f'Iterated {iterations} times...')
+            print(f"Iterated {iterations} times...")
         for idx, item in enumerate(all_non_glyph_items):
             non_self_items = all_non_glyph_items.copy()
             non_self_items.pop(idx)
             build_n = await check_combinations(
-                frozenset([item]), non_self_items, build_size - 1)
+                frozenset([item]), non_self_items, build_size - 1
+            )
             iterations += build_n
-            print(f'Iterated {iterations} times...')
+            print(f"Iterated {iterations} times...")
 
         for build in viable_builds:
             starter_idx = 0
@@ -1134,14 +1225,17 @@ class BuildOptimizer:
 
             build[1:] = sorted(
                 build[1:],
-                key=lambda i: self.compute_item_price(i) if not i.glyph \
-                    else self.compute_item_price(
-                        self.__all_items[i.parent_item_id]))
+                key=lambda i: self.compute_item_price(i)
+                if not i.glyph
+                else self.compute_item_price(self.__all_items[i.parent_item_id]),
+            )
 
             for item in build:
                 if item.tier == 4 and not item.glyph:
-                    if PassiveAttribute.EVOLVES_WITH_GOD_KILLS \
-                            not in self.__all_items[item.parent_item_id].passive_properties:
+                    if (
+                        PassiveAttribute.EVOLVES_WITH_GOD_KILLS
+                        not in self.__all_items[item.parent_item_id].passive_properties
+                    ):
                         evos.append(item)
             # Place evolved items second
             for evo in evos:
@@ -1150,20 +1244,29 @@ class BuildOptimizer:
                 build.insert(1, evo)
         return (viable_builds, iterations)
 
-    def compute_build_stats(self, items: List[Item]) -> Dict[ItemAttribute, ItemProperty]:
+    def compute_build_stats(
+        self, items: List[Item]
+    ) -> Dict[ItemAttribute, ItemProperty]:
         attributes: Dict[ItemAttribute, ItemProperty] = {}
         protections: float = None
         maximum_health: float = None
+
         def add_attribute(iattr: ItemAttribute, iprop: ItemProperty):
             if iattr in attributes:
                 pval = attributes[iattr]
-                pval.flat_value += iprop.flat_value if iprop.flat_value is not None else 0
-                pval.percent_value += iprop.percent_value if iprop.percent_value is not None else 0
+                pval.flat_value += (
+                    iprop.flat_value if iprop.flat_value is not None else 0
+                )
+                pval.percent_value += (
+                    iprop.percent_value if iprop.percent_value is not None else 0
+                )
             else:
                 attributes[iattr] = ItemProperty(
                     iattr,
                     iprop.flat_value if iprop.flat_value is not None else 0,
-                    iprop.percent_value if iprop.percent_value is not None else 0)
+                    iprop.percent_value if iprop.percent_value is not None else 0,
+                )
+
         for item in items:
             for prop in item.item_properties:
                 attr = prop.attribute
@@ -1222,6 +1325,7 @@ class BuildOptimizer:
                 if prop.attribute in stat_targets:
                     return True
             return False
+
         return list(filter(all_item_properties_unwanted, items))
 
     @staticmethod
@@ -1236,28 +1340,43 @@ class BuildOptimizer:
         if self.__current_archetype not in self.__archetype_passive_denylist:
             return items
         denylist = self.__archetype_passive_denylist[self.__current_archetype]
-        return list(filter(
-            lambda item: not any(item.passive_properties & denylist) \
-                if item.tier < 4 \
-                else not any(\
-                    self.__all_items[item.parent_item_id].passive_properties & denylist), items))
+        return list(
+            filter(
+                lambda item: not any(item.passive_properties & denylist)
+                if item.tier < 4
+                else not any(
+                    self.__all_items[item.parent_item_id].passive_properties & denylist
+                ),
+                items,
+            )
+        )
 
     def filter_glyph_parent(self, items: List[Item], glyph: Item = None) -> List[Item]:
         if glyph is not None:
             return list(filter(lambda item: item.id != glyph.parent_item_id, items))
-        return list(filter(
-            lambda item: item.id not in \
-                [g.parent_item_id for g in self.get_glyphs(self.valid_items)], items))
+        return list(
+            filter(
+                lambda item: item.id
+                not in [g.parent_item_id for g in self.get_glyphs(self.valid_items)],
+                items,
+            )
+        )
 
     @staticmethod
     def get_evolutions(items: List[Item]) -> List[Item]:
         return list(filter(lambda item: item.tier == 4 and not item.glyph, items))
 
     def filter_evolution_parents(self, items: List[Item]) -> List[Item]:
-        return list(filter(
-            lambda item: item.id not in \
-                [evo.parent_item_id for evo in \
-                    self.get_evolutions(self.__all_items.values())], items))
+        return list(
+            filter(
+                lambda item: item.id
+                not in [
+                    evo.parent_item_id
+                    for evo in self.get_evolutions(self.__all_items.values())
+                ],
+                items,
+            )
+        )
 
     @staticmethod
     def filter_prioritize(items: List[Item], prioritize: str) -> List[Item]:
@@ -1296,13 +1415,20 @@ class BuildOptimizer:
             ItemAttribute.PHYSICAL_PROTECTION,
             ItemAttribute.PROTECTIONS,
         )
+
         def filter_items(allowed: Set[ItemAttribute]) -> List[Item]:
-            return list(filter(
-                lambda item: all([p.attribute in allowed for p in item.item_properties]),
-                items))
-        if prioritize == 'power':
+            return list(
+                filter(
+                    lambda item: all(
+                        [p.attribute in allowed for p in item.item_properties]
+                    ),
+                    items,
+                )
+            )
+
+        if prioritize == "power":
             return filter_items(power_allowed)
-        elif prioritize == 'defense':
+        elif prioritize == "defense":
             return filter_items(defense_allowed)
         raise ValueError
 
@@ -1314,11 +1440,16 @@ class BuildOptimizer:
                     # Special case for Soul Eater
                     filtered_items.append(item)
                     continue
-                if PassiveAttribute.EVOLVES_WITH_MINION_KILLS in item.passive_properties:
+                if (
+                    PassiveAttribute.EVOLVES_WITH_MINION_KILLS
+                    in item.passive_properties
+                ):
                     continue
-                if item.tier == 4 and \
-                        PassiveAttribute.EVOLVES_WITH_MINION_KILLS in \
-                            self.__all_items[item.parent_item_id].passive_properties:
+                if (
+                    item.tier == 4
+                    and PassiveAttribute.EVOLVES_WITH_MINION_KILLS
+                    in self.__all_items[item.parent_item_id].passive_properties
+                ):
                     continue
                 filtered_items.append(item)
             return filtered_items
@@ -1342,41 +1473,62 @@ class BuildOptimizer:
         return (None, None)
 
     def get_ratatoskr_acorn(self, items: List[Item]) -> List[Item]:
-        return list(filter(lambda item: item.root_item_id == self.MAGIC_ACORN_ID, items))
+        return list(
+            filter(lambda item: item.root_item_id == self.MAGIC_ACORN_ID, items)
+        )
 
     def get_preferred_starters(self) -> List[Item]:
-        return self.get_starters(list(filter(
-            lambda item: item.root_item_id \
-                in self.ARCHETYPE_PREFERRED_STARTER[self.__current_archetype],
-            self.__all_items.values())))
+        return self.get_starters(
+            list(
+                filter(
+                    lambda item: item.root_item_id
+                    in self.ARCHETYPE_PREFERRED_STARTER[self.__current_archetype],
+                    self.__all_items.values(),
+                )
+            )
+        )
 
     def get_starters(self, items: List[Item]) -> List[Item]:
-        return list(filter(lambda item: item.tier == 2 and
-            item.parent_item_id in self.__all_items and
-            self.__all_items[item.parent_item_id].is_starter and
-            item.root_item_id != self.MAGIC_ACORN_ID, items))
+        return list(
+            filter(
+                lambda item: item.tier == 2
+                and item.parent_item_id in self.__all_items
+                and self.__all_items[item.parent_item_id].is_starter
+                and item.root_item_id != self.MAGIC_ACORN_ID,
+                items,
+            )
+        )
 
     def filter_acorns(self, items: List[Item]) -> List[Item]:
-        return list(filter(lambda item: item.root_item_id != self.MAGIC_ACORN_ID, items))
+        return list(
+            filter(lambda item: item.root_item_id != self.MAGIC_ACORN_ID, items)
+        )
 
     @staticmethod
     def filter_by_stat(items: List[Item], stat: ItemAttribute) -> List[Item]:
-        return list(filter(lambda i: stat in (p.attribute for p in i.item_properties), items))
+        return list(
+            filter(lambda i: stat in (p.attribute for p in i.item_properties), items)
+        )
 
     def get_build_stats_string(self, build: List[Item], level: int = 20) -> str:
         build_stats = self.compute_build_stats(build)
         total_price = self.compute_price(build)
-        desc = f'**Stats** _(Total Price - {total_price:,})_:\n\n'
+        desc = f"**Stats** _(Total Price - {total_price:,})_:\n\n"
         stats = build_stats.values()
+
         def get_level_stats(attr: ItemAttribute, value: float) -> str:
             stat = self.god.get_stat_at_level(attr, level)
             if stat > 0:
                 if attr in (ItemAttribute.ATTACK_SPEED, ItemAttribute.MOVEMENT_SPEED):
-                    return f'_({(stat + stat * value):.1f} @ Level {level})_'
-                elif attr in (ItemAttribute.COOLDOWN_REDUCTION, ItemAttribute.CROWD_CONTROL_REDUCTION):
-                    return f'_({round((stat + value) * 100)}% @ Level {level})_'
-                return f'_({int(stat + value)} @ Level {level})_'
-            return ''
+                    return f"_({(stat + stat * value):.1f} @ Level {level})_"
+                elif attr in (
+                    ItemAttribute.COOLDOWN_REDUCTION,
+                    ItemAttribute.CROWD_CONTROL_REDUCTION,
+                ):
+                    return f"_({round((stat + value) * 100)}% @ Level {level})_"
+                return f"_({int(stat + value)} @ Level {level})_"
+            return ""
+
         for stat in sorted(stats, key=lambda s: s.attribute.value):
             percent_prefix = stat.attribute in (
                 ItemAttribute.PENETRATION,
@@ -1384,11 +1536,15 @@ class BuildOptimizer:
                 ItemAttribute.PHYSICAL_PENETRATION,
             )
             if stat.flat_value > 0:
-                desc += f'**{"Flat " if percent_prefix else ""}'\
-                        f'{stat.attribute.display_name}**: {int(stat.flat_value)} '\
-                        f'{get_level_stats(stat.attribute, stat.flat_value)}\n'
+                desc += (
+                    f'**{"Flat " if percent_prefix else ""}'
+                    f"{stat.attribute.display_name}**: {int(stat.flat_value)} "
+                    f"{get_level_stats(stat.attribute, stat.flat_value)}\n"
+                )
             if stat.percent_value > 0:
-                desc += f'**{"Percent " if percent_prefix else ""}'\
-                        f'{stat.attribute.display_name}**: {round(stat.percent_value * 100)}% '\
-                        f'{get_level_stats(stat.attribute, stat.percent_value)}\n'
+                desc += (
+                    f'**{"Percent " if percent_prefix else ""}'
+                    f"{stat.attribute.display_name}**: {round(stat.percent_value * 100)}% "
+                    f"{get_level_stats(stat.attribute, stat.percent_value)}\n"
+                )
         return desc

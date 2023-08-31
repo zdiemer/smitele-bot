@@ -7,21 +7,26 @@ from HirezAPI import QueueId
 from god_types import GodId
 from item import Item
 
+
 class Build:
     actives: List[Item]
     items: List[Item]
+
 
 class TeamName(Enum):
     ORDER = 1
     CHAOS = 2
 
+
 class Team:
     members: List[Player]
     name: TeamName
 
+
 class Teams(NamedTuple):
     order: Team
     chaos: Team
+
 
 class _MatchBase:
     queue_id: QueueId
@@ -33,9 +38,11 @@ class _MatchBase:
         self.id = id
         self.teams = teams
 
+
 class LiveMatch(_MatchBase):
     def __init__(self, queue_id: QueueId, id: int, teams: Teams):
         super().__init__(queue_id, id, teams)
+
 
 class Match(_MatchBase):
     bans: List[GodId]
@@ -43,21 +50,25 @@ class Match(_MatchBase):
     match_time_seconds: int
     region: str
 
+
 class DamageDealt:
     god: int
     minion: int
     in_hand: int
     structure: int
 
+
 class DamageTaken:
     mitigated: int
     magical: int
     physical: int
 
+
 class Healing:
     teammates: int
     minions: int
     self: int
+
 
 class PlayerMatch:
     build: Build

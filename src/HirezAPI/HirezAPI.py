@@ -16,7 +16,8 @@ import aiohttp
 
 from god_types import GodId
 
-HIREZ_DATE_FORMAT = '%m/%d/%Y %I:%M:%S %p'
+HIREZ_DATE_FORMAT = "%m/%d/%Y %I:%M:%S %p"
+
 
 class _Base:
     """_Base implements base Hirez API functionality.
@@ -24,7 +25,8 @@ class _Base:
     This class has the basic methods in Hirez's API, along with wrapper functionality
     for making API requests. It implements the non-game specific APIs.
     """
-    SESSION_FILE = 'session'
+
+    SESSION_FILE = "session"
 
     MAX_RETRIES = 3
 
@@ -32,11 +34,17 @@ class _Base:
     __base_url: str
     __dev_id: str
     __should_keep_alive: bool
-    __session_id: str = ''
+    __session_id: str = ""
     __save_session: bool
 
-    def __init__(self, base_url: str, auth_key: str = None, \
-            dev_id: str = None, keep_alive: bool = True, save_session: bool = True):
+    def __init__(
+        self,
+        base_url: str,
+        auth_key: str = None,
+        dev_id: str = None,
+        keep_alive: bool = True,
+        save_session: bool = True,
+    ):
         self.__auth_key = auth_key
         self.__base_url = base_url
         self.__dev_id = dev_id
@@ -46,88 +54,105 @@ class _Base:
 
     async def ping(self) -> Any:
         """Pings Hirez's API"""
-        return await self._make_request('ping')
+        return await self._make_request("ping")
 
     async def create_session(self) -> bytes:
-        route = 'createsession'
+        route = "createsession"
         time_string = self.__get_time_string_utcnow()
-        return await self.__make_request_base(route, self.__dev_id, \
-            self.__create_signature(route, time_string), time_string)
+        return await self.__make_request_base(
+            route,
+            self.__dev_id,
+            self.__create_signature(route, time_string),
+            time_string,
+        )
 
     async def test_session(self) -> bytes:
-        route = 'testsession'
+        route = "testsession"
         time_string = self.__get_time_string_utcnow()
-        return await self.__make_request_base(route, self.__dev_id, \
-            self.__create_signature(route, time_string), self.__session_id, time_string)
+        return await self.__make_request_base(
+            route,
+            self.__dev_id,
+            self.__create_signature(route, time_string),
+            self.__session_id,
+            time_string,
+        )
 
     async def get_data_used(self) -> any:
-        return await self._make_request('getdataused')
+        return await self._make_request("getdataused")
 
     async def get_hirez_server_status(self) -> any:
-        return await self._make_request('gethirezserverstatus')
+        return await self._make_request("gethirezserverstatus")
 
     async def get_patch_info(self) -> any:
-        return await self._make_request('getpatchinfo')
+        return await self._make_request("getpatchinfo")
 
     async def __make_request_base(self, route: str, *args: tuple) -> any:
         url = f'{self.__base_url}/{route}Json/{"/".join(str(arg) for arg in args)}'
-        print(f'Sending request to {url}')
+        print(f"Sending request to {url}")
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as res:
                 try:
                     return await res.json()
                 except (JSONDecodeError, aiohttp.ContentTypeError):
-                    print(f'Response content was not in JSON format: {await res.text()}')
+                    print(
+                        f"Response content was not in JSON format: {await res.text()}"
+                    )
                     raise
 
     async def _make_request(self, route: str, *args: tuple) -> any:
-        if self.__session_id is None or self.__session_id == '':
+        if self.__session_id is None or self.__session_id == "":
             await self.__keep_alive()
         req_count = 0
         res = None
 
         while req_count < self.MAX_RETRIES:
             time_string = self.__get_time_string_utcnow()
-            res = await self.__make_request_base(route, self.__dev_id, \
-                self.__create_signature(route, time_string), \
-                self.__session_id, time_string, *args)
+            res = await self.__make_request_base(
+                route,
+                self.__dev_id,
+                self.__create_signature(route, time_string),
+                self.__session_id,
+                time_string,
+                *args,
+            )
             req_count += 1
             if self.__is_expired(res):
                 await self.__keep_alive()
                 continue
             break
         if res is None:
-            raise ConnectionError('Failed to connect')
+            raise ConnectionError("Failed to connect")
         return res
 
     def __is_expired(self, res: any) -> bool:
-        invalid = 'Invalid session id.'
+        invalid = "Invalid session id."
         is_list = isinstance(res, list)
-        return (is_list and any(val['ret_msg'] == invalid for val in res)) \
-            or (not is_list and res['ret_msg'] == invalid)
+        return (is_list and any(val["ret_msg"] == invalid for val in res)) or (
+            not is_list and res["ret_msg"] == invalid
+        )
 
     async def __keep_alive(self):
         if self.__should_keep_alive:
             new_session = await self.create_session()
-            self.__session_id = new_session['session_id']
+            self.__session_id = new_session["session_id"]
             if self.__save_session:
-                with open(self.SESSION_FILE, 'w', encoding='utf-8') as file:
+                with open(self.SESSION_FILE, "w", encoding="utf-8") as file:
                     file.write(self.__session_id)
 
     def __try_load_session(self):
         try:
-            with open(self.SESSION_FILE, 'r', encoding='utf-8') as file:
+            with open(self.SESSION_FILE, "r", encoding="utf-8") as file:
                 self.__session_id = file.read()
         except FileNotFoundError:
-            print('Session ID not loaded, will be loaded on demand')
+            print("Session ID not loaded, will be loaded on demand")
 
     def __create_signature(self, route: str, time_string: str) -> str:
-        sig_input = \
-            f'{self.__dev_id}{route}{self.__auth_key}{time_string}'
+        sig_input = f"{self.__dev_id}{route}{self.__auth_key}{time_string}"
         return hashlib.md5(sig_input.encode()).hexdigest()
 
     def __get_time_string_utcnow(self) -> str:
-        return str(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
+        return str(datetime.utcnow().strftime("%Y%m%d%H%M%S"))
+
 
 class QueueId(Enum):
     # Main Game Modes
@@ -387,35 +412,40 @@ class QueueId(Enum):
     def display_name(self) -> str:
         if self == QueueId.MOTD:
             return self.name
-        queue = self.name.lower().replace('_', ' ').title()
+        queue = self.name.lower().replace("_", " ").title()
         if QueueId.is_ranked(self):
-            queue = queue.replace('Controller', '(Controller)')
+            queue = queue.replace("Controller", "(Controller)")
         if QueueId.is_vs_ai(self):
-            queue = queue.replace('Vs Ai', 'vs. AI')
+            queue = queue.replace("Vs Ai", "vs. AI")
             queue_split = queue.split()
-            ai_index = queue_split.index('AI')
-            queue_split[ai_index + 1] = f'({queue_split[ai_index + 1]}'
+            ai_index = queue_split.index("AI")
+            queue_split[ai_index + 1] = f"({queue_split[ai_index + 1]}"
             queue = f'{" ".join(queue_split)})'
         if QueueId.is_practice(self):
             if self == QueueId.JUNGLE_PRACTICE:
                 return queue
             queue_split = queue.split()
-            pidx = queue_split.index('Practice')
-            queue_split[pidx + 1] = f'({queue_split[pidx + 1]}'
+            pidx = queue_split.index("Practice")
+            queue_split[pidx + 1] = f"({queue_split[pidx + 1]}"
             queue = f'{" ".join(queue_split)})'
         if QueueId.is_deprecated(self):
-            queue = queue.replace('5V5', '5v5')
+            queue = queue.replace("5V5", "5v5")
         if QueueId.is_adventure(self):
-            queue = f'Adventure: {queue.replace("Adventure ", "")}'\
-                .replace('Of The', 'of the')\
-                .replace('Fafnirs', "Fafnir's")\
-                .replace('Hard', '(Hard)')\
-                .replace('Heimdallrs', "Heimdallr's")\
-                .replace('Odins', "Odin's")
+            queue = (
+                f'Adventure: {queue.replace("Adventure ", "")}'.replace(
+                    "Of The", "of the"
+                )
+                .replace("Fafnirs", "Fafnir's")
+                .replace("Hard", "(Hard)")
+                .replace("Heimdallrs", "Heimdallr's")
+                .replace("Odins", "Odin's")
+            )
         return queue
+
 
 class LanguageCode(Enum):
     ENGLISH = 1
+
 
 class TierId(Enum):
     BRONZE_V = 1
@@ -448,18 +478,19 @@ class TierId(Enum):
 
     @property
     def display_name(self) -> str:
-        split_name = self.name.replace('_', ' ')\
-            .title().split()
+        split_name = self.name.replace("_", " ").title().split()
         if len(split_name) > 1:
             split_name[1] = split_name[1].upper()
-        return ' '.join(split_name)
+        return " ".join(split_name)
+
 
 class PlayerRole(Enum):
-    CARRY = 'carry'
-    JUNGLE = 'jungle'
-    MID = 'mid'
-    SOLO = 'solo'
-    SUPPORT = 'support'
+    CARRY = "carry"
+    JUNGLE = "jungle"
+    MID = "mid"
+    SOLO = "solo"
+    SUPPORT = "support"
+
 
 class PortalId(Enum):
     HI_REZ = 1
@@ -470,115 +501,140 @@ class PortalId(Enum):
     DISCORD = 25
     EPIC_GAMES = 28
 
-class Smite(_Base):
-    BASE_URL: str = 'https://api.smitegame.com/smiteapi.svc'
 
-    def __init__(self, auth_key: str = None, dev_id: str = None, save_session: bool = True):
+class Smite(_Base):
+    BASE_URL: str = "https://api.smitegame.com/smiteapi.svc"
+
+    def __init__(
+        self, auth_key: str = None, dev_id: str = None, save_session: bool = True
+    ):
         super().__init__(self.BASE_URL, auth_key, dev_id, save_session=save_session)
 
     # Gods & Items
 
     async def get_gods(self, language_code: LanguageCode = LanguageCode.ENGLISH):
-        return await self._make_request('getgods', language_code.value)
+        return await self._make_request("getgods", language_code.value)
 
     async def get_god_leaderboard(self, god_id: GodId, queue_id: QueueId):
-        return await self._make_request('getgodleaderboard', god_id.value, queue_id.value)
+        return await self._make_request(
+            "getgodleaderboard", god_id.value, queue_id.value
+        )
 
     async def get_god_alt_abilities(self):
-        return await self._make_request('getgodaltabilities')
+        return await self._make_request("getgodaltabilities")
 
-    async def get_god_skins(self, god_id: GodId, language_code: LanguageCode = LanguageCode.ENGLISH):
-        return await self._make_request('getgodskins', god_id.value, language_code.value)
+    async def get_god_skins(
+        self, god_id: GodId, language_code: LanguageCode = LanguageCode.ENGLISH
+    ):
+        return await self._make_request(
+            "getgodskins", god_id.value, language_code.value
+        )
 
-    async def get_god_recommended_items(self, god_id: GodId, language_code: LanguageCode = LanguageCode.ENGLISH):
-        return await self._make_request('getgodrecommendeditems', god_id.value, language_code.value)
+    async def get_god_recommended_items(
+        self, god_id: GodId, language_code: LanguageCode = LanguageCode.ENGLISH
+    ):
+        return await self._make_request(
+            "getgodrecommendeditems", god_id.value, language_code.value
+        )
 
     async def get_items(self, language_code: LanguageCode = LanguageCode.ENGLISH):
-        return await self._make_request('getitems', language_code.value)
+        return await self._make_request("getitems", language_code.value)
 
     # Players
 
     async def get_player(self, player: int, portal_id: PortalId | None = None):
         if portal_id is None:
-            return await self._make_request('getplayer', player)
-        return await self._make_request('getplayer', player, portal_id.value)
+            return await self._make_request("getplayer", player)
+        return await self._make_request("getplayer", player, portal_id.value)
 
     async def get_player_id_by_name(self, player_name: str):
-        return await self._make_request('getplayeridbyname', player_name)
+        return await self._make_request("getplayeridbyname", player_name)
 
-    async def get_player_id_by_portal_user_id(self, portal_id: PortalId, portal_user_id: int):
-        return await self._make_request('getplayeridbyportaluserid', portal_id.value, portal_user_id)
+    async def get_player_id_by_portal_user_id(
+        self, portal_id: PortalId, portal_user_id: int
+    ):
+        return await self._make_request(
+            "getplayeridbyportaluserid", portal_id.value, portal_user_id
+        )
 
     async def get_player_ids_by_gamer_tag(self, portal_id: PortalId, gamer_tag: str):
-        return await self._make_request('getplayeridsbygamertag', portal_id.value, gamer_tag)
+        return await self._make_request(
+            "getplayeridsbygamertag", portal_id.value, gamer_tag
+        )
 
     async def get_friends(self, player_id: int):
-        return await self._make_request('getfriends', player_id)
+        return await self._make_request("getfriends", player_id)
 
     async def get_god_ranks(self, player_id: int):
-        return await self._make_request('getgodranks', player_id)
+        return await self._make_request("getgodranks", player_id)
 
     async def get_player_achievements(self, player_id: int):
-        return await self._make_request('getplayerachievements', player_id)
+        return await self._make_request("getplayerachievements", player_id)
 
     async def get_player_status(self, player_id: int):
-        return await self._make_request('getplayerstatus', player_id)
+        return await self._make_request("getplayerstatus", player_id)
 
     async def get_match_history(self, player_id: int):
-        return await self._make_request('getmatchhistory', player_id)
+        return await self._make_request("getmatchhistory", player_id)
 
     async def get_queue_stats(self, player_id: int, queue_id: QueueId):
-        return await self._make_request('getqueuestats', player_id, queue_id.value)
+        return await self._make_request("getqueuestats", player_id, queue_id.value)
 
     async def search_players(self, search_query: str):
-        return await self._make_request('searchplayers', search_query)
+        return await self._make_request("searchplayers", search_query)
 
     # Matches
 
     async def get_demo_details(self, match_id: int):
-        return await self._make_request('getdemodetails', match_id)
+        return await self._make_request("getdemodetails", match_id)
 
     async def get_match_details(self, match_id: int):
-        return await self._make_request('getmatchdetails', match_id)
+        return await self._make_request("getmatchdetails", match_id)
 
     async def get_match_details_batch(self, *match_ids: tuple):
         return await self._make_request(
-            'getmatchdetailsbatch', ','.join([str(id) for id in match_ids]))
+            "getmatchdetailsbatch", ",".join([str(id) for id in match_ids])
+        )
 
-    async def get_match_ids_by_queue(self, queue_id: QueueId, \
-            date: int, hour: int, minute_window: int = 0):
-        return await self._make_request('getmatchidsbyqueue', \
-            queue_id.value, date, f'{hour},{minute_window}')
+    async def get_match_ids_by_queue(
+        self, queue_id: QueueId, date: int, hour: int, minute_window: int = 0
+    ):
+        return await self._make_request(
+            "getmatchidsbyqueue", queue_id.value, date, f"{hour},{minute_window}"
+        )
 
     async def get_match_player_details(self, match_id: int):
-        return await self._make_request('getmatchplayerdetails', match_id)
+        return await self._make_request("getmatchplayerdetails", match_id)
 
     async def get_top_matches(self):
-        return await self._make_request('gettopmatches')
+        return await self._make_request("gettopmatches")
 
     # Other
 
-    async def get_league_leaderboard(self, queue_id: QueueId, tier_id: TierId, _round: int):
-        return await self._make_request('getleagueleaderboard', \
-            queue_id.value, tier_id.value, _round)
+    async def get_league_leaderboard(
+        self, queue_id: QueueId, tier_id: TierId, _round: int
+    ):
+        return await self._make_request(
+            "getleagueleaderboard", queue_id.value, tier_id.value, _round
+        )
 
     async def get_league_seasons(self, queue_id: QueueId):
-        return await self._make_request('getleagueseasons', queue_id.value)
+        return await self._make_request("getleagueseasons", queue_id.value)
 
     async def get_team_details(self, clan_id: int):
-        return await self._make_request('getteamdetails', clan_id)
+        return await self._make_request("getteamdetails", clan_id)
 
     async def get_team_match_history(self, clan_id: int):
-        return await self._make_request('getteammatchhistory', clan_id)
+        return await self._make_request("getteammatchhistory", clan_id)
 
     async def get_team_players(self, clan_id: int):
-        return await self._make_request('getteamplayers', clan_id)
+        return await self._make_request("getteamplayers", clan_id)
 
     async def search_teams(self, search_query: str):
-        return await self._make_request('searchteams', search_query)
+        return await self._make_request("searchteams", search_query)
 
     async def get_esports_pro_league_details(self):
-        return await self._make_request('getesportsproleaguedetails')
+        return await self._make_request("getesportsproleaguedetails")
 
     async def get_motd(self):
-        return await self._make_request('getmotd')
+        return await self._make_request("getmotd")

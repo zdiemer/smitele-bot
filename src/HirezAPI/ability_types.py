@@ -1,96 +1,97 @@
 from enum import Enum
 
+
 class AbilityType(Enum):
-    AOE = 'aoe'
-    ABILITY_SELECTION = 'ability selection'
-    ARC = 'arc'
-    AREA = 'area'
-    AREA_DAMAGE_AND_BUFF = 'area damage and buff'
-    AURA = 'aura'
-    BASIC_ATTACK_STIM = 'basic attack stim'
-    BUFF = 'buff'
-    BUFF_AND_AOE = 'buff and aoe'
-    BUFF_AND_DEBUFF = 'buff and debuff'
-    BUFF_AND_GROUND_TARGET = 'buff and ground target'
-    BUFF_AND_HEAL = 'buff and heal'
-    BUFF_AND_LINE = 'buff and line'
-    CHANNELED = 'channeled'
-    CHARGE_UP = 'charge up'
-    CIRCLE = 'circle'
-    CIRCLE_AND_LINE = 'circle and line'
-    CIRCLE_DASH = 'circle (dash)'
-    CONE = 'cone'
-    CONE_AND_LINE = 'cone and line'
-    CONE_AOE = 'cone, aoe'
-    CONE_CIRCLE = 'cone/circle'
-    CRESCENT = 'crescent'
-    DASH = 'dash'
-    DASH_AND_AOE = 'dash and aoe'
-    DASH_SPECIAL = 'dash special'
-    DASH_AND_BUFF = 'dash and buff'
-    DASH_LINE_PROJECTILE = 'dash, line, projectile'
-    DASH_LEAP = 'dash/leap'
-    DEBUFF = 'debuff'
-    DEPLOYABLES = 'deployables'
-    FLIGHT = 'flight'
-    GLOBAL = 'global'
-    GLOBAL_LINE = 'global line'
-    GROUND_TARGET = 'ground target'
-    GROUND_TARGET_SPECIAL = 'ground target special'
-    GROWING_LINE = 'growing line'
-    INSTANT = 'instant'
-    LEAP = 'leap'
-    LEAP_AND_STANCE_CHANGE = 'leap + stance change'
-    LEAP_DEPLOYABLE = 'leap, deployable'
-    LINE = 'line'
-    LINE_DASH = 'line (dash)'
-    LINE_GRAB_AOE = 'line + grab + aoe'
-    LINE_AOE = 'line aoe'
-    LINE_PROJECTILE = 'line projectile'
-    LINE_SPECIAL = 'line special'
-    LINE_TARGET = 'line target'
-    MELEE_TARGET = 'melee target'
-    MOUNT_AND_STANCE_CHANGE = 'mount + stance change'
-    MOUNT_LEAP = 'mount, leap'
-    MOUNTED_CHARGE_AND_STANCE_CHANGE = 'mounted charge + stance change'
-    MOVING_LINE = 'moving line'
-    PASSIVE = 'passive'
-    PET = 'pet'
-    PET_COMMAND = 'pet command'
-    POINT_BLANK = 'point blank'
-    PROJECTILE = 'projectile'
-    PROJECTILE_SPECIAL = 'projectile special'
-    PROJECTILE_AND_BUFF = 'projectile and buff'
-    PROJECTILE_OR_CHARGE = 'projectile or charge'
-    PROJECTILE_DASH = 'projectile, dash'
-    PROJECTILE_TELEPORT = 'projectile, teleport'
-    PROJECTILES = 'projectiles'
-    RADIUS = 'radius'
-    RANDOM = 'random'
-    SELF = 'self'
-    SHIELD = 'shield'
-    SHIELD_AND_BUFF = 'shield and buff'
-    SINGLE_TARGET = 'single target'
-    STANCE_CHANGE = 'stance change'
-    STEALTH = 'stealth'
-    STIM_LINE = 'stim / line'
-    TAPERED_LINE = 'tapered line'
-    TELEPORT = 'teleport'
-    TRANSFORM = 'transform'
-    WALL = 'wall'
-    WARD_LEAP = 'ward, leap'
+    AOE = "aoe"
+    ABILITY_SELECTION = "ability selection"
+    ARC = "arc"
+    AREA = "area"
+    AREA_DAMAGE_AND_BUFF = "area damage and buff"
+    AURA = "aura"
+    BASIC_ATTACK_STIM = "basic attack stim"
+    BUFF = "buff"
+    BUFF_AND_AOE = "buff and aoe"
+    BUFF_AND_DEBUFF = "buff and debuff"
+    BUFF_AND_GROUND_TARGET = "buff and ground target"
+    BUFF_AND_HEAL = "buff and heal"
+    BUFF_AND_LINE = "buff and line"
+    CHANNELED = "channeled"
+    CHARGE_UP = "charge up"
+    CIRCLE = "circle"
+    CIRCLE_AND_LINE = "circle and line"
+    CIRCLE_DASH = "circle (dash)"
+    CONE = "cone"
+    CONE_AND_LINE = "cone and line"
+    CONE_AOE = "cone, aoe"
+    CONE_CIRCLE = "cone/circle"
+    CRESCENT = "crescent"
+    DASH = "dash"
+    DASH_AND_AOE = "dash and aoe"
+    DASH_SPECIAL = "dash special"
+    DASH_AND_BUFF = "dash and buff"
+    DASH_LINE_PROJECTILE = "dash, line, projectile"
+    DASH_LEAP = "dash/leap"
+    DEBUFF = "debuff"
+    DEPLOYABLES = "deployables"
+    FLIGHT = "flight"
+    GLOBAL = "global"
+    GLOBAL_LINE = "global line"
+    GROUND_TARGET = "ground target"
+    GROUND_TARGET_SPECIAL = "ground target special"
+    GROWING_LINE = "growing line"
+    INSTANT = "instant"
+    LEAP = "leap"
+    LEAP_AND_STANCE_CHANGE = "leap + stance change"
+    LEAP_DEPLOYABLE = "leap, deployable"
+    LINE = "line"
+    LINE_DASH = "line (dash)"
+    LINE_GRAB_AOE = "line + grab + aoe"
+    LINE_AOE = "line aoe"
+    LINE_PROJECTILE = "line projectile"
+    LINE_SPECIAL = "line special"
+    LINE_TARGET = "line target"
+    MELEE_TARGET = "melee target"
+    MOUNT_AND_STANCE_CHANGE = "mount + stance change"
+    MOUNT_LEAP = "mount, leap"
+    MOUNTED_CHARGE_AND_STANCE_CHANGE = "mounted charge + stance change"
+    MOVING_LINE = "moving line"
+    PASSIVE = "passive"
+    PET = "pet"
+    PET_COMMAND = "pet command"
+    POINT_BLANK = "point blank"
+    PROJECTILE = "projectile"
+    PROJECTILE_SPECIAL = "projectile special"
+    PROJECTILE_AND_BUFF = "projectile and buff"
+    PROJECTILE_OR_CHARGE = "projectile or charge"
+    PROJECTILE_DASH = "projectile, dash"
+    PROJECTILE_TELEPORT = "projectile, teleport"
+    PROJECTILES = "projectiles"
+    RADIUS = "radius"
+    RANDOM = "random"
+    SELF = "self"
+    SHIELD = "shield"
+    SHIELD_AND_BUFF = "shield and buff"
+    SINGLE_TARGET = "single target"
+    STANCE_CHANGE = "stance change"
+    STEALTH = "stealth"
+    STIM_LINE = "stim / line"
+    TAPERED_LINE = "tapered line"
+    TELEPORT = "teleport"
+    TRANSFORM = "transform"
+    WALL = "wall"
+    WARD_LEAP = "ward, leap"
 
     @staticmethod
     def from_string(strinput: str):
-        if strinput in ('AOE, Dash', 'AOE, Dash', 'Dash + AoE'):
-            strinput = 'dash and aoe'
-        if strinput == 'Buff/Debuff':
-            strinput = 'buff and debuff'
-        if strinput == 'Circle & Line':
-            strinput = 'circle and line'
-        if strinput in ('Cone + Line', 'Line (Cone)', 'Line/Cone'):
-            strinput = 'cone and line'
+        if strinput in ("AOE, Dash", "AOE, Dash", "Dash + AoE"):
+            strinput = "dash and aoe"
+        if strinput == "Buff/Debuff":
+            strinput = "buff and debuff"
+        if strinput == "Circle & Line":
+            strinput = "circle and line"
+        if strinput in ("Cone + Line", "Line (Cone)", "Line/Cone"):
+            strinput = "cone and line"
 
         if not strinput in AbilityType:
-            raise KeyError(f'{strinput} not defined for AbilityType')
+            raise KeyError(f"{strinput} not defined for AbilityType")
         return AbilityType(strinput.lower())
