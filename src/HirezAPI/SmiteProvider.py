@@ -1,7 +1,10 @@
 import io
 import json
+import os
 from json.decoder import JSONDecodeError
 from typing import Any, Awaitable, Callable, Dict, List, Tuple
+
+import pandas as pd
 
 from god import God
 from god_types import GodId
@@ -17,6 +20,7 @@ class SmiteProvider(Smite):
 
     gods: Dict[GodId, God]
     items: Dict[int, Item]
+    player_matches: pd.DataFrame
 
     # Cached config values
     __config: dict = None
@@ -43,6 +47,92 @@ class SmiteProvider(Smite):
 
         super().__init__(self.__config["hirezAuthKey"], self.__config["hirezDevId"])
 
+    def __init_dataframe(self):
+        print("Loading match details from file.")
+        match_details = {}
+
+        for root, _, files in os.walk(".\\matchDetails"):
+            for file in files:
+                with open(os.path.join(root, file), "r", encoding="utf-8") as f:
+                    match_details.update(json.loads(f.read()))
+
+        player_details = []
+
+        print("Flattening match details to player details.")
+
+        for _, players in match_details.items():
+            if len(players) < 10:
+                continue
+            player_details.extend(players)
+
+        print("Converting details to DataFrame.")
+
+        self.player_matches = pd.DataFrame.from_dict(player_details)
+
+        self.player_matches["GodType"] = self.player_matches.apply(
+            lambda x: self.gods[GodId(int(x["GodId"]))].type.value, axis=1
+        )
+
+        cached_results = {}
+
+        def get_match_god_ids(row: Any, allies: bool = False) -> str:
+            if (int(row["Match"]), allies) in cached_results:
+                return cached_results[(int(row["Match"]), allies)]
+
+            players = match_details[str(row["Match"])]
+            god_ids = []
+
+            for player in players:
+                if player["Win_Status"] == row["Win_Status"]:
+                    if not allies or player["GodId"] == row["GodId"]:
+                        continue
+                    god_ids.append(str(player["GodId"]))
+                else:
+                    if allies:
+                        continue
+                    god_ids.append(str(player["GodId"]))
+
+            output = ",".join(sorted(god_ids))
+            cached_results[(int(row["Match"]), allies)] = output
+
+            return output
+
+        def god_ids_to_types(id_str: str) -> str:
+            ids = [GodId(int(gid)) for gid in id_str.split(",")]
+
+            return ",".join(sorted(self.gods[g].type.value[0] for g in ids))
+
+        def god_ids_to_roles(id_str: str) -> str:
+            ids = [GodId(int(gid)) for gid in id_str.split(",")]
+
+            return ",".join(sorted(self.gods[g].role.value[0] for g in ids))
+
+        def get_match_god_types(row: Any, allies: bool = False) -> str:
+            if (int(row["Match"]), allies) in cached_results:
+                return god_ids_to_types(cached_results[(int(row["Match"]), allies)])
+
+            return god_ids_to_types(get_match_god_ids(row, allies))
+
+        def get_match_god_roles(row: Any, allies: bool = False) -> str:
+            if (int(row["Match"]), allies) in cached_results:
+                return god_ids_to_roles(cached_results[(int(row["Match"]), allies)])
+
+            return god_ids_to_roles(get_match_god_ids(row, allies))
+
+        print("Applying enemy god IDs per row.")
+
+        self.player_matches["EnemyGodIds"] = self.player_matches.apply(
+            get_match_god_ids, axis=1
+        )
+
+        self.player_matches["EnemyGodRoles"] = self.player_matches.apply(
+            get_match_god_roles, axis=1
+        )
+
+        self.player_matches["EnemyGodTypes"] = self.player_matches.apply(
+            get_match_god_types, axis=1
+        )
+
     async def create(self):
         should_refresh, current_patch = await self.__should_refresh()
 
@@ -63,6 +153,8 @@ class SmiteProvider(Smite):
         if should_refresh:
             with open(self.SMITE_PATCH_VERSION_FILE, "w", encoding="utf-8") as file:
                 file.write(str(current_patch))
+
+        self.__init_dataframe()
 
     async def __load_cache(
         self, file_name: str, refresher: Callable[[], Awaitable[Any]] = None

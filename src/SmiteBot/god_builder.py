@@ -1,8 +1,11 @@
 from __future__ import annotations
+import math
 import random
 import sys
 from enum import Enum
 from typing import Dict, List, Tuple
+
+import pandas as pd
 
 from build_optimizer import BuildOptimizer
 from god import God
@@ -12,7 +15,7 @@ from player_stats import PlayerStats
 from player import Player
 from stat_calculator import DamageCalculator, GodBuild
 from SmiteProvider import SmiteProvider
-from HirezAPI import PlayerRole, QueueId
+from HirezAPI import PlayerRole, QueueId, TierId
 
 
 class InvalidOptionError(Exception):
@@ -27,6 +30,7 @@ class BuildCommandType(Enum):
     OPTIMIZE = "optimize"
     RANDOM = "random"
     TOP = "top"
+    ML = "ml"
 
 
 class BuildPrioritization(Enum):
@@ -41,6 +45,8 @@ class BuildOptions:
     queue_id: QueueId
     role: PlayerRole
     stat: ItemAttribute
+    allies: List[GodId]
+    enemies: List[GodId]
     __random_god: bool = False
 
     def __init__(
@@ -51,6 +57,7 @@ class BuildOptions:
         queue_id: QueueId = None,
         role: PlayerRole = None,
         stat: ItemAttribute = None,
+        enemies: List[GodId] = None,
     ):
         if god_id is not None:
             self.god_id = god_id
@@ -62,6 +69,7 @@ class BuildOptions:
         self.queue_id = queue_id
         self.role = role
         self.stat = stat
+        self.enemies = enemies
 
     def set_option(self, option: str, value: str):
         if option in ("-g", "--god"):
@@ -79,6 +87,11 @@ class BuildOptions:
             self.stat = ItemAttribute(value.lower())
         elif option in ("-t", "--type"):
             self.build_type = BuildCommandType(value.lower())
+        elif option in ("-e", "--enemies"):
+            self.enemies = [
+                GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
+                for g in value.split(",")
+            ]
         else:
             raise InvalidOptionError
 
@@ -88,8 +101,11 @@ class BuildOptions:
             and self.prioritization is not None
         ):
             return "The prioritize option can only be used with the random build type."
-        if self.build_type != BuildCommandType.TOP and self.role is not None:
-            return "The role option can only be used with the top build type."
+        if (
+            self.build_type not in (BuildCommandType.TOP, BuildCommandType.ML)
+            and self.role is not None
+        ):
+            return "The role option can only be used with the top or ML build types."
         if self.role is not None and self.queue_id is not None:
             if self.queue_id not in (
                 QueueId.CONQUEST,
@@ -100,10 +116,20 @@ class BuildOptions:
                 return (
                     "Cannot specify both role and queue for a non-Conquest game mode!"
                 )
-        if self.stat is not None and self.build_type == BuildCommandType.TOP:
+        if self.stat is not None and self.build_type in (
+            BuildCommandType.TOP,
+            BuildCommandType.ML,
+        ):
             return (
-                "Cannot prioritize a specific stat when pulling a top player's build."
+                "Cannot prioritize a specific stat when pulling "
+                "a top player's build or querying match data."
             )
+        if (
+            self.queue_id is not None
+            and self.queue_id != QueueId.RANKED_CONQUEST
+            and self.build_type == BuildCommandType.ML
+        ):
+            return "ML mode only supports Ranked Conquest."
         return None
 
     def was_random_god(self) -> bool:
@@ -113,13 +139,19 @@ class BuildOptions:
 class GodBuilder:
     __gods: Dict[GodId, God]
     __items: Dict[int, Item]
+    __player_matches: pd.DataFrame
     __provider: SmiteProvider
 
     def __init__(
-        self, gods: Dict[GodId, God], items: Dict[int, Item], provider: SmiteProvider
+        self,
+        gods: Dict[GodId, God],
+        items: Dict[int, Item],
+        player_matches: pd.DataFrame,
+        provider: SmiteProvider,
     ):
         self.__gods = gods
         self.__items = items
+        self.__player_matches = player_matches
         self.__provider = provider
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
@@ -223,6 +255,195 @@ class GodBuilder:
         )
         desc = (
             f"here's your random build{prioritize_str}!\n\n"
+            f"{optimizer.get_build_stats_string(build)}"
+        )
+
+        return (build, desc)
+
+    def ml(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
+        pm = self.__player_matches
+
+        god_matches = (
+            pm.loc[pm["GodId"] == build_options.god_id.value]
+            if not build_options.was_random_god()
+            else pm
+        )
+
+        winner_matches = god_matches.loc[god_matches["Win_Status"] == "Winner"]
+
+        if build_options.role is not None:
+            god_matches = god_matches.loc[
+                god_matches["Role"] == build_options.role.value.capitalize()
+            ]
+
+            winner_matches = winner_matches.loc[
+                winner_matches["Role"] == build_options.role.value.capitalize()
+            ]
+
+        found_team_match: bool = False
+        found_role_match: bool = False
+        found_type_match: bool = False
+
+        if build_options.enemies is not None:
+            enemy_str = ",".join(
+                sorted([str(id.value) for id in build_options.enemies])
+            )
+
+            team_role_matches = god_matches.loc[god_matches["EnemyGodIds"] == enemy_str]
+
+            team_winner_matches = winner_matches.loc[
+                winner_matches["EnemyGodIds"] == enemy_str
+            ]
+
+            if team_winner_matches.shape[0] > 0:
+                found_team_match = True
+                god_matches = team_role_matches
+                winner_matches = team_winner_matches
+
+            if not found_team_match:
+                role_str = ",".join(
+                    sorted(self.__gods[g].role.value[0] for g in build_options.enemies)
+                )
+
+                team_role_matches = god_matches.loc[
+                    god_matches["EnemyGodRoles"] == role_str
+                ]
+
+                team_winner_role_matches = winner_matches.loc[
+                    winner_matches["EnemyGodRoles"] == role_str
+                ]
+
+                if team_winner_role_matches.shape[0] > 0:
+                    found_role_match = True
+                    god_matches = team_role_matches
+                    winner_matches = team_winner_role_matches
+
+            if not found_team_match and not found_role_match:
+                type_str = ",".join(
+                    sorted(self.__gods[g].type.value[0] for g in build_options.enemies)
+                )
+
+                team_type_matches = god_matches.loc[
+                    god_matches["EnemyGodTypes"] == type_str
+                ]
+
+                team_winner_type_matches = winner_matches.loc[
+                    winner_matches["EnemyGodTypes"] == type_str
+                ]
+
+                if team_winner_type_matches.shape[0] > 0:
+                    found_type_match = True
+                    god_matches = team_type_matches
+                    winner_matches = team_winner_type_matches
+
+        group_by = [
+            "ItemId1",
+            "ItemId2",
+            "ItemId3",
+            "ItemId4",
+            "ItemId5",
+            "ItemId6",
+        ]
+
+        if build_options.was_random_god():
+            group_by.insert(0, "GodId")
+
+        build_matches = winner_matches.loc[
+            (winner_matches["ItemId1"] != 0)
+            & (winner_matches["ItemId2"] != 0)
+            & (winner_matches["ItemId3"] != 0)
+            & (winner_matches["ItemId4"] != 0)
+            & (winner_matches["ItemId5"] != 0)
+            & (winner_matches["ItemId6"] != 0)
+        ]
+
+        if build_matches.shape[0] == 0:
+            raise BuildFailedError
+
+        best_build = build_matches.groupby(group_by).size().idxmax()
+
+        build = []
+
+        for idx, i in enumerate(best_build):
+            if i == 0 or (idx == 0 and build_options.was_random_god()):
+                continue
+            build.append(self.__items[int(i)])
+
+        if build_options.was_random_god():
+            build_options.god_id = GodId(int(best_build[0]))
+
+        god = self.__gods[build_options.god_id]
+        items_for_god = self.get_valid_items_for_god(god)
+        optimizer = BuildOptimizer(god, items_for_god, self.__items)
+        win_count = winner_matches.shape[0]
+
+        common_roles = (
+            pm.loc[pm["GodId"] == build_options.god_id.value]["Role"].mode().values
+        )
+
+        common_role_str = (
+            f" {god.name}'s most common role is **{common_roles[0]}**."
+            if len(common_roles) > 0
+            else ""
+        )
+
+        role_str = (
+            f"**{build_options.role.value.capitalize()}** "
+            if build_options.role is not None
+            else ""
+        )
+
+        median_mmr = winner_matches["Rank_Stat_Conquest"].median()
+        median_tier = winner_matches["Conquest_Tier"].median()
+
+        mmr_str = (
+            f"{'These winners have' if win_count > 1 else 'This winner has'} a "
+            f"{'median ' if win_count > 1 else ''}rank of "
+            f"**{PlayerStats.get_tier_string(TierId(math.floor(median_tier)), median_mmr)}**."
+        )
+
+        win_rate = float(winner_matches.shape[0]) / god_matches.shape[0]
+
+        team_match_str = ""
+        against_team_str = ""
+
+        if build_options.enemies is not None:
+            if found_team_match:
+                team_match_str = (
+                    "*I was able to find the exact team composition you requested!*"
+                )
+                against_team_str = " against that exact team"
+            elif found_role_match:
+                team_match_str = (
+                    "*I couldn't find that exact team*, but I found "
+                    f"{'some' if winner_matches.shape[0] > 1 else 'one'} "
+                    f"that matched their God roles."
+                )
+                against_team_str = " against teams matching those roles"
+            elif found_type_match:
+                team_match_str = (
+                    f"*I couldn't find that exact team*, but I found "
+                    f"{'some' if winner_matches.shape[0] > 1 else 'one'} "
+                    f"that matched their damage types."
+                )
+                against_team_str = " against teams matching those damage types"
+            else:
+                team_match_str = (
+                    "I couldn't find a team matching your request, "
+                    "so I fetched overall stats."
+                )
+            team_match_str = f"{team_match_str}\n\n"
+
+        god_name_str = f" {god.name}" if not build_options.was_random_god() else ""
+
+        desc = (
+            f"here's your {role_str}build, generated from **{win_count:,}**"
+            f" {'different ' if win_count > 1 else ''} winning{god_name_str} "
+            f"{role_str}build{'s' if win_count > 1 else ''} in Ranked Conquest. "
+            f"{mmr_str}\n\n{common_role_str} "
+            f"Their {'overall ' if build_options.role is None else role_str}"
+            f"win percentage is **{(win_rate*100):,.2f}%**{against_team_str}.\n\n"
+            f"{team_match_str}"
             f"{optimizer.get_build_stats_string(build)}"
         )
 

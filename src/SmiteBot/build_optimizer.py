@@ -1005,7 +1005,7 @@ class BuildOptimizer:
         )
         for stat in stat_targets:
             if stat in stats.stats:
-                value = stats.get_stat(stat)
+                value = flat_value = pct_value = stats.get_stat(stat)
                 flat_target = pct_target = stat_targets[stat]
                 if stat in (
                     ItemAttribute.MAGICAL_PENETRATION,
@@ -1013,8 +1013,8 @@ class BuildOptimizer:
                 ):
                     flat_target = flat_target[0]
                     pct_target = pct_target[1]
-                    flat_value = 0.1 if flat_value == 0 else flat_value
-                    pct_value = 0.01 if pct_value == 0 else pct_value
+                    flat_value = 0.1 if value.flat == 0 else value.flat
+                    pct_value = 0.01 if value.percent == 0 else value.percent
                 if 0 <= float(f"{flat_value:.2f}") < float(f"{flat_target:.2f}"):
                     return False
                 if 0 <= float(f"{pct_value:.2f}") < float(f"{pct_target:.2f}"):

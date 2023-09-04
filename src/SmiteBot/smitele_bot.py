@@ -31,6 +31,7 @@ from typing import Any, Callable, Coroutine, Dict, Generator, List, Set, Tuple
 import aiohttp
 import discord
 import edit_distance
+import pandas as pd
 from bs4 import BeautifulSoup
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageOps
@@ -319,6 +320,8 @@ class Smitele(commands.Cog):
 
     __items: Dict[int, Item]
 
+    __player_matches: pd.DataFrame
+
     # Mapping of session IDs to running games
     __running_sessions: Dict[int, SmiteleGame]
 
@@ -335,6 +338,7 @@ class Smitele(commands.Cog):
         self.__smite_client = _provider
         self.__gods = _provider.gods
         self.__items = _provider.items
+        self.__player_matches = _provider.player_matches
         self.__running_sessions = {}
 
         if self.__config is None:
@@ -1008,9 +1012,10 @@ class Smitele(commands.Cog):
         usage="[options]\n\nOptions:\n\t**-g (--god)** - The name of the god "
         "or goddess. If not provided, will be random.\n\t**-t (--type)** - "
         "The type of build to provide. Options are _random_ (default), _top_ "
-        "(build from a top leaderboard player for this god), or _optimize_ "
+        "(build from a top leaderboard player for this god), _optimize_ "
         "(the bot will attempt to construct a build that achieves pre-configured "
-        "stat targets)\n\t**-r (--role)** - The role (mid, carry, etc) to attempt "
+        "stat targets), or _ml_ (the bot will use real match data to find a compatible "
+        "build given inputs)\n\t**-r (--role)** - The role (mid, carry, etc) to attempt "
         "to find a build for. Only valid with _top_\n\t**-p (--prioritize)** - "
         "Either power or defense, used to configure the _random_ option. Will "
         "prioritize items of the entered type\n\t**-q (--queue)** - The queue to fetch"
@@ -1019,7 +1024,9 @@ class Smitele(commands.Cog):
         "queue will be respected. Defaults to Ranked Conquest. When used in combination "
         "with --role, this must be a Conquest game mode\n\t**-s (--stat)** - "
         "If configured, the _random_ or _optimize_ types will attempt to generate a "
-        "build prioritizing the stat that's configured by this option\n\n"
+        "build prioritizing the stat that's configured by this option\n\t**-e (--enemies)** "
+        "- If configured, the _ml_ type will attempt to find a matchup for the specified "
+        "god against this team.\n\n"
         "Example Usages:\n$build --god='Zhong Kui' --type top --role mid --queue "
         "conquest\n$build -g Bakasura -p power\n$build -g Ratatoskr -s='physical "
         "power'\n$build -g Aphrodite -t optimize\n",
@@ -1096,7 +1103,9 @@ class Smitele(commands.Cog):
 
         await message.channel.typing()
 
-        god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
+        god_builder = GodBuilder(
+            self.__gods, self.__items, self.__player_matches, self.__smite_client
+        )
 
         if build_options.build_type == BuildCommandType.RANDOM:
             if legacy_command:
@@ -1204,6 +1213,23 @@ class Smitele(commands.Cog):
                 build, message, desc, god, build_options.was_random_god()
             )
             return
+        elif build_options.build_type == BuildCommandType.ML:
+            try:
+                build, desc = god_builder.ml(build_options)
+            except BuildFailedError:
+                await send_invalid(
+                    "Failed to find a matching build with those options. Try being less specific?"
+                )
+                return
+
+            await self.__send_generated_build(
+                build,
+                message,
+                desc,
+                self.__gods[build_options.god_id],
+                build_options.was_random_god(),
+                no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
+            )
 
     def start_bot(self) -> None:
         """
@@ -1219,6 +1245,7 @@ class Smitele(commands.Cog):
         extended_desc: str,
         god: God,
         no_god_specified: bool = False,
+        no_god_specified_override: str = None,
     ):
         with await self.__make_build_image(build) as build_image:
             desc = f"Hey {message.author.mention}, {extended_desc}"
@@ -1235,7 +1262,8 @@ class Smitele(commands.Cog):
             )
             if no_god_specified:
                 embed.set_footer(
-                    text=f"(You didn't give me a god, so I picked {god.name} for you)"
+                    text=no_god_specified_override
+                    or f"(You didn't give me a god, so I picked {god.name} for you)"
                 )
             await message.channel.send(file=file, embed=embed)
 
