@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Dict, List
+from typing import Any, Coroutine, Dict, List
 
 import discord
 from discord.ext import commands
@@ -103,22 +103,40 @@ class PlayerStats(commands.Cog):
     __bot: commands.Bot
     __provider: SmiteProvider
 
+    __user_id_to_smite_username: Dict[int, str] = {
+        269238299019706369: "starfoxa",
+        231849691250294784: "rawlout",
+        143592135730528256: "vinnied",
+        269276185656164355: "jalbagel",
+        294977341648797706: "artavious",
+        325874261682290688: "nastrian",
+        270012612048060416: "snootin",
+        232171953845305344: "indelmaen",
+        145309655122313216: "tyjelly69",
+        269980529942593546: "zachjak",
+        254016582244630540: "PlŠŠŠŠTwink",
+    }
+
     def __init__(self, bot: commands.Bot, provider: SmiteProvider):
         self.__bot = bot
         self.__provider = provider
 
-    @staticmethod
     async def __send_invalid(
-        message: discord.Message,
+        self,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
         base: str = "",
         error_info: str = "Invalid command!",
-        include_command_info: bool = True,
+        include_command_info: bool = False,
     ):
         desc = f"{error_info}"
         if include_command_info:
             desc += base
-        await message.channel.send(
-            embed=discord.Embed(color=discord.Color.red(), description=desc)
+        await self.__send_response_or_message_embed(
+            ctx_or_message,
+            embed=discord.Embed(
+                color=discord.Color.red(),
+                description=desc,
+            ),
         )
 
     async def __get_non_pc_player_ids(self, gamertag: str) -> list:
@@ -131,9 +149,20 @@ class PlayerStats(commands.Cog):
             return player_ids
         return []
 
-    async def __get_player(self, username: str) -> Player | None:
+    async def __get_player(
+        self,
+        username: str,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
+    ) -> Player | None:
         player_ids = await self.__provider.get_player_id_by_name(username)
         if not any(player_ids):
+            await self.__send_response_or_message_embed(
+                ctx_or_message,
+                discord.Embed(
+                    color=discord.Color.yellow(),
+                    description="Couldn't find a PC player of that name, checking consoles...",
+                ),
+            )
             player_ids = await self.__get_non_pc_player_ids(username)
             if not any(player_ids):
                 return None
@@ -150,24 +179,24 @@ class PlayerStats(commands.Cog):
         return player
 
     async def __get_player_or_return_invalid(
-        self, username: str, message: discord.Message
+        self,
+        username: str,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
     ) -> Player | None:
         player: Player | None = None
         try:
-            player = await self.__get_player(username)
+            player = await self.__get_player(username, ctx_or_message)
             if player is None:
                 await self.__send_invalid(
-                    message,
+                    ctx_or_message,
                     error_info="No players with that name found!",
-                    include_command_info=False,
                 )
                 return None
         except PlayerPrivacyError:
             await self.__send_invalid(
-                message,
+                ctx_or_message,
                 error_info=f"{username} has their profile hidden... "
                 "<:reeratbig:849771936509722634>",
-                include_command_info=False,
             )
             return None
         return player
@@ -191,19 +220,21 @@ class PlayerStats(commands.Cog):
         )
         return f"{emoji} **{tier_id.display_name}** ({int(round(mmr))} MMR)"
 
-    @commands.command(aliases=["live"])
-    async def livematch(self, message: discord.Message, *args: tuple):
-        base = (
-            f" {self.__bot.user.mention} accepts the command `$livematch [playername]` "
-            "(or `$live [playername]`)"
-        )
-        flatten_args = ["".join(arg) for arg in args]
-        if not any(flatten_args):
-            await self.__send_invalid(message, base)
-            return
+    async def __send_response_or_message_embed(
+        self,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
+        embed: discord.Embed,
+    ):
+        if isinstance(ctx_or_message, discord.ApplicationContext):
+            await ctx_or_message.respond(embed=embed, ephemeral=True)
+        else:
+            await ctx_or_message.channel.send(embed=embed)
 
-        player_name = " ".join(flatten_args)
-        player = await self.__get_player_or_return_invalid(player_name, message)
+    async def __livematch_lookup(
+        self,
+        player: Player,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
+    ):
         if player is None:
             return
         try:
@@ -211,10 +242,8 @@ class PlayerStats(commands.Cog):
         except (KeyError, ValueError) as ex:
             print(f"Unsupported queue type: {ex}")
             await self.__send_invalid(
-                message,
-                base,
-                "Unfortunately, the match type this player is playing is not currently supported.",
-                False,
+                ctx_or_message,
+                error_info="Unfortunately, the match type this player is playing is not currently supported.",
             )
             return
         invalid_msg = ""
@@ -234,7 +263,7 @@ class PlayerStats(commands.Cog):
         elif player_status.status == StatusId.GOD_SELECTION:
             invalid_msg = f"{player.name} is in god select, try again shortly to get live match details!"
         if invalid_msg != "":
-            await self.__send_invalid(message, base, invalid_msg, False)
+            await self.__send_invalid(ctx_or_message, error_info=invalid_msg)
             return
         live_match = await self.__provider.get_match_player_details(
             player_status.match_id
@@ -281,7 +310,44 @@ class PlayerStats(commands.Cog):
                     name=f"Team {team_id}", value=create_team_output(players)
                 )
 
-        await message.channel.send(embed=players_embed)
+        await self.__send_response_or_message_embed(ctx_or_message, embed=players_embed)
+
+    @commands.user_command(
+        name="Smite Live Match",
+        guild_ids=[396874836250722316, 845718807509991445],
+    )
+    async def livematch_lookup(
+        self, ctx: discord.ApplicationContext, member: discord.Member
+    ):
+        if member.id not in self.__user_id_to_smite_username:
+            await self.__send_invalid(
+                ctx,
+                error_info="Unable to find that player.",
+            )
+            return
+
+        player = await self.__get_player_or_return_invalid(
+            self.__user_id_to_smite_username[member.id], ctx
+        )
+        await self.__livematch_lookup(
+            player,
+            ctx,
+        )
+
+    @commands.command(aliases=["live"])
+    async def livematch(self, message: discord.Message, *args: tuple):
+        base = (
+            f" {self.__bot.user.mention} accepts the command `$livematch [playername]` "
+            "(or `$live [playername]`)"
+        )
+        flatten_args = ["".join(arg) for arg in args]
+        if not any(flatten_args):
+            await self.__send_invalid(message, base, include_command_info=True)
+            return
+
+        player_name = " ".join(flatten_args)
+        player = await self.__get_player_or_return_invalid(player_name, message)
+        await self.__livematch_lookup(player, message)
 
     @commands.command(aliases=["q"])
     async def queuestats(self, message: discord.Message, *args: tuple):
@@ -478,17 +544,11 @@ class PlayerStats(commands.Cog):
 
         await message.channel.send(embed=stats_embed)
 
-    @commands.command(aliases=["sr"])
-    async def rank(self, message: discord.Message, *args: tuple) -> None:
-        base = (
-            f" {self.__bot.user.mention} "
-            f"accepts the command `$rank [playername]` (or `$sr [playername]`)"
-        )
-        if not any(args) or len(args) > 1:
-            await self.__send_invalid(message, base)
-            return
-        player_name = "".join(args[0])
-        player = await self.__get_player_or_return_invalid(player_name, message)
+    async def __rank_lookup(
+        self,
+        player: Player,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
+    ):
         if player is None:
             return
 
@@ -517,20 +577,54 @@ class PlayerStats(commands.Cog):
                 queue, stats.tier, stats.mmr, stats.points, stats.wins, stats.losses
             )
         if rank_string == "":
-            await message.channel.send(
-                embed=discord.Embed(
+            await self.__send_response_or_message_embed(
+                ctx_or_message,
+                discord.Embed(
                     color=discord.Color.yellow(),
                     description=f"{player.name} has no ranks...",
-                )
+                ),
             )
             return
-        await message.channel.send(
-            embed=discord.Embed(
+        await self.__send_response_or_message_embed(
+            ctx_or_message,
+            discord.Embed(
                 color=discord.Color.blue(),
                 description=rank_string,
                 title=f"{player.name} Ranks:",
-            )
+            ),
         )
+
+    @commands.user_command(
+        name="Smite Rank Stats",
+        guild_ids=[396874836250722316, 845718807509991445],
+    )
+    async def rank_lookup(
+        self, ctx: discord.ApplicationContext, member: discord.Member
+    ) -> None:
+        if member.id not in self.__user_id_to_smite_username:
+            await self.__send_invalid(
+                ctx,
+                error_info="Unable to find that player.",
+            )
+            return
+
+        player = await self.__get_player_or_return_invalid(
+            self.__user_id_to_smite_username[member.id], ctx
+        )
+        await self.__rank_lookup(player, ctx)
+
+    @commands.command(aliases=["sr"])
+    async def rank(self, message: discord.Message, *args: tuple) -> None:
+        base = (
+            f" {self.__bot.user.mention} "
+            f"accepts the command `$rank [playername]` (or `$sr [playername]`)"
+        )
+        if not any(args) or len(args) > 1:
+            await self.__send_invalid(message, base, include_command_info=True)
+            return
+        player_name = "".join(args[0])
+        player = await self.__get_player_or_return_invalid(player_name, message)
+        await self.__rank_lookup(player, message)
 
     @commands.command(aliases=["w"])
     async def worshippers(self, message: discord.Message, *args: tuple):
@@ -541,7 +635,7 @@ class PlayerStats(commands.Cog):
         )
         flatten_args = ["".join(arg) for arg in args]
         if not any(flatten_args):
-            await self.__send_invalid(message, base)
+            await self.__send_invalid(message, base, include_command_info=True)
             return
 
         player_name = flatten_args[0]
@@ -562,7 +656,10 @@ class PlayerStats(commands.Cog):
                     god_role = GodRole[cleaned_god_name[0:-1]]
             else:
                 await self.__send_invalid(
-                    message, base, f"{god_name} is not a valid god!"
+                    message,
+                    base,
+                    f"{god_name} is not a valid god!",
+                    include_command_info=True,
                 )
                 return
 
@@ -596,7 +693,6 @@ class PlayerStats(commands.Cog):
                     message,
                     base,
                     f"{player.name} doesn't have any worshippers for {self.__provider.gods[god_id].name}!",
-                    False,
                 )
                 return
 

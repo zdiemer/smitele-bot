@@ -117,6 +117,7 @@ class Item:
     type: ItemType
     icon_url: str
     passive_properties: Set[PassiveAttribute]
+    recipe: bool
 
     def __init__(self):
         pass
@@ -139,6 +140,9 @@ class Item:
         item.type = ItemType(obj["Type"].lower())
         item.icon_url = obj["itemIcon_URL"]
         item.passive_properties = set()
+        item.recipe = (
+            obj["ItemDescription"]["Description"] == "Complete Recipe steps to progress"
+        )
 
         restricted = obj["RestrictedRoles"].lower()
         item.restricted_roles = []

@@ -560,7 +560,6 @@ class DamageCalculator:
                 has_oni_hunters = True
             # Spectral Armor
             if item.id == 24187:
-                print("Has spectral")
                 has_spectral = True
             # Sentinel's Embrace
             if item.id == 19627:

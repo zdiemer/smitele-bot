@@ -40,13 +40,14 @@ class BuildPrioritization(Enum):
 
 class BuildOptions:
     build_type: BuildCommandType
-    god_id: GodId
-    prioritization: BuildPrioritization
-    queue_id: QueueId
-    role: PlayerRole
-    stat: ItemAttribute
+    god_id: GodId | None
+    prioritization: BuildPrioritization | None
+    queue_id: QueueId | None
+    role: PlayerRole | None
+    stat: ItemAttribute | None
     allies: List[GodId]
-    enemies: List[GodId]
+    enemies: List[GodId] | None
+    high_mmr: bool
     __random_god: bool = False
 
     def __init__(
@@ -58,6 +59,7 @@ class BuildOptions:
         role: PlayerRole = None,
         stat: ItemAttribute = None,
         enemies: List[GodId] = None,
+        high_mmr: bool = False,
     ):
         if god_id is not None:
             self.god_id = god_id
@@ -70,6 +72,7 @@ class BuildOptions:
         self.role = role
         self.stat = stat
         self.enemies = enemies
+        self.high_mmr = high_mmr
 
     def set_option(self, option: str, value: str):
         if option in ("-g", "--god"):
@@ -92,6 +95,10 @@ class BuildOptions:
                 GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
                 for g in value.split(",")
             ]
+        elif option in ("-mmr", "--high_mmr"):
+            if value is not None:
+                raise InvalidOptionError
+            self.high_mmr = True
         else:
             raise InvalidOptionError
 
@@ -198,7 +205,9 @@ class GodBuilder:
             items_for_god = optimizer.filter_by_stat(items_for_god, build_options.stat)
         # Filter to just tier 3 items
         items = optimizer.filter_evolution_parents(
-            optimizer.filter_acorns(optimizer.filter_tiers(items_for_god))
+            optimizer.filter_acorns(
+                optimizer.filter_recipes(optimizer.filter_tiers(items_for_god))
+            )
         )
 
         # Ratatoskr always has his acorn!
@@ -206,11 +215,13 @@ class GodBuilder:
             not QueueId.is_duel(build_options.queue_id) and bool(random.randint(0, 1))
         )
         should_include_glyph = bool(random.randint(0, 1))
+        should_include_recipes = bool(random.randint(0, 1))
         is_ratatoskr = god.id == GodId.RATATOSKR
         build_size = 6 - should_include_starter - int(is_ratatoskr)
 
         glyphs = optimizer.get_glyphs(items_for_god)
         starters = optimizer.get_starters(items_for_god)
+        recipes = optimizer.get_tier_3_recipes(items_for_god)
 
         if bool(should_include_starter) and not any(starters):
             build_size += 1
@@ -222,6 +233,12 @@ class GodBuilder:
             build.append(glyph)
             build_size = build_size - 1
             items = optimizer.filter_glyph_parent(items, glyph)
+
+        # Add a recipe... maybe!!
+        if should_include_recipes and any(recipes):
+            recipe = random.choice(recipes)
+            build.append(recipe)
+            build_size = build_size - 1
 
         if len(items) < build_size:
             raise BuildFailedError
@@ -270,6 +287,13 @@ class GodBuilder:
         )
 
         winner_matches = god_matches.loc[god_matches["Win_Status"] == "Winner"]
+
+        if build_options.high_mmr:
+            high_mmr = 2000
+            god_matches = god_matches.loc[god_matches["Rank_Stat_Conquest"] >= high_mmr]
+            winner_matches = winner_matches.loc[
+                winner_matches["Rank_Stat_Conquest"] >= high_mmr
+            ]
 
         if build_options.role is not None:
             god_matches = god_matches.loc[
@@ -337,52 +361,57 @@ class GodBuilder:
                     winner_matches = team_winner_type_matches
 
         group_by = [
-            "ItemId1",
-            "ItemId2",
-            "ItemId3",
-            "ItemId4",
-            "ItemId5",
-            "ItemId6",
+            "Build",
         ]
 
         if build_options.was_random_god():
             group_by.insert(0, "GodId")
 
-        build_matches = winner_matches.loc[
-            (winner_matches["ItemId1"] != 0)
-            & (winner_matches["ItemId2"] != 0)
-            & (winner_matches["ItemId3"] != 0)
-            & (winner_matches["ItemId4"] != 0)
-            & (winner_matches["ItemId5"] != 0)
-            & (winner_matches["ItemId6"] != 0)
-        ]
+        build_matches = winner_matches.loc[~winner_matches["Build"].str.contains(",0")]
 
         if build_matches.shape[0] == 0:
             raise BuildFailedError
 
-        best_build = build_matches.groupby(group_by).size().idxmax()
+        most_freq = (
+            build_matches.groupby(group_by)
+            .size()
+            .reset_index()
+            .sort_values(by=0, ascending=False)
+            .iloc[0]
+        )
+
+        god_id = (
+            build_options.god_id.value
+            if not build_options.was_random_god()
+            else most_freq["GodId"]
+        )
+        best_build = most_freq["Build"]
+        build_count = most_freq[0]
 
         build = []
 
-        for idx, i in enumerate(best_build):
-            if i == 0 or (idx == 0 and build_options.was_random_god()):
-                continue
+        for i in best_build.split(","):
             build.append(self.__items[int(i)])
 
         if build_options.was_random_god():
-            build_options.god_id = GodId(int(best_build[0]))
+            build_options.god_id = GodId(god_id)
+            winner_matches = winner_matches.loc[winner_matches["GodId"] == god_id]
+            god_matches = god_matches.loc[god_matches["GodId"] == god_id]
 
         god = self.__gods[build_options.god_id]
         items_for_god = self.get_valid_items_for_god(god)
         optimizer = BuildOptimizer(god, items_for_god, self.__items)
+
         win_count = winner_matches.shape[0]
+        god_count = god_matches.shape[0]
+        unique_build_count = len(winner_matches["Build"].unique())
 
         common_roles = (
             pm.loc[pm["GodId"] == build_options.god_id.value]["Role"].mode().values
         )
 
         common_role_str = (
-            f" {god.name}'s most common role is **{common_roles[0]}**."
+            f"{god.name}'s most common role is **{common_roles[0]}**."
             if len(common_roles) > 0
             else ""
         )
@@ -393,8 +422,12 @@ class GodBuilder:
             else ""
         )
 
-        median_mmr = winner_matches["Rank_Stat_Conquest"].median()
-        median_tier = winner_matches["Conquest_Tier"].median()
+        median_mmr = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Rank_Stat_Conquest"
+        ].median()
+        median_tier = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Conquest_Tier"
+        ].median()
 
         mmr_str = (
             f"{'These winners have' if win_count > 1 else 'This winner has'} a "
@@ -402,7 +435,7 @@ class GodBuilder:
             f"**{PlayerStats.get_tier_string(TierId(math.floor(median_tier)), median_mmr)}**."
         )
 
-        win_rate = float(winner_matches.shape[0]) / god_matches.shape[0]
+        win_rate = float(win_count) / god_count
 
         team_match_str = ""
         against_team_str = ""
@@ -437,9 +470,10 @@ class GodBuilder:
         god_name_str = f" {god.name}" if not build_options.was_random_god() else ""
 
         desc = (
-            f"here's your {role_str}build, generated from **{win_count:,}**"
-            f" {'different ' if win_count > 1 else ''} winning{god_name_str} "
-            f"{role_str}build{'s' if win_count > 1 else ''} in Ranked Conquest. "
+            f"here's your {role_str}build, generated from **{unique_build_count:,}**"
+            f" {'different ' if unique_build_count > 1 else ''} winning{god_name_str} "
+            f"{role_str}build{'s' if unique_build_count > 1 else ''} in Ranked Conquest. "
+            f"This exact build won **{build_count:,}** times. "
             f"{mmr_str}\n\n{common_role_str} "
             f"Their {'overall ' if build_options.role is None else role_str}"
             f"win percentage is **{(win_rate*100):,.2f}%**{against_team_str}.\n\n"

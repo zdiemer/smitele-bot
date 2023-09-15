@@ -8,7 +8,7 @@ from god import God
 from god_types import GodId, GodPro, GodRole, GodType
 from item import Item, ItemAttribute, ItemProperty
 from passive_parser import PassiveAttribute
-from stat_calculator import BuildStatCalculator, GodBuild
+from stat_calculator import BuildStatCalculator, GodBuild, _Penetration
 from HirezAPI import QueueId
 
 
@@ -603,67 +603,65 @@ class BuildOptimizer:
             BuildArchetype.ABILITY_BASED_ASSASSIN: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.20,
                 ItemAttribute.MANA: 200,
-                ItemAttribute.PHYSICAL_PENETRATION: (20, 0.30),
-                ItemAttribute.PHYSICAL_POWER: 320,
+                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.30),
+                ItemAttribute.PHYSICAL_POWER: 200,
             },
             BuildArchetype.AUTO_ATTACK_ASSASSIN: {
                 ItemAttribute.ATTACK_SPEED: 0.70,
                 ItemAttribute.MOVEMENT_SPEED: 0.20,
                 ItemAttribute.PHYSICAL_LIFESTEAL: 0.10,
                 ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
-                ItemAttribute.PHYSICAL_POWER: 225,
+                ItemAttribute.PHYSICAL_POWER: 180,
             },
             BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: {
                 ItemAttribute.ATTACK_SPEED: 0.40,
                 ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.75,
-                ItemAttribute.MOVEMENT_SPEED: 0.21,
+                ItemAttribute.MOVEMENT_SPEED: 0.07,
                 ItemAttribute.PHYSICAL_PENETRATION: (0, 0.20),
                 ItemAttribute.PHYSICAL_POWER: 195,
                 ItemAttribute.PHYSICAL_PROTECTION: 30,
             },
             BuildArchetype.SOLO_ASSASSIN: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
-                ItemAttribute.HEALTH: 300,
-                ItemAttribute.MAGICAL_PROTECTION: 100,
+                ItemAttribute.HEALTH: 150,
                 ItemAttribute.MANA: 1000,
                 ItemAttribute.PHYSICAL_POWER: 150,
-                ItemAttribute.PHYSICAL_PROTECTION: 130,
             },
             BuildArchetype.SUPPORT_GUARDIAN: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.30,
-                ItemAttribute.HEALTH: 1100,
-                ItemAttribute.MAGICAL_PROTECTION: 225,
-                ItemAttribute.PHYSICAL_PROTECTION: 225,
+                ItemAttribute.HEALTH: 950,
+                ItemAttribute.MAGICAL_PROTECTION: 155,
+                ItemAttribute.PHYSICAL_PROTECTION: 185,
             },
             BuildArchetype.SOLO_GUARDIAN: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.20,
                 ItemAttribute.CROWD_CONTROL_REDUCTION: 0.20,
                 ItemAttribute.HEALTH: 800,
-                ItemAttribute.MAGICAL_POWER: 200,
+                ItemAttribute.MAGICAL_POWER: 100,
                 ItemAttribute.MAGICAL_PROTECTION: 130,
                 ItemAttribute.MANA: 400,
-                ItemAttribute.MP5: 60,
+                ItemAttribute.MP5: 25,
                 ItemAttribute.PHYSICAL_PROTECTION: 140,
             },
             BuildArchetype.CARRY_HUNTER: {
-                ItemAttribute.ATTACK_SPEED: 0.80,
-                ItemAttribute.PHYSICAL_LIFESTEAL: 0.25,
-                ItemAttribute.PHYSICAL_PENETRATION: (0, 0.10),
-                ItemAttribute.PHYSICAL_POWER: 200,
+                ItemAttribute.ATTACK_SPEED: 0.70,
+                ItemAttribute.PHYSICAL_LIFESTEAL: 0.15,
+                ItemAttribute.PHYSICAL_PENETRATION: (15, 0),
+                ItemAttribute.PHYSICAL_POWER: 180,
+                ItemAttribute.CRITICAL_STRIKE_CHANCE: 0.45,
             },
             BuildArchetype.ABILITY_BASED_HUNTER: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.10,
                 ItemAttribute.HEALTH: 100,
                 ItemAttribute.MANA: 1000,
-                ItemAttribute.PHYSICAL_PENETRATION: (15, 0.20),
+                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
                 ItemAttribute.PHYSICAL_POWER: 285,
             },
             BuildArchetype.MID_MAGE: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.30,
                 ItemAttribute.MAGICAL_PENETRATION: (25, 0.30),
-                ItemAttribute.MAGICAL_POWER: 560,
-                ItemAttribute.MANA: 1300,
+                ItemAttribute.MAGICAL_POWER: 420,
+                ItemAttribute.MANA: 300,
                 ItemAttribute.MP5: 40,
             },
             BuildArchetype.LIFESTEAL_MID_MAGE: {
@@ -1038,7 +1036,7 @@ class BuildOptimizer:
                         ].passive_properties
                     }
                 )
-        if self.__check_overcapped(stats, all_passives):
+        if self.__check_overcapped(stats.stats, all_passives):
             return False
         if self.__current_archetype in self.__archetype_passive_wishlist:
             if (
@@ -1046,20 +1044,22 @@ class BuildOptimizer:
                     all_passives
                     & self.__archetype_passive_wishlist[self.__current_archetype]
                 )
-                < 2
+                < 1
             ):
                 return False
         return True
 
     def __check_overcapped(
-        self, stats: Dict[ItemAttribute, ItemProperty], passives: Set[PassiveAttribute]
+        self,
+        stats: Dict[ItemAttribute, float | _Penetration],
+        passives: Set[PassiveAttribute],
     ) -> bool:
         for attr, prop in stats.items():
             if attr in self.FLAT_ITEM_ATTRIBUTE_CAPS:
-                flat_value = prop.flat_value
+                flat_value = prop if isinstance(prop, float) else prop.flat
                 if attr == ItemAttribute.ATTACK_SPEED:
                     attack_speed = self.god.get_stat_at_level(attr, 20)
-                    flat_value = attack_speed + attack_speed * prop.percent_value
+                    flat_value = attack_speed + attack_speed * prop
                 elif attr not in (
                     ItemAttribute.MAGICAL_PENETRATION,
                     ItemAttribute.PHYSICAL_PENETRATION,
@@ -1084,7 +1084,7 @@ class BuildOptimizer:
                             continue
                     return True
             if attr in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
-                pct_value = prop.percent_value
+                pct_value = prop if isinstance(prop, float) else prop.percent
                 pct_cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]
                 if attr == ItemAttribute.COOLDOWN_REDUCTION:
                     if self.god.role == GodRole.WARRIOR:
@@ -1378,6 +1378,9 @@ class BuildOptimizer:
             )
         )
 
+    def filter_recipes(self, items: List[Item]) -> List[Item]:
+        return list(filter(lambda item: not item.recipe, items))
+
     @staticmethod
     def filter_prioritize(items: List[Item], prioritize: str) -> List[Item]:
         power_allowed = (
@@ -1460,6 +1463,10 @@ class BuildOptimizer:
     @staticmethod
     def get_glyphs(items: List[Item]) -> List[Item]:
         return list(filter(lambda item: item.glyph, items))
+
+    @staticmethod
+    def get_tier_3_recipes(items: List[Item]) -> List[Item]:
+        return list(filter(lambda item: item.recipe and item.tier == 3, items))
 
     def get_glyph_parent_if_no_glyphs(self, items: List[Item]) -> Tuple[int, Item]:
         glyphs = self.get_glyphs(self.valid_items)

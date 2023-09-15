@@ -500,6 +500,7 @@ class PortalId(Enum):
     SWITCH = 22
     DISCORD = 25
     EPIC_GAMES = 28
+    NINTENDO_PSEUDONYMOUS_ID = 33
 
 
 class Smite(_Base):

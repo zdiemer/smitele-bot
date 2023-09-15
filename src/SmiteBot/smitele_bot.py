@@ -52,7 +52,6 @@ from player_stats import PlayerStats
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
-from stat_calculator import DamageCalculator, GodBuild
 from HirezAPI import Smite, PlayerRole, QueueId
 
 
@@ -367,6 +366,268 @@ class Smitele(commands.Cog):
             status=discord.Status.online, activity=activity
         )
         print("Smite-le Bot is ready!")
+
+    @commands.slash_command(
+        name="build",
+        description="Get a Smite build!",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="build_type",
+        type=str,
+        description="The type of build to return, defaults to Winning Builds",
+        choices=["Random", "Build Optimizer", "Top Player's Build", "Winning Builds"],
+        default="Winning Builds",
+    )
+    @discord.option(
+        name="god_name",
+        type=str,
+        description="The god to return a build for. If not specified, it'll be random",
+        default="",
+    )
+    @discord.option(
+        name="prioritize",
+        type=str,
+        description="What items to prioritize for a random build",
+        choices=[p.value.lower() for p in list(BuildPrioritization)],
+        default="",
+    )
+    @discord.option(
+        name="match_queue",
+        type=str,
+        description="The queue to get results for, defaults to any queue",
+        choices=[
+            q.display_name
+            for q in list(
+                filter(
+                    lambda _q: QueueId.is_normal(_q) or QueueId.is_ranked(_q),
+                    list(QueueId),
+                )
+            )
+        ],
+        default="",
+    )
+    @discord.option(
+        name="role",
+        type=str,
+        description="The Conquest role to find a build for",
+        choices=[p.value.lower() for p in list(PlayerRole)],
+        default="",
+    )
+    @discord.option(
+        name="enemies",
+        type=str,
+        description="A comma-separated list of enemies which the player is up against",
+        default="",
+    )
+    @discord.option(
+        name="stat",
+        type=str,
+        description="A stat to optimize for when using the Build Optimizer",
+        default="",
+    )
+    @discord.option(
+        name="high_mmr",
+        type=bool,
+        description="Whether to limit build search results to high MMR players (2000+)",
+        default=True,
+    )
+    async def build(
+        self,
+        ctx: discord.ApplicationContext,
+        build_type: str,
+        god_name: str,
+        prioritize: str,
+        match_queue: str,
+        role: str,
+        enemies: str,
+        high_mmr: bool,
+    ):
+        async def send_invalid(additional_info: str = ""):
+            desc = (
+                f"Invalid command! {self.__bot.user.mention} "
+                'accepts the command `$[build, b] [-g god, --god="god name"] [-t, --type] '
+                '[-r, --role] [-p, --prioritize]`. Valid build types are "top," (build '
+                'from a top ranked leaderboard player for this god) "optimize," (have '
+                'the Build Optimizer™ create you a build) or "random" (a completely'
+                " random build)`)"
+            )
+            if additional_info != "":
+                desc = additional_info
+            await ctx.respond(
+                embed=discord.Embed(color=discord.Color.red(), description=desc),
+                ephemeral=True,
+            )
+
+        god: God | None = None
+
+        build_options = BuildOptions()
+
+        if god_name != "":
+            build_options.set_option("-g", god_name)
+        if build_type == "Random":
+            pass
+        elif build_type == "Build Optimizer":
+            build_options.set_option("-t", BuildCommandType.OPTIMIZE.value)
+        elif build_type == "Top Player's Build":
+            build_options.set_option("-t", BuildCommandType.TOP.value)
+        elif build_type == "Winning Builds":
+            build_options.set_option("-t", BuildCommandType.ML.value)
+        if prioritize != "":
+            build_options.set_option("-p", prioritize)
+        if match_queue != "":
+            build_options.set_option("-q", match_queue)
+        if role != "":
+            build_options.set_option("-r", role)
+        if enemies != "":
+            build_options.set_option("-e", enemies)
+        if high_mmr:
+            build_options.set_option("-mmr", None)
+
+        error_msg = build_options.validate()
+        if error_msg is not None:
+            await send_invalid(error_msg)
+            return
+        try:
+            god = self.__gods[build_options.god_id]
+        except KeyError:
+            await send_invalid(
+                f"{build_options.god_id.name.title()} not mapped to a god!"
+            )
+            return
+
+        async with ctx.channel.typing():
+            god_builder = GodBuilder(
+                self.__gods, self.__items, self.__player_matches, self.__smite_client
+            )
+
+            if build_options.build_type == BuildCommandType.RANDOM:
+                try:
+                    build, desc = god_builder.random(build_options)
+                except BuildFailedError:
+                    await send_invalid(
+                        f"Failed to randomize a build for {self.__gods[build_options.god_id].name}."
+                    )
+                    return
+
+                await self.__send_generated_build(
+                    build, ctx, desc, god, build_options.was_random_god()
+                )
+                return
+            elif build_options.build_type == BuildCommandType.TOP:
+                if build_options.role is not None:
+                    desc = (
+                        f"Trying to find a game with {god.name} in "
+                        f"{build_options.role.value.title()}... This may take a while..."
+                    )
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.blue(), description=desc
+                        ),
+                        ephemeral=True,
+                    )
+                elif build_options.queue_id is not None:
+                    desc = (
+                        f"Trying to find a game with {god.name} in "
+                        f"{build_options.queue_id.display_name}... This may take a while..."
+                    )
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.blue(), description=desc
+                        ),
+                        ephemeral=True,
+                    )
+                else:
+                    desc = f"Trying to find a game with {god.name}... This may take a while..."
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.blue(), description=desc
+                        ),
+                        ephemeral=True,
+                    )
+
+                try:
+                    build, desc = await god_builder.top(build_options)
+                except BuildFailedError:
+                    addtl_err = ""
+                    if build_options.role is not None:
+                        addtl_err += f" in {build_options.role.value.title()}"
+                    elif build_options.queue_id is not None:
+                        addtl_err += f" playing {build_options.queue_id.display_name}"
+                    desc = f"Failed to find any games with {god.name}{addtl_err}!"
+                    await ctx.followup(
+                        embed=discord.Embed(color=discord.Color.red(), description=desc)
+                    )
+                    return
+
+                await self.__send_generated_build(
+                    build,
+                    ctx,
+                    desc,
+                    god,
+                    build_options.was_random_god(),
+                )
+                return
+            elif build_options.build_type == BuildCommandType.OPTIMIZE:
+
+                async def send_failed():
+                    desc = f"Failed to optimize a build for {god.name}!"
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.red(), description=desc
+                        ),
+                        ephemeral=True,
+                    )
+
+                try:
+                    vowels = ("A", "E", "I", "O", "U")
+                    desc = (
+                        f'Optimizing a{"n" if god.name.startswith(vowels) else ""} '
+                        f"{god.name} build for you... This may take a while..."
+                    )
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.blue(), description=desc
+                        ),
+                        ephemeral=True,
+                    )
+                    async with ctx.channel.typing():
+                        build, desc = await god_builder.optimize(build_options)
+                except ValueError:
+                    traceback.print_exc()
+                    await send_failed()
+                    return
+                except BuildFailedError:
+                    await send_failed()
+                    return
+                await self.__send_generated_build(
+                    build, ctx, desc, god, build_options.was_random_god()
+                )
+                return
+            elif build_options.build_type == BuildCommandType.ML:
+                try:
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.yellow(),
+                            title="Finding you a build with those settings.",
+                        ),
+                        ephemeral=True,
+                    )
+                    build, desc = god_builder.ml(build_options)
+                except BuildFailedError:
+                    await send_invalid(
+                        "Failed to find a matching build with those options. Try being less specific?"
+                    )
+                    return
+
+                await self.__send_generated_build(
+                    build,
+                    ctx,
+                    desc,
+                    self.__gods[build_options.god_id],
+                    build_options.was_random_god(),
+                    no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
+                )
 
     @commands.command(
         aliases=["smite-le", "st"],
@@ -753,65 +1014,69 @@ class Smitele(commands.Cog):
         if item is None:
             await send_invalid(f"{item_name} is not an item!")
             return
-        await message.channel.typing()
-        item_embed = discord.Embed(
-            color=discord.Color.blue(), title=f"{item.name} Info:"
-        )
-        item_embed.set_thumbnail(url=item.icon_url)
-
-        stats = "\n"
-        if item.type == ItemType.ITEM:
-            if not item.active:
-                stats += "**Inactive Item** ❌\n\n"
-            elif item.is_starter:
-                stats += "**Starter Item** 1️⃣\n\n"
-            elif item.glyph:
-                stats += "**Glyph** ⬆️\n\n"
-
-            for prop in item.item_properties:
-                stats += (
-                    f"**{prop.attribute.display_name}**: "
-                    f"{int(prop.flat_value or (prop.percent_value * 100))}"
-                    f'{"%" if prop.percent_value is not None else ""}\n'
-                )
-            if any(item.restricted_roles):
-                stats += (
-                    "\n**Can't Build On**:\n"
-                    + ", ".join(
-                        [f"_{role.name.title()}s_" for role in item.restricted_roles]
-                    )
-                    + "\n"
-                )
-
-        header = "**Passive**:\n" if item.type == ItemType.ITEM else ""
-        if item.passive is not None and item.passive != "":
-            stats += f"\n{header}_{item.passive}_\n"
-        elif item.aura is not None and item.aura != "":
-            stats += f"\n**Aura**:\n_{item.aura}_\n"
-        elif item.description is not None and item.description != "":
-            stats += f"\n_{item.description}_\n"
-
-        item_embed.add_field(name=f"{item.type.name.title()} Properties:", value=stats)
-
-        optimizer = BuildOptimizer(self.__gods[GodId.AGNI], [], self.__items)
-        total_cost = optimizer.compute_item_price(item)
-        item_embed.add_field(
-            name="Cost:",
-            value=f"**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}",
-        )
-
-        await message.channel.send(embed=item_embed)
-        await message.channel.typing()
-
-        if item.type == ItemType.ITEM and item.active:
-            tree_embed = discord.Embed(
-                color=discord.Color.blue(),
-                title=f"{self.__items[item.root_item_id].name} Tree:",
+        async with message.channel.typing():
+            item_embed = discord.Embed(
+                color=discord.Color.blue(), title=f"{item.name} Info:"
             )
-            with await self.__generate_build_tree(item) as tree_image:
-                file = discord.File(tree_image, filename="tree.png")
-                tree_embed.set_image(url="attachment://tree.png")
-                await message.channel.send(file=file, embed=tree_embed)
+            item_embed.set_thumbnail(url=item.icon_url)
+
+            stats = "\n"
+            if item.type == ItemType.ITEM:
+                if not item.active:
+                    stats += "**Inactive Item** ❌\n\n"
+                elif item.is_starter:
+                    stats += "**Starter Item** 1️⃣\n\n"
+                elif item.glyph:
+                    stats += "**Glyph** ⬆️\n\n"
+
+                for prop in item.item_properties:
+                    stats += (
+                        f"**{prop.attribute.display_name}**: "
+                        f"{int(prop.flat_value or (prop.percent_value * 100))}"
+                        f'{"%" if prop.percent_value is not None else ""}\n'
+                    )
+                if any(item.restricted_roles):
+                    stats += (
+                        "\n**Can't Build On**:\n"
+                        + ", ".join(
+                            [
+                                f"_{role.name.title()}s_"
+                                for role in item.restricted_roles
+                            ]
+                        )
+                        + "\n"
+                    )
+
+            header = "**Passive**:\n" if item.type == ItemType.ITEM else ""
+            if item.passive is not None and item.passive != "":
+                stats += f"\n{header}_{item.passive}_\n"
+            elif item.aura is not None and item.aura != "":
+                stats += f"\n**Aura**:\n_{item.aura}_\n"
+            elif item.description is not None and item.description != "":
+                stats += f"\n_{item.description}_\n"
+
+            item_embed.add_field(
+                name=f"{item.type.name.title()} Properties:", value=stats
+            )
+
+            optimizer = BuildOptimizer(self.__gods[GodId.AGNI], [], self.__items)
+            total_cost = optimizer.compute_item_price(item)
+            item_embed.add_field(
+                name="Cost:",
+                value=f"**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}",
+            )
+
+            await message.channel.send(embed=item_embed)
+        async with message.channel.typing():
+            if item.type == ItemType.ITEM and item.active:
+                tree_embed = discord.Embed(
+                    color=discord.Color.blue(),
+                    title=f"{self.__items[item.root_item_id].name} Tree:",
+                )
+                with await self.__generate_build_tree(item) as tree_image:
+                    file = discord.File(tree_image, filename="tree.png")
+                    tree_embed.set_image(url="attachment://tree.png")
+                    await message.channel.send(file=file, embed=tree_embed)
 
     @commands.command(
         aliases=["g"],
@@ -1002,235 +1267,6 @@ class Smitele(commands.Cog):
 
             await message.channel.send(embed=ability_embed)
 
-    @commands.command(
-        aliases=["b"],
-        brief="Returns a build for a god, given configuration.",
-        description="The build command will return a final build for a "
-        "god given a number of configuration options. By default, it "
-        "returns a random build for a random god, but parameters "
-        "are able to configure the output.",
-        usage="[options]\n\nOptions:\n\t**-g (--god)** - The name of the god "
-        "or goddess. If not provided, will be random.\n\t**-t (--type)** - "
-        "The type of build to provide. Options are _random_ (default), _top_ "
-        "(build from a top leaderboard player for this god), _optimize_ "
-        "(the bot will attempt to construct a build that achieves pre-configured "
-        "stat targets), or _ml_ (the bot will use real match data to find a compatible "
-        "build given inputs)\n\t**-r (--role)** - The role (mid, carry, etc) to attempt "
-        "to find a build for. Only valid with _top_\n\t**-p (--prioritize)** - "
-        "Either power or defense, used to configure the _random_ option. Will "
-        "prioritize items of the entered type\n\t**-q (--queue)** - The queue to fetch"
-        " a build for. In the _top_ type, only games of the passed in type will be "
-        "queried. Else, in the _random_ or _optimize_ command, banned items for the "
-        "queue will be respected. Defaults to Ranked Conquest. When used in combination "
-        "with --role, this must be a Conquest game mode\n\t**-s (--stat)** - "
-        "If configured, the _random_ or _optimize_ types will attempt to generate a "
-        "build prioritizing the stat that's configured by this option\n\t**-e (--enemies)** "
-        "- If configured, the _ml_ type will attempt to find a matchup for the specified "
-        "god against this team.\n\n"
-        "Example Usages:\n$build --god='Zhong Kui' --type top --role mid --queue "
-        "conquest\n$build -g Bakasura -p power\n$build -g Ratatoskr -s='physical "
-        "power'\n$build -g Aphrodite -t optimize\n",
-    )
-    @commands.max_concurrency(1, per=commands.BucketType.guild)
-    async def build(self, message: discord.Message, *args: tuple):
-        async def send_invalid(additional_info: str = ""):
-            desc = (
-                f"Invalid command! {self.__bot.user.mention} "
-                'accepts the command `$[build, b] [-g god, --god="god name"] [-t, --type] '
-                '[-r, --role] [-p, --prioritize]`. Valid build types are "top," (build '
-                'from a top ranked leaderboard player for this god) "optimize," (have '
-                'the Build Optimizer™ create you a build) or "random" (a completely'
-                " random build)`)"
-            )
-            if additional_info != "":
-                desc = additional_info
-            await message.channel.send(
-                embed=discord.Embed(color=discord.Color.red(), description=desc)
-            )
-
-        god: God = None
-        god_id: GodId = None
-        flatten_args = ["".join(arg) for arg in args]
-        option_index: int = None
-        legacy_command = False
-
-        if any(flatten_args) and not any(
-            list(filter(lambda arg: arg.startswith("-"), flatten_args))
-        ):
-            legacy_command = True
-            for idx, arg in enumerate(flatten_args):
-                if arg in ("random", "top", "optimize"):
-                    option_index = idx
-                    break
-            try:
-                god_name: str
-                if option_index is not None:
-                    god_name = " ".join(flatten_args[0:option_index])
-                else:
-                    god_name = " ".join(flatten_args[0:])
-                god_id = GodId[
-                    god_name.upper().replace(" ", "_").replace("'", "")
-                ]  # handles Chang'e case
-            except KeyError:
-                await send_invalid(f'"**{god_name}**" is not a valid god!')
-                return
-
-        build_options: BuildOptions | None = None
-        if legacy_command:
-            build_options = BuildOptions(god_id)
-            if option_index is not None:
-                build_options.build_type = BuildCommandType(flatten_args[option_index])
-        else:
-            try:
-                build_options = self.__parse_build_opts(flatten_args)
-            except (InvalidOptionError, KeyError, ValueError):
-                await send_invalid()
-                return
-        if build_options.god_id is None:
-            await send_invalid("Invalid god!")
-            return
-        error_msg = build_options.validate()
-        if error_msg is not None:
-            await send_invalid(error_msg)
-            return
-        try:
-            god = self.__gods[build_options.god_id]
-        except KeyError:
-            await send_invalid(
-                f"{build_options.god_id.name.title()} not mapped to a god!"
-            )
-            return
-
-        await message.channel.typing()
-
-        god_builder = GodBuilder(
-            self.__gods, self.__items, self.__player_matches, self.__smite_client
-        )
-
-        if build_options.build_type == BuildCommandType.RANDOM:
-            if legacy_command:
-                prioritize = (
-                    flatten_args[option_index + 1]
-                    if option_index is not None and len(flatten_args) > option_index + 1
-                    else None
-                )
-                if prioritize is not None and prioritize not in ("power", "defense"):
-                    await send_invalid(
-                        f"{prioritize} is not a valid option for random!"
-                    )
-                    return
-                elif prioritize is not None:
-                    build_options.prioritization = BuildPrioritization(prioritize)
-            try:
-                build, desc = god_builder.random(build_options)
-            except BuildFailedError:
-                await send_invalid(
-                    f"Failed to randomize a build for {self.__gods[build_options.god_id].name}."
-                )
-                return
-
-            await self.__send_generated_build(
-                build, message, desc, god, build_options.was_random_god()
-            )
-            return
-        elif build_options.build_type == BuildCommandType.TOP:
-            if legacy_command:
-                role: str | PlayerRole = (
-                    flatten_args[option_index + 1]
-                    if option_index is not None and len(flatten_args) > option_index + 1
-                    else None
-                )
-                try:
-                    if role is not None:
-                        role = PlayerRole(role.lower())
-                except KeyError:
-                    await send_invalid(f"{role} is not a valid role!")
-                    return
-            else:
-                role = build_options.role
-            if role is not None:
-                desc = (
-                    f"Trying to find a game with {god.name} in "
-                    f"{role.value.title()}... This may take a while..."
-                )
-                await message.channel.send(
-                    embed=discord.Embed(color=discord.Color.blue(), description=desc)
-                )
-            elif build_options.queue_id is not None:
-                desc = (
-                    f"Trying to find a game with {god.name} in "
-                    f"{build_options.queue_id.display_name}... This may take a while..."
-                )
-                await message.channel.send(
-                    embed=discord.Embed(color=discord.Color.blue(), description=desc)
-                )
-
-            try:
-                build, desc = await god_builder.top(build_options)
-            except BuildFailedError:
-                addtl_err = ""
-                if role is not None:
-                    addtl_err += f" in {role.value.title()}"
-                elif build_options.queue_id is not None:
-                    addtl_err += f" playing {build_options.queue_id.display_name}"
-                desc = f"Failed to find any games with {god.name}{addtl_err}!"
-                await message.channel.send(
-                    embed=discord.Embed(color=discord.Color.red(), description=desc)
-                )
-                return
-
-            await self.__send_generated_build(
-                build, message, desc, god, build_options.was_random_god()
-            )
-            return
-        elif build_options.build_type == BuildCommandType.OPTIMIZE:
-
-            async def send_failed():
-                desc = f"Failed to optimize a build for {god.name}!"
-                await message.channel.send(
-                    embed=discord.Embed(color=discord.Color.red(), description=desc)
-                )
-
-            try:
-                vowels = ("A", "E", "I", "O", "U")
-                desc = (
-                    f'Optimizing a{"n" if god.name.startswith(vowels) else ""} '
-                    f"{god.name} build for you... This may take a while..."
-                )
-                await message.channel.send(
-                    embed=discord.Embed(color=discord.Color.blue(), description=desc)
-                )
-                await message.channel.typing()
-                build, desc = await god_builder.optimize(build_options)
-            except ValueError:
-                traceback.print_exc()
-                await send_failed()
-                return
-            except BuildFailedError:
-                await send_failed()
-                return
-            await self.__send_generated_build(
-                build, message, desc, god, build_options.was_random_god()
-            )
-            return
-        elif build_options.build_type == BuildCommandType.ML:
-            try:
-                build, desc = god_builder.ml(build_options)
-            except BuildFailedError:
-                await send_invalid(
-                    "Failed to find a matching build with those options. Try being less specific?"
-                )
-                return
-
-            await self.__send_generated_build(
-                build,
-                message,
-                desc,
-                self.__gods[build_options.god_id],
-                build_options.was_random_god(),
-                no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
-            )
-
     def start_bot(self) -> None:
         """
         Using this command instead of just calling self.run() since the discordToken is loaded
@@ -1241,14 +1277,14 @@ class Smitele(commands.Cog):
     async def __send_generated_build(
         self,
         build: List[Item],
-        message: discord.Message,
+        ctx: discord.ApplicationContext,
         extended_desc: str,
         god: God,
         no_god_specified: bool = False,
         no_god_specified_override: str = None,
     ):
         with await self.__make_build_image(build) as build_image:
-            desc = f"Hey {message.author.mention}, {extended_desc}"
+            desc = f"Hey {ctx.user.mention}, {extended_desc}"
             embed = discord.Embed(
                 color=discord.Color.blue(),
                 description=desc,
@@ -1265,7 +1301,7 @@ class Smitele(commands.Cog):
                     text=no_god_specified_override
                     or f"(You didn't give me a god, so I picked {god.name} for you)"
                 )
-            await message.channel.send(file=file, embed=embed)
+            await ctx.respond(file=file, embed=embed, ephemeral=True)
 
     async def __stop(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))
@@ -1852,8 +1888,8 @@ if __name__ == "__main__":
     player_stats = PlayerStats(bot, provider)
     smitele = Smitele(bot, provider)
     smite_triva = SmiteTrivia(bot, provider.gods, provider.items)
-    asyncio.run(bot.add_cog(smitele))
-    asyncio.run(bot.add_cog(smite_triva))
-    asyncio.run(bot.add_cog(player_stats))
+    bot.add_cog(smitele)
+    bot.add_cog(smite_triva)
+    bot.add_cog(player_stats)
     bot.help_command = SmiteBotHelpCommand()
     smitele.start_bot()

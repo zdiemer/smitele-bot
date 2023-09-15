@@ -58,14 +58,14 @@ class SmiteProvider(Smite):
 
         player_details = []
 
-        print("Flattening match details to player details.")
+        print(f"Flattening {len(match_details):,} match details to player details.")
 
         for _, players in match_details.items():
             if len(players) < 10:
                 continue
             player_details.extend(players)
 
-        print("Converting details to DataFrame.")
+        print(f"Converting {len(player_details):,} details to DataFrame.")
 
         self.player_matches = pd.DataFrame.from_dict(player_details)
 
@@ -119,6 +119,20 @@ class SmiteProvider(Smite):
 
             return god_ids_to_roles(get_match_god_ids(row, allies))
 
+        self.player_matches["Build"] = self.player_matches.apply(
+            lambda x: ",".join(
+                [
+                    str(x["ItemId1"]),
+                    str(x["ItemId2"]),
+                    str(x["ItemId3"]),
+                    str(x["ItemId4"]),
+                    str(x["ItemId5"]),
+                    str(x["ItemId6"]),
+                ]
+            ),
+            axis=1,
+        )
+
         print("Applying enemy god IDs per row.")
 
         self.player_matches["EnemyGodIds"] = self.player_matches.apply(
@@ -132,6 +146,8 @@ class SmiteProvider(Smite):
         self.player_matches["EnemyGodTypes"] = self.player_matches.apply(
             get_match_god_types, axis=1
         )
+
+        self.player_matches.info()
 
     async def create(self):
         should_refresh, current_patch = await self.__should_refresh()

@@ -35,6 +35,7 @@ USER smitele
 # Copying Smitele code to container
 COPY src/HirezAPI/*.py src/HirezAPI/
 COPY src/SmiteBot/*.py src/SmiteBot/
+COPY matchDetails/*.json matchDetails/
 COPY config.json config.json
 
 # Adding HirezAPI to PYTHONPATH
