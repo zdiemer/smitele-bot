@@ -239,6 +239,15 @@ class BuildStatCalculator:
                 item_stats.add_or_set_stat(
                     ItemAttribute.CRITICAL_STRIKE_CHANCE, prop.percent_value
                 )
+            if prop.attribute == ItemAttribute.LIFESTEAL:
+                if self.god.god.type == GodType.PHYSICAL:
+                    item_stats.add_or_set_stat(
+                        ItemAttribute.PHYSICAL_LIFESTEAL, prop.percent_value
+                    )
+                else:
+                    item_stats.add_or_set_stat(
+                        ItemAttribute.MAGICAL_LIFESTEAL, prop.percent_value
+                    )
             item_stats.add_or_set_stat(
                 prop.attribute, prop.flat_value or prop.percent_value
             )

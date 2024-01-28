@@ -21,7 +21,6 @@ import io
 import json
 import math
 import os
-import queue
 import random
 import time
 import traceback
@@ -34,7 +33,7 @@ import edit_distance
 import pandas as pd
 from bs4 import BeautifulSoup
 from discord.ext import commands
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image
 from unidecode import unidecode
 
 from build_optimizer import BuildOptimizer
@@ -47,12 +46,13 @@ from god_builder import (
     GodBuilder,
 )
 from god_types import GodId, GodRole, GodType
-from item import Item, ItemAttribute, ItemType, ItemTreeNode
+from item import Item, ItemAttribute, ItemType
 from player_stats import PlayerStats
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import Smite, PlayerRole, QueueId
+from item_tree_builder import ItemTreeBuilder
 
 
 class InvalidOptionError(Exception):
@@ -319,12 +319,12 @@ class Smitele(commands.Cog):
 
     __items: Dict[int, Item]
 
-    __player_matches: pd.DataFrame
-
     # Mapping of session IDs to running games
     __running_sessions: Dict[int, SmiteleGame]
 
     __smite_client: SmiteProvider
+
+    __tree_builder: ItemTreeBuilder
 
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[
@@ -337,8 +337,8 @@ class Smitele(commands.Cog):
         self.__smite_client = _provider
         self.__gods = _provider.gods
         self.__items = _provider.items
-        self.__player_matches = _provider.player_matches
         self.__running_sessions = {}
+        self.__tree_builder = ItemTreeBuilder(self.__items)
 
         if self.__config is None:
             try:
@@ -355,42 +355,25 @@ class Smitele(commands.Cog):
                     f"Failed to load {self.CONFIG_FILE}. Does this file exist?"
                 ) from exc
 
-        self.__smite_client = Smite(
-            self.__config["hirezAuthKey"], self.__config["hirezDevId"]
-        )
-
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         activity = discord.Game(name="Smite", type=3)
         await self.__bot.change_presence(
             status=discord.Status.online, activity=activity
         )
+        self.__bot.loop.create_task(self.__smite_client.load_dataframe())
         print("Smite-le Bot is ready!")
 
     @commands.slash_command(
         name="build",
-        description="Get a Smite build!",
+        description="Get a Smite build based on winning builds",
         guild_ids=[845718807509991445, 396874836250722316],
-    )
-    @discord.option(
-        name="build_type",
-        type=str,
-        description="The type of build to return, defaults to Winning Builds",
-        choices=["Random", "Build Optimizer", "Top Player's Build", "Winning Builds"],
-        default="Winning Builds",
     )
     @discord.option(
         name="god_name",
         type=str,
-        description="The god to return a build for. If not specified, it'll be random",
-        default="",
-    )
-    @discord.option(
-        name="prioritize",
-        type=str,
-        description="What items to prioritize for a random build",
-        choices=[p.value.lower() for p in list(BuildPrioritization)],
-        default="",
+        description="The god to return a build for. If no god name is entered will return a high winrate build.",
+        required=True,
     )
     @discord.option(
         name="match_queue",
@@ -411,7 +394,7 @@ class Smitele(commands.Cog):
         name="role",
         type=str,
         description="The Conquest role to find a build for",
-        choices=[p.value.lower() for p in list(PlayerRole)],
+        choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
     @discord.option(
@@ -421,213 +404,135 @@ class Smitele(commands.Cog):
         default="",
     )
     @discord.option(
-        name="stat",
+        name="allies",
         type=str,
-        description="A stat to optimize for when using the Build Optimizer",
+        description="A comma-separated list of allies which the player is teamed with",
         default="",
     )
     @discord.option(
         name="high_mmr",
         type=bool,
         description="Whether to limit build search results to high MMR players (2000+)",
-        default=True,
+        default=False,
     )
     async def build(
         self,
         ctx: discord.ApplicationContext,
-        build_type: str,
         god_name: str,
-        prioritize: str,
         match_queue: str,
         role: str,
         enemies: str,
+        allies: str,
         high_mmr: bool,
     ):
-        async def send_invalid(additional_info: str = ""):
-            desc = (
-                f"Invalid command! {self.__bot.user.mention} "
-                'accepts the command `$[build, b] [-g god, --god="god name"] [-t, --type] '
-                '[-r, --role] [-p, --prioritize]`. Valid build types are "top," (build '
-                'from a top ranked leaderboard player for this god) "optimize," (have '
-                'the Build Optimizer™ create you a build) or "random" (a completely'
-                " random build)`)"
-            )
-            if additional_info != "":
-                desc = additional_info
-            await ctx.respond(
-                embed=discord.Embed(color=discord.Color.red(), description=desc),
-                ephemeral=True,
-            )
+        build_options = BuildOptions(build_type=BuildCommandType.ML)
 
-        god: God | None = None
-
-        build_options = BuildOptions()
-
-        if god_name != "":
+        if god_name is not None and god_name != "":
             build_options.set_option("-g", god_name)
-        if build_type == "Random":
-            pass
-        elif build_type == "Build Optimizer":
-            build_options.set_option("-t", BuildCommandType.OPTIMIZE.value)
-        elif build_type == "Top Player's Build":
-            build_options.set_option("-t", BuildCommandType.TOP.value)
-        elif build_type == "Winning Builds":
-            build_options.set_option("-t", BuildCommandType.ML.value)
-        if prioritize != "":
-            build_options.set_option("-p", prioritize)
-        if match_queue != "":
+
+        if match_queue is not None and match_queue != "":
             build_options.set_option("-q", match_queue)
-        if role != "":
+
+        if role is not None and role != "":
             build_options.set_option("-r", role)
-        if enemies != "":
+
+        if enemies is not None and enemies != "":
             build_options.set_option("-e", enemies)
+
+        if allies is not None and allies != "":
+            build_options.set_option("-a", allies)
+
         if high_mmr:
             build_options.set_option("-mmr", None)
 
         error_msg = build_options.validate()
+
         if error_msg is not None:
-            await send_invalid(error_msg)
+            await self.__send_invalid(ctx, error_msg)
             return
-        try:
-            god = self.__gods[build_options.god_id]
-        except KeyError:
-            await send_invalid(
-                f"{build_options.god_id.name.title()} not mapped to a god!"
-            )
-            return
+
+        god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
 
         async with ctx.channel.typing():
-            god_builder = GodBuilder(
-                self.__gods, self.__items, self.__player_matches, self.__smite_client
+            try:
+                await ctx.respond(
+                    embed=discord.Embed(
+                        color=discord.Color.yellow(),
+                        title="Finding you a build with those settings.",
+                    )
+                )
+                build, relics, desc = god_builder.ml(build_options)
+            except BuildFailedError:
+                await self.__send_invalid(
+                    ctx,
+                    "Failed to find a matching build with those options. Try being less specific?",
+                )
+                return
+
+            await self.__send_generated_build(
+                build,
+                ctx,
+                desc,
+                self.__gods[build_options.god_id],
+                relics,
+                no_god_specified=build_options.was_random_god(),
+                no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
             )
 
-            if build_options.build_type == BuildCommandType.RANDOM:
-                try:
-                    build, desc = god_builder.random(build_options)
-                except BuildFailedError:
-                    await send_invalid(
-                        f"Failed to randomize a build for {self.__gods[build_options.god_id].name}."
-                    )
-                    return
+    @commands.slash_command(
+        name="random_build",
+        description="Get a random Smite build!",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="god_name",
+        type=str,
+        description="The god to return a build for. If not specified, it'll be random",
+        default="",
+    )
+    @discord.option(
+        name="prioritize",
+        type=str,
+        description="What items to prioritize for a random build",
+        choices=[p.value.lower() for p in list(BuildPrioritization)],
+        default="",
+    )
+    async def random_build(
+        self, ctx: discord.ApplicationContext, god_name: str, prioritize: str
+    ):
+        build_options = BuildOptions(build_type=BuildCommandType.RANDOM)
 
-                await self.__send_generated_build(
-                    build, ctx, desc, god, build_options.was_random_god()
-                )
-                return
-            elif build_options.build_type == BuildCommandType.TOP:
-                if build_options.role is not None:
-                    desc = (
-                        f"Trying to find a game with {god.name} in "
-                        f"{build_options.role.value.title()}... This may take a while..."
-                    )
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.blue(), description=desc
-                        ),
-                        ephemeral=True,
-                    )
-                elif build_options.queue_id is not None:
-                    desc = (
-                        f"Trying to find a game with {god.name} in "
-                        f"{build_options.queue_id.display_name}... This may take a while..."
-                    )
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.blue(), description=desc
-                        ),
-                        ephemeral=True,
-                    )
-                else:
-                    desc = f"Trying to find a game with {god.name}... This may take a while..."
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.blue(), description=desc
-                        ),
-                        ephemeral=True,
-                    )
+        if god_name is not None and god_name != "":
+            build_options.set_option("-g", god_name)
 
-                try:
-                    build, desc = await god_builder.top(build_options)
-                except BuildFailedError:
-                    addtl_err = ""
-                    if build_options.role is not None:
-                        addtl_err += f" in {build_options.role.value.title()}"
-                    elif build_options.queue_id is not None:
-                        addtl_err += f" playing {build_options.queue_id.display_name}"
-                    desc = f"Failed to find any games with {god.name}{addtl_err}!"
-                    await ctx.followup(
-                        embed=discord.Embed(color=discord.Color.red(), description=desc)
-                    )
-                    return
+        if prioritize is not None and prioritize != "":
+            build_options.set_option("-p", prioritize)
 
-                await self.__send_generated_build(
-                    build,
-                    ctx,
-                    desc,
-                    god,
-                    build_options.was_random_god(),
-                )
-                return
-            elif build_options.build_type == BuildCommandType.OPTIMIZE:
+        error_msg = build_options.validate()
 
-                async def send_failed():
-                    desc = f"Failed to optimize a build for {god.name}!"
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.red(), description=desc
-                        ),
-                        ephemeral=True,
-                    )
+        if error_msg is not None:
+            await self.__send_invalid(ctx, error_msg)
+            return
 
-                try:
-                    vowels = ("A", "E", "I", "O", "U")
-                    desc = (
-                        f'Optimizing a{"n" if god.name.startswith(vowels) else ""} '
-                        f"{god.name} build for you... This may take a while..."
-                    )
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.blue(), description=desc
-                        ),
-                        ephemeral=True,
-                    )
-                    async with ctx.channel.typing():
-                        build, desc = await god_builder.optimize(build_options)
-                except ValueError:
-                    traceback.print_exc()
-                    await send_failed()
-                    return
-                except BuildFailedError:
-                    await send_failed()
-                    return
-                await self.__send_generated_build(
-                    build, ctx, desc, god, build_options.was_random_god()
-                )
-                return
-            elif build_options.build_type == BuildCommandType.ML:
-                try:
-                    await ctx.respond(
-                        embed=discord.Embed(
-                            color=discord.Color.yellow(),
-                            title="Finding you a build with those settings.",
-                        ),
-                        ephemeral=True,
-                    )
-                    build, desc = god_builder.ml(build_options)
-                except BuildFailedError:
-                    await send_invalid(
-                        "Failed to find a matching build with those options. Try being less specific?"
-                    )
-                    return
+        god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
 
-                await self.__send_generated_build(
-                    build,
-                    ctx,
-                    desc,
-                    self.__gods[build_options.god_id],
-                    build_options.was_random_god(),
-                    no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
-                )
+        try:
+            build, desc = god_builder.random(build_options)
+        except BuildFailedError:
+            await self.__send_invalid(
+                ctx,
+                f"Failed to randomize a build for {self.__gods[build_options.god_id].name}.",
+            )
+            return
+
+        await self.__send_generated_build(
+            build,
+            ctx,
+            desc,
+            self.__gods[build_options.god_id],
+            no_god_specified=build_options.was_random_god(),
+        )
+        return
 
     @commands.command(
         aliases=["smite-le", "st"],
@@ -729,6 +634,29 @@ class Smitele(commands.Cog):
         await context.channel.send(
             embed=discord.Embed(
                 color=discord.Color.gold(), title="Data Usage", description=desc
+            )
+        )
+
+    @commands.command(
+        brief="Lists DataFrame memory footprint",
+        description="Lists current size and memory footprint of player_matches DataFrame. "
+        "This command will only function for the bot owner.",
+    )
+    @commands.is_owner()
+    async def data_info(self, context: commands.Context):
+        desc = ""
+
+        if self.__smite_client.player_matches is None:
+            desc = "player_matches is not yet initialized."
+        else:
+            buffer = io.StringIO()
+            self.__smite_client.player_matches.info(buf=buffer)
+            desc = buffer.getvalue()
+        await context.channel.send(
+            embed=discord.Embed(
+                color=discord.Color.gold(),
+                title="Player Matches DataFrame Info",
+                description=desc,
             )
         )
 
@@ -850,136 +778,11 @@ class Smitele(commands.Cog):
                 yield (option, value)
             idx += 1
 
-    def __parse_build_opts(self, args: List[str]) -> BuildOptions:
-        build_options = BuildOptions()
-        for option, value in self.__parse_opts(args):
-            build_options.set_option(option, value)
-        return build_options
-
     def __parse_god_opts(self, args: List[str]) -> GodOptions:
         god_options = GodOptions(self.__items)
         for option, value in self.__parse_opts(args):
             god_options.set_option(option, value)
         return god_options
-
-    def __get_direct_children(self, item: Item) -> List[Item]:
-        children: List[Item] = []
-        for i in self.__items.values():
-            if i.parent_item_id == item.id and i.active:
-                children.append(i)
-        return children
-
-    def __build_item_tree(self, root: ItemTreeNode) -> ItemTreeNode:
-        children = self.__get_direct_children(root.item)
-        child_count = 0
-        level_width = 0
-        child_depth = 0
-        for child in children:
-            if child.tier == 4 and not child.glyph:
-                continue
-            child_count += 1
-            child_node = self.__build_item_tree(ItemTreeNode(child, root.depth + 1))
-            root.add_child(child_node)
-            level_width += len(child_node.children)
-            child_depth = max(child_depth, child_node.depth)
-        root.width = max(root.width, level_width, child_count)
-        root.depth = max(root.depth, child_depth)
-        return root
-
-    def __level_order(
-        self, root: ItemTreeNode
-    ) -> Generator[Tuple[ItemTreeNode, int], None, None]:
-        nodes: queue.Queue[Tuple[ItemTreeNode, int]] = queue.Queue()
-        nodes.put((root, 0))
-
-        while nodes.qsize() > 0:
-            node, level = nodes.get()
-            yield (node, level)
-            for child in node.children:
-                nodes.put((child, level + 1))
-
-    async def __generate_build_tree(self, tree_item: Item) -> io.BytesIO:
-        spacing = 24
-        thumb_size = 96
-        border_width = 2
-        if tree_item.type != ItemType.ITEM:
-            raise ValueError
-        root = self.__build_item_tree(
-            ItemTreeNode(self.__items[tree_item.root_item_id])
-        )
-
-        item_levels: Dict[int, List[Item]] = {}
-        for node, level in self.__level_order(root):
-            if level in item_levels:
-                item_levels[level].append(node.item)
-                continue
-            item_levels[level] = [node.item]
-
-        width = (
-            (thumb_size * root.width)
-            + (spacing * (root.width - 1))
-            + (border_width * (root.width + 1))
-        )
-
-        height = (
-            (thumb_size * root.depth)
-            + (spacing * (root.depth - 1))
-            + (border_width * (root.depth + 1))
-        )
-
-        pos_y = height - thumb_size - 2 * border_width
-        image_middles: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]] = {}
-
-        with Image.new("RGBA", (width, height), (250, 250, 250, 0)) as output_image:
-            for level, items in sorted(item_levels.items(), key=lambda k: k[0]):
-                level_width = (
-                    (thumb_size * len(items))
-                    + (spacing * (len(items) - 1))
-                    + (border_width * (len(items) + 1))
-                )
-
-                level_pos_x = 0
-                if level_width < width:
-                    level_pos_x = int((width / 2) - (level_width / 2))
-                level_pos_y = pos_y - level * (thumb_size + spacing + border_width)
-                for item in items:
-                    with await item.get_icon_bytes() as item_bytes:
-                        with Image.open(item_bytes) as image:
-                            if image.size != (thumb_size, thumb_size):
-                                image = image.resize((thumb_size, thumb_size))
-                            if image.mode != "RGBA":
-                                image = image.convert("RGBA")
-                            image = ImageOps.expand(
-                                image, border=border_width, fill="white"
-                            )
-                            output_image.paste(image, (level_pos_x, level_pos_y))
-                            middle_x = level_pos_x + int(
-                                ((thumb_size + 2 * border_width) / 2)
-                            )
-                            image_middles[item.id] = (
-                                # Top Middle
-                                (middle_x, level_pos_y),
-                                # Bottom Middle
-                                (middle_x, level_pos_y + thumb_size + 2 * border_width),
-                            )
-                    level_pos_x = level_pos_x + spacing + thumb_size + border_width
-            for node, _ in self.__level_order(root):
-                if not any(node.children):
-                    continue
-                for child in node.children:
-                    ImageDraw.Draw(output_image).line(
-                        [
-                            image_middles[node.item.id][0],
-                            image_middles[child.item.id][1],
-                        ],
-                        fill="white",
-                        width=3,
-                    )
-
-            file = io.BytesIO()
-            output_image.save(file, format="PNG")
-            file.seek(0)
-            return file
 
     @commands.command(
         aliases=["i"],
@@ -1073,7 +876,7 @@ class Smitele(commands.Cog):
                     color=discord.Color.blue(),
                     title=f"{self.__items[item.root_item_id].name} Tree:",
                 )
-                with await self.__generate_build_tree(item) as tree_image:
+                with await self.__tree_builder.generate_build_tree(item) as tree_image:
                     file = discord.File(tree_image, filename="tree.png")
                     tree_embed.set_image(url="attachment://tree.png")
                     await message.channel.send(file=file, embed=tree_embed)
@@ -1220,7 +1023,7 @@ class Smitele(commands.Cog):
             god_embed.add_field(
                 name="Build Attributes:",
                 value=optimizer.get_build_stats_string(
-                    god_options.build, god_options.level
+                    god_options.build, level=god_options.level
                 ),
                 inline=True,
             )
@@ -1280,28 +1083,53 @@ class Smitele(commands.Cog):
         ctx: discord.ApplicationContext,
         extended_desc: str,
         god: God,
+        relics: List[Item] = None,
         no_god_specified: bool = False,
         no_god_specified_override: str = None,
     ):
-        with await self.__make_build_image(build) as build_image:
+        with await self.__make_build_image(build) as build_bytes:
             desc = f"Hey {ctx.user.mention}, {extended_desc}"
+            file_bytes = build_bytes
+
             embed = discord.Embed(
                 color=discord.Color.blue(),
                 description=desc,
                 title=f"Your {god.name} Build Has Arrived!",
             )
-            file = discord.File(build_image, filename=self.BUILD_IMAGE_FILE)
+
+            if relics is not None and any(relics):
+                relic_bytes = await self.__make_build_image(relics)
+                build_image = Image.open(build_bytes)
+                relic_image = Image.open(relic_bytes)
+
+                output_image = Image.new(
+                    "RGBA",
+                    (96 * 5, 96 * 2),
+                    (250, 250, 250, 0),
+                )
+
+                output_image.paste(build_image, (0, 0))
+                output_image.paste(relic_image, (288, 48))
+                file_bytes = io.BytesIO()
+                output_image.save(file_bytes, format="PNG")
+                file_bytes.seek(0)
+
+            file = discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
             embed.set_thumbnail(url=god.icon_url)
             embed.add_field(
                 name="Items", value=", ".join([item.name for item in build])
             )
+            if relics is not None and any(relics):
+                embed.add_field(
+                    name="Relics", value=", ".join([item.name for item in relics])
+                )
             if no_god_specified:
                 embed.set_footer(
                     text=no_god_specified_override
                     or f"(You didn't give me a god, so I picked {god.name} for you)"
                 )
-            await ctx.respond(file=file, embed=embed, ephemeral=True)
+            await ctx.respond(file=file, embed=embed)
 
     async def __stop(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))
@@ -1476,19 +1304,21 @@ class Smitele(commands.Cog):
         error_rounds = 0
         for idx, method in enumerate(round_methods):
             session.current_round.round_number = idx + 1 - error_rounds
-            await session.context.channel.typing()
-            try:
-                if await session.add_task(self.__bot.loop.create_task(method())):
-                    return
-            except IndexError:
-                error_rounds += 1
-                session.current_round.total_rounds -= 1
+            async with session.context.channel.typing():
+                try:
+                    if await session.add_task(self.__bot.loop.create_task(method())):
+                        return
+                except IndexError:
+                    error_rounds += 1
+                    session.current_round.total_rounds -= 1
 
     async def __make_build_image(self, build: List[Item]) -> io.BytesIO:
         # Appending the images into a single build image
         thumb_size = 96
         with Image.new(
-            "RGBA", (thumb_size * 3, thumb_size * 2), (250, 250, 250, 0)
+            "RGBA",
+            (thumb_size * min(3, len(build)), thumb_size * math.ceil(len(build) / 3)),
+            (250, 250, 250, 0),
         ) as output_image:
             pos_x, pos_y = (0, 0)
             for idx, item in enumerate(build):
@@ -1536,14 +1366,13 @@ class Smitele(commands.Cog):
             for match in match_history:
                 if len(build) != 0:
                     break
+                items = [int(match[f"ItemId{i}"]) for i in range(1, 7)]
                 # Get a full build for this god
-                if (
-                    int(match["GodId"]) == session.god.id.value
-                    and int(match["ItemId6"]) != 0
+                if int(match["GodId"]) == session.god.id.value and all(
+                    i != 0 for i in items
                 ):
-                    for i in range(1, 7):
+                    for item_id in items:
                         # Luckily `getmatchhistory` includes build info!
-                        item_id = int(match[f"ItemId{i}"])
                         build.append(self.__items[item_id])
 
         return await self.__make_build_image(build)
@@ -1735,13 +1564,14 @@ class Smitele(commands.Cog):
             desc += "\n\nNext round coming up shortly."
             embed = discord.Embed(color=discord.Color.red(), description=desc)
         else:
-            await session.context.channel.typing()
-            desc += f" The answer was **{session.god.name}**."
-            answer_image = discord.File(
-                await session.skin.get_card_bytes(), filename=f"{session.god.name}.jpg"
-            )
-            embed = discord.Embed(color=discord.Color.red(), description=desc)
-            embed.set_image(url=f"attachment://{session.god.name}.jpg")
+            async with session.context.channel.typing():
+                desc += f" The answer was **{session.god.name}**."
+                answer_image = discord.File(
+                    await session.skin.get_card_bytes(),
+                    filename=f"{session.god.name}.jpg",
+                )
+                embed = discord.Embed(color=discord.Color.red(), description=desc)
+                embed.set_image(url=f"attachment://{session.god.name}.jpg")
 
         await session.context.channel.send(file=answer_image, embed=embed)
 
@@ -1796,27 +1626,27 @@ class Smitele(commands.Cog):
                 answer_time = time.time() - (exp - 20)
                 task.cancel()
                 await msg.add_reaction("💯")
-                await context.channel.typing()
-                # These emojis are from my Discord server so I'll need to update these to be
-                # more universal. :D
-                ans_description = (
-                    f"✅ Correct, **{context.player.mention}**! "
-                    f"You got it in {round(answer_time)} seconds. "
-                    f"The answer was **{session.god.name}**. "
-                    "<:frogchamp:566686914858713108>"
-                )
+                async with context.channel.typing():
+                    # These emojis are from my Discord server so I'll need to update these to be
+                    # more universal. :D
+                    ans_description = (
+                        f"✅ Correct, **{context.player.mention}**! "
+                        f"You got it in {round(answer_time)} seconds. "
+                        f"The answer was **{session.god.name}**. "
+                        "<:frogchamp:566686914858713108>"
+                    )
 
-                embed = discord.Embed(
-                    color=discord.Color.green(), description=ans_description
-                )
-                file_name = f"{session.god.name}.jpg"
-                picture = discord.File(
-                    await session.skin.get_card_bytes(), filename=file_name
-                )
-                embed.set_image(url=f"attachment://{file_name}")
+                    embed = discord.Embed(
+                        color=discord.Color.green(), description=ans_description
+                    )
+                    file_name = f"{session.god.name}.jpg"
+                    picture = discord.File(
+                        await session.skin.get_card_bytes(), filename=file_name
+                    )
+                    embed.set_image(url=f"attachment://{file_name}")
 
-                await context.channel.send(file=picture, embed=embed)
-                return True
+                    await context.channel.send(file=picture, embed=embed)
+                    return True
             if session.easy_mode:
                 self.__update_choices(msg.content, session)
             task.cancel()
@@ -1868,6 +1698,11 @@ class Smitele(commands.Cog):
         )
         return False
 
+    async def __send_invalid(self, ctx: discord.ApplicationContext, error_info: str):
+        await ctx.respond(
+            embed=discord.Embed(color=discord.Color.red(), description=error_info),
+        )
+
 
 class SmiteBotHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
@@ -1885,9 +1720,9 @@ if __name__ == "__main__":
     bot = commands.Bot(command_prefix="$", intents=intents)
     provider = SmiteProvider()
     asyncio.run(provider.create())
-    player_stats = PlayerStats(bot, provider)
+    player_stats = PlayerStats(provider)
     smitele = Smitele(bot, provider)
-    smite_triva = SmiteTrivia(bot, provider.gods, provider.items)
+    smite_triva = SmiteTrivia(bot, provider)
     bot.add_cog(smitele)
     bot.add_cog(smite_triva)
     bot.add_cog(player_stats)

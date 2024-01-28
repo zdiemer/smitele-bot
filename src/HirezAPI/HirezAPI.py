@@ -36,6 +36,7 @@ class _Base:
     __should_keep_alive: bool
     __session_id: str = ""
     __save_session: bool
+    _silent: bool = False
 
     def __init__(
         self,
@@ -44,12 +45,14 @@ class _Base:
         dev_id: str = None,
         keep_alive: bool = True,
         save_session: bool = True,
+        silent: bool = False,
     ):
         self.__auth_key = auth_key
         self.__base_url = base_url
         self.__dev_id = dev_id
         self.__should_keep_alive = keep_alive
         self.__save_session = save_session
+        self._silent = silent
         self.__try_load_session()
 
     async def ping(self) -> Any:
@@ -88,15 +91,17 @@ class _Base:
 
     async def __make_request_base(self, route: str, *args: tuple) -> any:
         url = f'{self.__base_url}/{route}Json/{"/".join(str(arg) for arg in args)}'
-        print(f"Sending request to {url}")
+        if not self._silent:
+            print(f"Sending request to {url}")
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as res:
                 try:
                     return await res.json()
                 except (JSONDecodeError, aiohttp.ContentTypeError):
-                    print(
-                        f"Response content was not in JSON format: {await res.text()}"
-                    )
+                    if not self._silent:
+                        print(
+                            f"Response content was not in JSON format: {await res.text()}"
+                        )
                     raise
 
     async def _make_request(self, route: str, *args: tuple) -> any:
@@ -127,9 +132,10 @@ class _Base:
     def __is_expired(self, res: any) -> bool:
         invalid = "Invalid session id."
         is_list = isinstance(res, list)
-        return (is_list and any(val["ret_msg"] == invalid for val in res)) or (
-            not is_list and res["ret_msg"] == invalid
-        )
+        return (
+            is_list
+            and any(val is not None and val["ret_msg"] == invalid for val in res)
+        ) or (not is_list and res["ret_msg"] == invalid)
 
     async def __keep_alive(self):
         if self.__should_keep_alive:
@@ -144,7 +150,8 @@ class _Base:
             with open(self.SESSION_FILE, "r", encoding="utf-8") as file:
                 self.__session_id = file.read()
         except FileNotFoundError:
-            print("Session ID not loaded, will be loaded on demand")
+            if not self._silent:
+                print("Session ID not loaded, will be loaded on demand")
 
     def __create_signature(self, route: str, time_string: str) -> str:
         sig_input = f"{self.__dev_id}{route}{self.__auth_key}{time_string}"
@@ -298,19 +305,13 @@ class QueueId(Enum):
     def is_ranked(value) -> bool:
         return value in (
             QueueId.RANKED_CONQUEST,
-            QueueId.RANKED_CONQUEST_CONTROLLER,
             QueueId.RANKED_DUEL,
-            QueueId.RANKED_DUEL_CONTROLLER,
             QueueId.RANKED_JOUST,
-            QueueId.RANKED_JOUST_CONTROLLER,
         )
 
     @staticmethod
     def is_duel(value) -> bool:
-        return value in (
-            QueueId.RANKED_DUEL,
-            QueueId.RANKED_DUEL_CONTROLLER,
-        )
+        return value in (QueueId.RANKED_DUEL,)
 
     @staticmethod
     def is_custom(value) -> bool:
@@ -391,6 +392,10 @@ class QueueId(Enum):
             QueueId.SIEGE,
             QueueId.CONQUEST_NOVICE,
             QueueId.JOUST_OBSOLETE,
+            QueueId.RANKED_CONQUEST_CONTROLLER,
+            QueueId.RANKED_DUEL_CONTROLLER,
+            QueueId.RANKED_JOUST_CONTROLLER,
+            QueueId.UNLIMITED_CONQUEST_RANKED,
         )
 
     @staticmethod
@@ -507,9 +512,15 @@ class Smite(_Base):
     BASE_URL: str = "https://api.smitegame.com/smiteapi.svc"
 
     def __init__(
-        self, auth_key: str = None, dev_id: str = None, save_session: bool = True
+        self,
+        auth_key: str = None,
+        dev_id: str = None,
+        save_session: bool = True,
+        silent: bool = False,
     ):
-        super().__init__(self.BASE_URL, auth_key, dev_id, save_session=save_session)
+        super().__init__(
+            self.BASE_URL, auth_key, dev_id, save_session=save_session, silent=silent
+        )
 
     # Gods & Items
 
@@ -581,6 +592,11 @@ class Smite(_Base):
     async def get_queue_stats(self, player_id: int, queue_id: QueueId):
         return await self._make_request("getqueuestats", player_id, queue_id.value)
 
+    async def get_queue_stats_batch(self, player_id: int, *queue_ids: tuple):
+        return await self._make_request(
+            "getqueuestatsbatch", player_id, ",".join(*queue_ids)
+        )
+
     async def search_players(self, search_query: str):
         return await self._make_request("searchplayers", search_query)
 
@@ -593,15 +609,16 @@ class Smite(_Base):
         return await self._make_request("getmatchdetails", match_id)
 
     async def get_match_details_batch(self, *match_ids: tuple):
-        return await self._make_request(
-            "getmatchdetailsbatch", ",".join([str(id) for id in match_ids])
-        )
+        return await self._make_request("getmatchdetailsbatch", ",".join(*match_ids))
 
     async def get_match_ids_by_queue(
         self, queue_id: QueueId, date: int, hour: int, minute_window: int = 0
     ):
         return await self._make_request(
-            "getmatchidsbyqueue", queue_id.value, date, f"{hour},{minute_window}"
+            "getmatchidsbyqueue",
+            queue_id.value,
+            date,
+            f"{hour:02d},{minute_window:02d}",
         )
 
     async def get_match_player_details(self, match_id: int):

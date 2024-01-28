@@ -45,7 +45,7 @@ class BuildOptions:
     queue_id: QueueId | None
     role: PlayerRole | None
     stat: ItemAttribute | None
-    allies: List[GodId]
+    allies: List[GodId] | None
     enemies: List[GodId] | None
     high_mmr: bool
     __random_god: bool = False
@@ -59,6 +59,7 @@ class BuildOptions:
         role: PlayerRole = None,
         stat: ItemAttribute = None,
         enemies: List[GodId] = None,
+        allies: List[GodId] = None,
         high_mmr: bool = False,
     ):
         if god_id is not None:
@@ -72,6 +73,7 @@ class BuildOptions:
         self.role = role
         self.stat = stat
         self.enemies = enemies
+        self.allies = allies
         self.high_mmr = high_mmr
 
     def set_option(self, option: str, value: str):
@@ -83,7 +85,9 @@ class BuildOptions:
         elif option in ("-p", "--prioritize"):
             self.prioritization = BuildPrioritization(value.lower())
         elif option in ("-q", "--queue"):
-            self.queue_id = QueueId[value.upper().replace(" ", "_")]
+            self.queue_id = QueueId[
+                value.upper().replace("(", "").replace(")", "").replace(" ", "_")
+            ]
         elif option in ("-r", "--role"):
             self.role = PlayerRole(value.lower())
         elif option in ("-s", "--stat"):
@@ -92,6 +96,11 @@ class BuildOptions:
             self.build_type = BuildCommandType(value.lower())
         elif option in ("-e", "--enemies"):
             self.enemies = [
+                GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
+                for g in value.split(",")
+            ]
+        elif option in ("-a", "--allies"):
+            self.allies = [
                 GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
                 for g in value.split(",")
             ]
@@ -118,7 +127,6 @@ class BuildOptions:
                 QueueId.CONQUEST,
                 QueueId.CUSTOM_CONQUEST,
                 QueueId.RANKED_CONQUEST,
-                QueueId.RANKED_CONQUEST_CONTROLLER,
             ):
                 return (
                     "Cannot specify both role and queue for a non-Conquest game mode!"
@@ -133,10 +141,15 @@ class BuildOptions:
             )
         if (
             self.queue_id is not None
-            and self.queue_id != QueueId.RANKED_CONQUEST
+            and not QueueId.is_normal(self.queue_id)
+            and not QueueId.is_ranked(self.queue_id)
             and self.build_type == BuildCommandType.ML
         ):
-            return "ML mode only supports Ranked Conquest."
+            return "ML mode only supports Normal and Ranked modes."
+        if self.high_mmr and not QueueId.is_ranked(self.queue_id):
+            return "Cannot filter to high MMR for non-Ranked modes."
+        if self.allies is not None and self.__random_god:
+            return "Cannot filter by allies without also specifying a God."
         return None
 
     def was_random_god(self) -> bool:
@@ -146,19 +159,16 @@ class BuildOptions:
 class GodBuilder:
     __gods: Dict[GodId, God]
     __items: Dict[int, Item]
-    __player_matches: pd.DataFrame
     __provider: SmiteProvider
 
     def __init__(
         self,
         gods: Dict[GodId, God],
         items: Dict[int, Item],
-        player_matches: pd.DataFrame,
         provider: SmiteProvider,
     ):
         self.__gods = gods
         self.__items = items
-        self.__player_matches = player_matches
         self.__provider = provider
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
@@ -215,13 +225,11 @@ class GodBuilder:
             not QueueId.is_duel(build_options.queue_id) and bool(random.randint(0, 1))
         )
         should_include_glyph = bool(random.randint(0, 1))
-        should_include_recipes = bool(random.randint(0, 1))
         is_ratatoskr = god.id == GodId.RATATOSKR
         build_size = 6 - should_include_starter - int(is_ratatoskr)
 
         glyphs = optimizer.get_glyphs(items_for_god)
         starters = optimizer.get_starters(items_for_god)
-        recipes = optimizer.get_tier_3_recipes(items_for_god)
 
         if bool(should_include_starter) and not any(starters):
             build_size += 1
@@ -233,12 +241,6 @@ class GodBuilder:
             build.append(glyph)
             build_size = build_size - 1
             items = optimizer.filter_glyph_parent(items, glyph)
-
-        # Add a recipe... maybe!!
-        if should_include_recipes and any(recipes):
-            recipe = random.choice(recipes)
-            build.append(recipe)
-            build_size = build_size - 1
 
         if len(items) < build_size:
             raise BuildFailedError
@@ -277,22 +279,110 @@ class GodBuilder:
 
         return (build, desc)
 
-    def ml(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
-        pm = self.__player_matches
+    def __find_team_in_frame(
+        self,
+        god_matches: pd.DataFrame,
+        winner_matches: pd.DataFrame,
+        team: List[GodId],
+        team_type: str = "Enemy",
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, bool, bool, bool]:
+        found_team_match: bool = False
+        found_role_match: bool = False
+        found_type_match: bool = False
 
-        god_matches = (
+        team_str = ",".join(sorted([str(id.value) for id in team]))
+
+        team_matches = god_matches.loc[god_matches[f"{team_type}GodIds"] == team_str]
+
+        team_winner_matches = winner_matches.loc[
+            winner_matches[f"{team_type}GodIds"] == team_str
+        ]
+
+        if team_winner_matches.shape[0] > 0:
+            found_team_match = True
+            god_matches = team_matches
+            winner_matches = team_winner_matches
+
+        if not found_team_match:
+            role_str = ",".join(sorted(self.__gods[g].role.value[0] for g in team))
+
+            team_role_matches = god_matches.loc[
+                god_matches[f"{team_type}GodRoles"] == role_str
+            ]
+
+            team_winner_role_matches = winner_matches.loc[
+                winner_matches[f"{team_type}GodRoles"] == role_str
+            ]
+
+            if team_winner_role_matches.shape[0] > 0:
+                found_role_match = True
+                god_matches = team_role_matches
+                winner_matches = team_winner_role_matches
+
+        if not found_team_match and not found_role_match:
+            type_str = ",".join(sorted(self.__gods[g].type.value[0] for g in team))
+
+            team_type_matches = god_matches.loc[
+                god_matches[f"{team_type}GodTypes"] == type_str
+            ]
+
+            team_winner_type_matches = winner_matches.loc[
+                winner_matches[f"{team_type}GodTypes"] == type_str
+            ]
+
+            if team_winner_type_matches.shape[0] > 0:
+                found_type_match = True
+                god_matches = team_type_matches
+                winner_matches = team_winner_type_matches
+
+        return (
+            god_matches,
+            winner_matches,
+            found_team_match,
+            found_role_match,
+            found_type_match,
+        )
+
+    def ml(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
+        if self.__provider.player_matches is None:
+            print("player_matches not initialized")
+            raise BuildFailedError
+
+        pm = self.__provider.player_matches
+
+        god_matches: pd.DataFrame = (
             pm.loc[pm["GodId"] == build_options.god_id.value]
             if not build_options.was_random_god()
             else pm
         )
 
-        winner_matches = god_matches.loc[god_matches["Win_Status"] == "Winner"]
+        if build_options.queue_id is not None:
+            god_matches = god_matches.loc[
+                god_matches["match_queue_id"].astype(int)
+                == build_options.queue_id.value
+            ]
+
+        winner_matches: pd.DataFrame = god_matches.loc[god_matches["Win_Status"]]
+
+        rank_stat_name = None
+        tier_name = None
+
+        if build_options.queue_id is not None and QueueId.is_ranked(
+            build_options.queue_id
+        ):
+            rank_stat_name, tier_name = (
+                ("Rank_Stat_Conquest", "Conquest_Tier")
+                if build_options.queue_id == QueueId.RANKED_CONQUEST
+                else ("Rank_Stat_Duel", "Duel_Tier")
+                if build_options.queue_id == QueueId.RANKED_DUEL
+                else ("Rank_Stat_Joust", "Joust_Tier")
+            )
 
         if build_options.high_mmr:
             high_mmr = 2000
-            god_matches = god_matches.loc[god_matches["Rank_Stat_Conquest"] >= high_mmr]
+            god_matches = god_matches.loc[god_matches[rank_stat_name] >= high_mmr]
             winner_matches = winner_matches.loc[
-                winner_matches["Rank_Stat_Conquest"] >= high_mmr
+                winner_matches[rank_stat_name] >= high_mmr
             ]
 
         if build_options.role is not None:
@@ -304,61 +394,38 @@ class GodBuilder:
                 winner_matches["Role"] == build_options.role.value.capitalize()
             ]
 
-        found_team_match: bool = False
-        found_role_match: bool = False
-        found_type_match: bool = False
+        found_enemy_team_match: bool = False
+        found_enemy_role_match: bool = False
+        found_enemy_type_match: bool = False
 
         if build_options.enemies is not None:
-            enemy_str = ",".join(
-                sorted([str(id.value) for id in build_options.enemies])
+            (
+                god_matches,
+                winner_matches,
+                found_enemy_team_match,
+                found_enemy_role_match,
+                found_enemy_type_match,
+            ) = self.__find_team_in_frame(
+                god_matches, winner_matches, build_options.enemies
             )
 
-            team_role_matches = god_matches.loc[god_matches["EnemyGodIds"] == enemy_str]
+        found_ally_team_match: bool = False
+        found_ally_role_match: bool = False
+        found_ally_type_match: bool = False
 
-            team_winner_matches = winner_matches.loc[
-                winner_matches["EnemyGodIds"] == enemy_str
-            ]
-
-            if team_winner_matches.shape[0] > 0:
-                found_team_match = True
-                god_matches = team_role_matches
-                winner_matches = team_winner_matches
-
-            if not found_team_match:
-                role_str = ",".join(
-                    sorted(self.__gods[g].role.value[0] for g in build_options.enemies)
-                )
-
-                team_role_matches = god_matches.loc[
-                    god_matches["EnemyGodRoles"] == role_str
-                ]
-
-                team_winner_role_matches = winner_matches.loc[
-                    winner_matches["EnemyGodRoles"] == role_str
-                ]
-
-                if team_winner_role_matches.shape[0] > 0:
-                    found_role_match = True
-                    god_matches = team_role_matches
-                    winner_matches = team_winner_role_matches
-
-            if not found_team_match and not found_role_match:
-                type_str = ",".join(
-                    sorted(self.__gods[g].type.value[0] for g in build_options.enemies)
-                )
-
-                team_type_matches = god_matches.loc[
-                    god_matches["EnemyGodTypes"] == type_str
-                ]
-
-                team_winner_type_matches = winner_matches.loc[
-                    winner_matches["EnemyGodTypes"] == type_str
-                ]
-
-                if team_winner_type_matches.shape[0] > 0:
-                    found_type_match = True
-                    god_matches = team_type_matches
-                    winner_matches = team_winner_type_matches
+        if build_options.allies is not None:
+            (
+                god_matches,
+                winner_matches,
+                found_ally_team_match,
+                found_ally_role_match,
+                found_ally_type_match,
+            ) = self.__find_team_in_frame(
+                god_matches,
+                winner_matches,
+                build_options.allies + [build_options.god_id],
+                "Ally",
+            )
 
         group_by = [
             "Build",
@@ -367,7 +434,17 @@ class GodBuilder:
         if build_options.was_random_god():
             group_by.insert(0, "GodId")
 
-        build_matches = winner_matches.loc[~winner_matches["Build"].str.contains(",0")]
+        build_matches = winner_matches.loc[
+            (~winner_matches["Build"].str.contains(",0"))
+            & (~winner_matches["Build"].str.startswith("0,"))
+        ]
+
+        relic_matches = winner_matches.loc[
+            (~winner_matches["Relics"].str.contains(",0"))
+            & (~winner_matches["Relics"].str.startswith("0,"))
+            & (~winner_matches["Relics"].str.contains("12333"))  # No Relic
+            & (~winner_matches["Relics"].str.contains("23795"))  # No Shard Relic
+        ]
 
         if build_matches.shape[0] == 0:
             raise BuildFailedError
@@ -380,15 +457,28 @@ class GodBuilder:
             .iloc[0]
         )
 
+        most_freq_relics = None
+
+        if relic_matches.shape[0] != 0:
+            most_freq_relics = (
+                relic_matches.groupby(["Relics"])
+                .size()
+                .reset_index()
+                .sort_values(by=0, ascending=False)
+                .iloc[0]
+            )
+
         god_id = (
             build_options.god_id.value
             if not build_options.was_random_god()
             else most_freq["GodId"]
         )
+
         best_build = most_freq["Build"]
         build_count = most_freq[0]
 
         build = []
+        relics = None
 
         for i in best_build.split(","):
             build.append(self.__items[int(i)])
@@ -406,15 +496,37 @@ class GodBuilder:
         god_count = god_matches.shape[0]
         unique_build_count = len(winner_matches["Build"].unique())
 
-        common_roles = (
-            pm.loc[pm["GodId"] == build_options.god_id.value]["Role"].mode().values
-        )
+        if most_freq_relics is not None:
+            relics = []
 
-        common_role_str = (
-            f"{god.name}'s most common role is **{common_roles[0]}**."
-            if len(common_roles) > 0
-            else ""
-        )
+            for i in most_freq_relics["Relics"].split(","):
+                relics.append(self.__items[int(i)])
+
+        common_role_str = ""
+
+        if (
+            build_options.queue_id
+            in (
+                QueueId.CONQUEST,
+                QueueId.RANKED_CONQUEST,
+                QueueId.UNDER_30_CONQUEST,
+            )
+            or build_options.role is not None
+        ):
+            common_roles = (
+                pm.loc[
+                    (pm["GodId"] == build_options.god_id.value)
+                    & (pm["Role"] != "Unknown")
+                ]["Role"]
+                .mode()
+                .values
+            )
+
+            common_role_str = (
+                f"{god.name}'s most common role is **{common_roles[0]}**. "
+                if len(common_roles) > 0
+                else ""
+            )
 
         role_str = (
             f"**{build_options.role.value.capitalize()}** "
@@ -422,66 +534,122 @@ class GodBuilder:
             else ""
         )
 
-        median_mmr = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Rank_Stat_Conquest"
-        ].median()
-        median_tier = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Conquest_Tier"
-        ].median()
+        mmr_str = ""
 
-        mmr_str = (
-            f"{'These winners have' if win_count > 1 else 'This winner has'} a "
-            f"{'median ' if win_count > 1 else ''}rank of "
-            f"**{PlayerStats.get_tier_string(TierId(math.floor(median_tier)), median_mmr)}**."
-        )
+        if rank_stat_name is not None:
+            median_mmr = winner_matches.loc[winner_matches["Build"] == best_build][
+                rank_stat_name
+            ].median()
+            median_tier = winner_matches.loc[winner_matches["Build"] == best_build][
+                tier_name
+            ].median()
+
+            if median_mmr > 0:
+                mmr_str = (
+                    f"{'These winners have' if win_count > 1 else 'This winner has'} a "
+                    f"{'median ' if win_count > 1 else ''}rank of "
+                    f"**{PlayerStats.get_tier_string(TierId(math.floor(median_tier)), median_mmr)}**."
+                )
+
+        median_kills = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Kills_Player"
+        ].median()
+        median_deaths = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Deaths"
+        ].median()
+        median_assists = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Assists"
+        ].median()
+        median_damage = winner_matches.loc[winner_matches["Build"] == best_build][
+            "Damage_Player"
+        ].median()
 
         win_rate = float(win_count) / god_count
 
-        team_match_str = ""
-        against_team_str = ""
+        def get_team_match_strings(
+            found_team_match: bool,
+            found_role_match: bool,
+            found_type_match: bool,
+            team_type: str = "enemy",
+        ) -> Tuple[str, str]:
+            match_str: str = ""
+            with_str: str = ""
 
-        if build_options.enemies is not None:
             if found_team_match:
-                team_match_str = (
-                    "*I was able to find the exact team composition you requested!*"
-                )
-                against_team_str = " against that exact team"
+                match_str = f"*I was able to find the exact {team_type} team composition you requested!*"
+                with_str = f" {'against' if team_type == 'enemy' else 'when allied with'} that exact team"
             elif found_role_match:
-                team_match_str = (
-                    "*I couldn't find that exact team*, but I found "
+                match_str = (
+                    f"*I couldn't find that exact {team_type} team*, but I found "
                     f"{'some' if winner_matches.shape[0] > 1 else 'one'} "
                     f"that matched their God roles."
                 )
-                against_team_str = " against teams matching those roles"
+                with_str = f" {'against' if team_type == 'enemy' else 'when allied with'} teams matching those roles"
             elif found_type_match:
-                team_match_str = (
-                    f"*I couldn't find that exact team*, but I found "
+                match_str = (
+                    f"*I couldn't find that exact {team_type} team*, but I found "
                     f"{'some' if winner_matches.shape[0] > 1 else 'one'} "
                     f"that matched their damage types."
                 )
-                against_team_str = " against teams matching those damage types"
+                with_str = f" {'against' if team_type == 'enemy' else 'when allied with'} teams matching those damage types"
             else:
-                team_match_str = (
-                    "I couldn't find a team matching your request, "
+                match_str = (
+                    f"I couldn't find an {team_type} team matching your request, "
                     "so I fetched overall stats."
                 )
-            team_match_str = f"{team_match_str}\n\n"
+            match_str = f"{match_str}\n\n"
+            return (match_str, with_str)
+
+        enemy_team_match_str: str = ""
+        ally_team_match_str: str = ""
+        against_team_str: str = ""
+        with_team_str: str = ""
+
+        if build_options.enemies is not None:
+            enemy_team_match_str, against_team_str = get_team_match_strings(
+                found_enemy_team_match, found_enemy_role_match, found_enemy_type_match
+            )
+
+        if build_options.allies is not None:
+            ally_team_match_str, with_team_str = get_team_match_strings(
+                found_ally_team_match,
+                found_ally_role_match,
+                found_ally_type_match,
+                "allied",
+            )
 
         god_name_str = f" {god.name}" if not build_options.was_random_god() else ""
+
+        in_high_mmr = " higher MMR (2000+)" if build_options.high_mmr else ""
+
+        in_queue = (
+            f" in{in_high_mmr} {build_options.queue_id.display_name}"
+            if build_options.queue_id is not None
+            else ""
+        )
+
+        median_kda = (
+            f"{god.name}'s median winning K/D/A under these settings is"
+            f" **{int(median_kills)}/{int(median_deaths)}/{int(median_assists)}**, "
+            f"dealing a median **{int(median_damage):,}** player damage."
+        )
 
         desc = (
             f"here's your {role_str}build, generated from **{unique_build_count:,}**"
             f" {'different ' if unique_build_count > 1 else ''} winning{god_name_str} "
-            f"{role_str}build{'s' if unique_build_count > 1 else ''} in Ranked Conquest. "
+            f"{role_str}build{'s' if unique_build_count > 1 else ''}{in_queue}. "
             f"This exact build won **{build_count:,}** times. "
-            f"{mmr_str}\n\n{common_role_str} "
+            f"{mmr_str}\n\n{common_role_str}"
             f"Their {'overall ' if build_options.role is None else role_str}"
-            f"win percentage is **{(win_rate*100):,.2f}%**{against_team_str}.\n\n"
-            f"{team_match_str}"
+            f"win percentage{in_queue} is "
+            f"**{(win_rate*100):,.2f}%**{against_team_str}"
+            f"{' and' if any(against_team_str) and any(with_team_str) else ''}"
+            f"{with_team_str}. {median_kda}\n\n"
+            f"{enemy_team_match_str}{ally_team_match_str}"
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return (build, desc)
+        return (build, relics, desc)
 
     async def top(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
         god = self.__gods[build_options.god_id]
@@ -578,7 +746,7 @@ class GodBuilder:
             f"here's your build, "
             f'courtesy of #{random_player["rank"]} {god.name} '
             f'**{random_player["player_name"]}**{rank_str}! '
-            f'{"They won!" if build_match["Win_Status"] == "Win" else "They lost..."}\n\n'
+            f'{"They won!" if build_match["Win_Status"] == "Winner" else "They lost..."}\n\n'
             f"They were {playing_str} "
             f'and they went {build_match["Kills"]}/'
             f'{build_match["Deaths"]}/{build_match["Assists"]}!\n\n'

@@ -14,6 +14,62 @@ class StatusId(Enum):
     UNKNOWN = 5
 
 
+class PlayerAchievements:
+    assisted_kills: int
+    camps_cleared: int
+    deaths: int
+    divine_spree: int
+    double_kills: int
+    fire_giant_kills: int
+    first_bloods: int
+    god_like_spree: int
+    gold_fury_kills: int
+    immortal_spree: int
+    killing_spree: int
+    minion_kills: int
+    penta_kills: int
+    phoenix_kills: int
+    player_kills: int
+    quadra_kills: int
+    rampage_spree: int
+    shutdown_spree: int
+    siege_juggernaut_kills: int
+    tower_kills: int
+    triple_kills: int
+    unstoppable_spree: int
+    wild_juggernaut_kills: int
+
+    @staticmethod
+    def from_json(value):
+        player_achievements = PlayerAchievements()
+
+        player_achievements.assisted_kills = value["AssistedKills"]
+        player_achievements.camps_cleared = value["CampsCleared"]
+        player_achievements.deaths = value["Deaths"]
+        player_achievements.divine_spree = value["DivineSpree"]
+        player_achievements.double_kills = value["DoubleKills"]
+        player_achievements.fire_giant_kills = value["FireGiantKills"]
+        player_achievements.first_bloods = value["FirstBloods"]
+        player_achievements.god_like_spree = value["GodLikeSpree"]
+        player_achievements.gold_fury_kills = value["GoldFuryKills"]
+        player_achievements.immortal_spree = value["ImmortalSpree"]
+        player_achievements.killing_spree = value["KillingSpree"]
+        player_achievements.minion_kills = value["MinionKills"]
+        player_achievements.penta_kills = value["PentaKills"]
+        player_achievements.phoenix_kills = value["PhoenixKills"]
+        player_achievements.player_kills = value["PlayerKills"]
+        player_achievements.quadra_kills = value["QuadraKills"]
+        player_achievements.rampage_spree = value["RampageSpree"]
+        player_achievements.shutdown_spree = value["ShutdownSpree"]
+        player_achievements.siege_juggernaut_kills = value["SiegeJuggernautKills"]
+        player_achievements.tower_kills = value["TowerKills"]
+        player_achievements.triple_kills = value["TripleKills"]
+        player_achievements.unstoppable_spree = value["UnstoppableSpree"]
+        player_achievements.wild_juggernaut_kills = value["WildJuggernautKills"]
+
+        return player_achievements
+
+
 class PlayerStatus:
     match_id: int | None
     queue_id: QueueId | None
@@ -165,6 +221,10 @@ class Player:
         if not any(player_statuses):
             return None
         return PlayerStatus.from_json(player_statuses[0])
+
+    async def get_player_achievements(self) -> PlayerAchievements:
+        player_achievements = await self.__provider.get_player_achievements(self.id)
+        return PlayerAchievements.from_json(player_achievements)
 
 
 class PlayerId:

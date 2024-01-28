@@ -1,5 +1,6 @@
 import datetime
-from typing import Any, Coroutine, Dict, List
+from itertools import groupby
+from typing import Any, Dict, List
 
 import discord
 from discord.ext import commands
@@ -26,6 +27,9 @@ class QueueStats:
     best_god: GodId
     best_god_win_percent: float
     best_god_matches: int
+    worst_god: GodId
+    worst_god_win_percent: float
+    worst_god_matches: int
 
     def __init__(self):
         self.total_kills = 0
@@ -100,7 +104,6 @@ class QueueStats:
 
 
 class PlayerStats(commands.Cog):
-    __bot: commands.Bot
     __provider: SmiteProvider
 
     __user_id_to_smite_username: Dict[int, str] = {
@@ -115,10 +118,11 @@ class PlayerStats(commands.Cog):
         145309655122313216: "tyjelly69",
         269980529942593546: "zachjak",
         254016582244630540: "PlŠŠŠŠTwink",
+        267050303902187520: "mehtev4s",
+        250146567011434506: "doyleville",
     }
 
-    def __init__(self, bot: commands.Bot, provider: SmiteProvider):
-        self.__bot = bot
+    def __init__(self, provider: SmiteProvider):
         self.__provider = provider
 
     async def __send_invalid(
@@ -334,62 +338,114 @@ class PlayerStats(commands.Cog):
             ctx,
         )
 
-    @commands.command(aliases=["live"])
-    async def livematch(self, message: discord.Message, *args: tuple):
-        base = (
-            f" {self.__bot.user.mention} accepts the command `$livematch [playername]` "
-            "(or `$live [playername]`)"
-        )
-        flatten_args = ["".join(arg) for arg in args]
-        if not any(flatten_args):
-            await self.__send_invalid(message, base, include_command_info=True)
+    @commands.user_command(
+        name="Smite Queue Stats",
+        guild_ids=[396874836250722316, 845718807509991445],
+    )
+    async def queue_stats_lookup(
+        self, ctx: discord.ApplicationContext, member: discord.Member
+    ):
+        if member.id not in self.__user_id_to_smite_username:
+            await self.__send_invalid(
+                ctx,
+                error_info="Unable to find that player.",
+            )
             return
 
-        player_name = " ".join(flatten_args)
-        player = await self.__get_player_or_return_invalid(player_name, message)
-        await self.__livematch_lookup(player, message)
-
-    @commands.command(aliases=["q"])
-    async def queuestats(self, message: discord.Message, *args: tuple):
-        base = (
-            f" {self.__bot.user.mention} accepts the command `$queuestats [playername] [queuename]` "
-            "(or `$q [playername] [queuename]`)"
+        player = await self.__get_player_or_return_invalid(
+            self.__user_id_to_smite_username[member.id], ctx
         )
-        flatten_args = ["".join(arg) for arg in args]
-        if not any(flatten_args):
-            await self.__send_invalid(message, base)
+
+        stats_embed = discord.Embed(
+            color=discord.Color.blue(),
+            title=f"{player.name}'s Overall Stats",
+        )
+        stats_embed.set_thumbnail(url=player.avatar_url)
+
+        await self.__queue_stats_lookup(ctx, player, stats_embed)
+
+    @commands.slash_command(
+        name="live_match",
+        description="Look up a Smite player's live match details",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    async def livematch(self, ctx: discord.ApplicationContext, player_name: str):
+        if not any(player_name):
+            await self.__send_invalid(
+                ctx,
+                error_info="Player name cannot be empty",
+            )
             return
 
-        player_name = flatten_args[0]
-        queue_name: str | None = None
+        player = await self.__get_player_or_return_invalid(player_name, ctx)
+        await self.__livematch_lookup(player, ctx)
+
+    @commands.slash_command(
+        name="queue_stats",
+        description="Look up a Smite player's stats for a given queue type",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    @discord.option(
+        name="queue",
+        type=str,
+        description="The queue to get stats for",
+        choices=[
+            q.display_name
+            for q in list(
+                filter(
+                    lambda _q: QueueId.is_normal(_q) or QueueId.is_ranked(_q),
+                    list(QueueId),
+                )
+            )
+        ],
+        default="",
+    )
+    async def queuestats(
+        self, ctx: discord.ApplicationContext, player_name: str, queue: str
+    ):
+        if not any(player_name):
+            await self.__send_invalid(ctx, error_info="Player name cannot be empty")
+            return
+
         queue_id: QueueId | None = None
-        if len(flatten_args) > 1:
-            queue_name = " ".join(flatten_args[1:])
+
+        if queue is not None and any(queue):
             try:
-                queue_id = QueueId[
-                    queue_name.upper().replace(" ", "_").replace("'", "")
-                ]
+                queue_id = QueueId[queue.upper().replace(" ", "_").replace("'", "")]
             except KeyError:
                 await self.__send_invalid(
-                    message, base, f"{queue_name} is not a valid queue!"
+                    ctx, error_info=f"{queue} is not a valid queue!"
                 )
                 return
-        player = await self.__get_player_or_return_invalid(player_name, message)
+
+        player = await self.__get_player_or_return_invalid(player_name, ctx)
         if player is None:
             return
+
         stats_embed = discord.Embed(
             color=discord.Color.blue(),
             title=f'{player.name}\'s {queue_id.display_name if queue_id is not None else "Overall"} Stats',
         )
         stats_embed.set_thumbnail(url=player.avatar_url)
+
         if queue_id is not None:
             queue_list = await self.__provider.get_queue_stats(player.id, queue_id)
             if not any(queue_list):
                 await self.__send_invalid(
-                    message,
-                    base,
-                    f"{player.name} doesn't have any playtime for {queue_id.display_name}!",
-                    False,
+                    ctx,
+                    error_info=f"{player.name} doesn't have any playtime for {queue_id.display_name}!",
                 )
                 return
             queue_stats = QueueStats.from_json(queue_list)
@@ -440,9 +496,17 @@ class PlayerStats(commands.Cog):
             stats_embed.add_field(name="Overall KDA", value=total_kda)
             stats_embed.add_field(name="Overall Win/Loss Ratio", value=total_wlr)
             stats_embed.add_field(name="Playtime", value=time_stats)
-            await message.channel.send(embed=stats_embed)
+            await ctx.respond(embed=stats_embed, ephemeral=True)
             return
 
+        await self.__queue_stats_lookup(ctx, player, stats_embed)
+
+    async def __queue_stats_lookup(
+        self,
+        ctx: discord.ApplicationContext,
+        player: Player,
+        stats_embed: discord.Embed,
+    ):
         total_kills = 0
         total_assists = 0
         total_deaths = 0
@@ -452,97 +516,103 @@ class PlayerStats(commands.Cog):
         total_minutes = 0
         last_played = datetime.datetime.min
         best_win_percent = -1
-        best_queue: QueueId | None = None
+        best_queue: str | None = None
         best_queue_matches = 0
         worst_win_percent = 2
-        worst_queue: QueueId | None = None
+        worst_queue: str | None = None
         worst_queue_matches = 0
 
-        await message.channel.send(
+        await ctx.respond(
             embed=discord.Embed(
                 color=discord.Color.blue(),
-                description="Calculating your overall stats across all queues. Please wait...",
-            )
+                description=f"Calculating {player.name}'s overall stats across all queues. Please wait...",
+            ),
+            ephemeral=True,
         )
-        await message.channel.typing()
-
-        for queue in list(QueueId):
-            queue_list = await self.__provider.get_queue_stats(player.id, queue)
-            if not any(queue_list):
-                continue
-            queue_stats = QueueStats.from_json(queue_list)
-
-            total_kills += queue_stats.total_kills
-            total_assists += queue_stats.total_assists
-            total_deaths += queue_stats.total_deaths
-            total_gold += queue_stats.total_gold
-
-            total_wins += queue_stats.total_wins
-            total_losses += queue_stats.total_losses
-            if queue_stats.matches >= 10:
-                if queue_stats.win_percent > best_win_percent or (
-                    queue_stats.win_percent == best_win_percent
-                    and best_queue_matches < queue_stats.matches
-                ):
-                    best_win_percent = queue_stats.win_percent
-                    best_queue = queue
-                    best_queue_matches = queue_stats.matches
-                if queue_stats.win_percent < worst_win_percent or (
-                    queue_stats.win_percent == worst_win_percent
-                    and worst_queue_matches < queue_stats.matches
-                ):
-                    worst_win_percent = queue_stats.win_percent
-                    worst_queue = queue
-                    worst_queue_matches = queue_stats.matches
-
-            total_minutes += queue_stats.total_minutes
-            last_played = max(queue_stats.last_played, last_played)
-
-        total_avg_kda = (total_kills + (total_assists / 2)) / (
-            total_deaths if total_deaths > 0 else 1
-        )
-        total_kda = (
-            f"• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}"
-            f"\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Gold_: {total_gold:,}"
-        )
-
-        matches = total_wins + total_losses
-        win_percent = int((total_wins / (matches if matches > 0 else 1)) * 100)
-        total_wlr = (
-            f"• _Total Wins_: {total_wins:,}\n"
-            f"• _Total Losses_: {total_losses:,}\n"
-            f"• _Total Disconnects_: {player.leaves}\n"
-            f"• _Overall Win Rate_: {win_percent}%"
-        )
-
-        time_stats = (
-            f'• _Total Time Played ({"Minutes" if total_minutes < 60 else "Hours"})_: '
-            f"{(total_minutes if total_minutes < 60 else total_minutes / 60):,.2f}\n"
-            f'• _Account Create Date_: {datetime.datetime.strftime(player.created_datetime, "%B %d, %Y")}\n'
-            f'• _Last Played_: {datetime.datetime.strftime(last_played, "%B %d, %Y")}'
-        )
-
-        if best_queue is not None:
-            worst_queue_stats = ""
-            if worst_queue is not None:
-                worst_queue_stats = (
-                    f" Their worst queue is {worst_queue.display_name} "
-                    f"with a pitiful win rate of {int(worst_win_percent * 100)}% "
-                    f'({worst_queue_matches} match{"es" if worst_queue_matches > 1 else ""}).'
+        async with ctx.channel.typing():
+            all_queues = list(QueueId)
+            for i in range(0, len(all_queues), 20):
+                queue_list = await self.__provider.get_queue_stats_batch(
+                    player.id, (str(q.value) for q in all_queues[i : i + 20])
                 )
-            best_queue_stats = (
-                f"{player.name}'s best queue is "
-                f"{best_queue.display_name} with a win rate of {int(best_win_percent * 100)}% "
-                f'({best_queue_matches} match{"es" if best_queue_matches > 1 else ""}).'
-                f"{worst_queue_stats}"
+
+                if not any(queue_list):
+                    continue
+
+                for q, value in groupby(queue_list, key=lambda _q: _q["Queue"]):
+                    queue_stats = QueueStats.from_json(value)
+
+                    total_kills += queue_stats.total_kills
+                    total_assists += queue_stats.total_assists
+                    total_deaths += queue_stats.total_deaths
+                    total_gold += queue_stats.total_gold
+
+                    total_wins += queue_stats.total_wins
+                    total_losses += queue_stats.total_losses
+                    if queue_stats.matches >= 10:
+                        if queue_stats.win_percent > best_win_percent or (
+                            queue_stats.win_percent == best_win_percent
+                            and best_queue_matches < queue_stats.matches
+                        ):
+                            best_win_percent = queue_stats.win_percent
+                            best_queue = q
+                            best_queue_matches = queue_stats.matches
+                        if queue_stats.win_percent < worst_win_percent or (
+                            queue_stats.win_percent == worst_win_percent
+                            and worst_queue_matches < queue_stats.matches
+                        ):
+                            worst_win_percent = queue_stats.win_percent
+                            worst_queue = q
+                            worst_queue_matches = queue_stats.matches
+
+                    total_minutes += queue_stats.total_minutes
+                    last_played = max(queue_stats.last_played, last_played)
+
+            total_avg_kda = (total_kills + (total_assists / 2)) / (
+                total_deaths if total_deaths > 0 else 1
             )
-            stats_embed.set_footer(text=best_queue_stats)
+            total_kda = (
+                f"• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}"
+                f"\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Gold_: {total_gold:,}"
+            )
 
-        stats_embed.add_field(name="Overall KDA", value=total_kda)
-        stats_embed.add_field(name="Overall Win/Loss Ratio", value=total_wlr)
-        stats_embed.add_field(name="Playtime", value=time_stats)
+            matches = total_wins + total_losses
+            win_percent = int((total_wins / (matches if matches > 0 else 1)) * 100)
+            total_wlr = (
+                f"• _Total Wins_: {total_wins:,}\n"
+                f"• _Total Losses_: {total_losses:,}\n"
+                f"• _Total Disconnects_: {player.leaves}\n"
+                f"• _Overall Win Rate_: {win_percent}%"
+            )
 
-        await message.channel.send(embed=stats_embed)
+            time_stats = (
+                f'• _Total Time Played ({"Minutes" if total_minutes < 60 else "Hours"})_: '
+                f"{(total_minutes if total_minutes < 60 else total_minutes / 60):,.2f}\n"
+                f'• _Account Create Date_: {datetime.datetime.strftime(player.created_datetime, "%B %d, %Y")}\n'
+                f'• _Last Played_: {datetime.datetime.strftime(last_played, "%B %d, %Y")}'
+            )
+
+            if best_queue is not None:
+                worst_queue_stats = ""
+                if worst_queue is not None:
+                    worst_queue_stats = (
+                        f" Their worst queue is {worst_queue} "
+                        f"with a pitiful win rate of {int(worst_win_percent * 100)}% "
+                        f'({worst_queue_matches} match{"es" if worst_queue_matches > 1 else ""}).'
+                    )
+                best_queue_stats = (
+                    f"{player.name}'s best queue is "
+                    f"{best_queue} with a win rate of {int(best_win_percent * 100)}% "
+                    f'({best_queue_matches} match{"es" if best_queue_matches > 1 else ""}).'
+                    f"{worst_queue_stats}"
+                )
+                stats_embed.set_footer(text=best_queue_stats)
+
+            stats_embed.add_field(name="Overall KDA", value=total_kda)
+            stats_embed.add_field(name="Overall Win/Loss Ratio", value=total_wlr)
+            stats_embed.add_field(name="Playtime", value=time_stats)
+
+            await ctx.respond(embed=stats_embed, ephemeral=True)
 
     async def __rank_lookup(
         self,
@@ -613,57 +683,93 @@ class PlayerStats(commands.Cog):
         )
         await self.__rank_lookup(player, ctx)
 
-    @commands.command(aliases=["sr"])
-    async def rank(self, message: discord.Message, *args: tuple) -> None:
-        base = (
-            f" {self.__bot.user.mention} "
-            f"accepts the command `$rank [playername]` (or `$sr [playername]`)"
-        )
-        if not any(args) or len(args) > 1:
-            await self.__send_invalid(message, base, include_command_info=True)
+    @commands.slash_command(
+        name="rank",
+        description="Look up a Smite player's ranked stats",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    async def rank(self, ctx: discord.ApplicationContext, player_name: str) -> None:
+        if not any(player_name):
+            await self.__send_invalid(ctx, error_info="Player name cannot be empty")
             return
-        player_name = "".join(args[0])
-        player = await self.__get_player_or_return_invalid(player_name, message)
-        await self.__rank_lookup(player, message)
+        player = await self.__get_player_or_return_invalid(player_name, ctx)
+        await self.__rank_lookup(player, ctx)
 
-    @commands.command(aliases=["w"])
-    async def worshippers(self, message: discord.Message, *args: tuple):
-        base = (
-            f" {self.__bot.user.mention} accepts the command "
-            "`$worshippers [playername] [godname]` "
-            "(or `$w [playername] [godname]`)"
-        )
-        flatten_args = ["".join(arg) for arg in args]
-        if not any(flatten_args):
-            await self.__send_invalid(message, base, include_command_info=True)
+    @commands.slash_command(
+        name="worshippers",
+        description="Look up a Smite player's god stats",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    @discord.option(
+        name="god_name",
+        type=str,
+        description="The god to look up worshippers for",
+        default="",
+    )
+    @discord.option(
+        name="role_name",
+        type=str,
+        description="The god role to look up worshippers for",
+        choices=[r.name.title() for r in list(GodRole)],
+        default="",
+    )
+    async def worshippers(
+        self,
+        ctx: discord.ApplicationContext,
+        player_name: str,
+        god_name: str,
+        role_name: str,
+    ):
+        if not any(player_name):
+            await self.__send_invalid(ctx, error_info="Player name cannot be empty")
+            return
+        if (
+            god_name is not None
+            and any(god_name)
+            and role_name is not None
+            and any(role_name)
+        ):
+            await self.__send_invalid(
+                ctx, error_info="Can only specify one of either god or role"
+            )
             return
 
-        player_name = flatten_args[0]
-        god_name: str | None = None
         god_id: GodId | None = None
         god_role: GodRole | None = None
-        if len(flatten_args) > 1:
-            god_name = " ".join(flatten_args[1:])
+        if god_name is not None and any(god_name):
             cleaned_god_name = god_name.upper().replace(" ", "_").replace("'", "")
             if cleaned_god_name in list(g.name for g in list(GodId)):
                 god_id = GodId[cleaned_god_name]
-            elif cleaned_god_name in list(
-                g.name for g in list(GodRole)
-            ) or cleaned_god_name[0:-1] in list(g.name for g in list(GodRole)):
-                try:
-                    god_role = GodRole[cleaned_god_name]
-                except KeyError:
-                    god_role = GodRole[cleaned_god_name[0:-1]]
             else:
                 await self.__send_invalid(
-                    message,
-                    base,
-                    f"{god_name} is not a valid god!",
-                    include_command_info=True,
+                    ctx,
+                    error_info=f"{god_name} is not a valid god!",
+                )
+                return
+        if role_name is not None and any(role_name):
+            cleaned_role_name = role_name.upper().replace(" ", "_").replace("'", "")
+            if cleaned_role_name in list(g.name for g in list(GodRole)):
+                god_role = GodRole[cleaned_role_name]
+            else:
+                await self.__send_invalid(
+                    ctx,
+                    error_info=f"{role_name} is not a valid role!",
                 )
                 return
 
-        player = await self.__get_player_or_return_invalid(player_name, message)
+        player = await self.__get_player_or_return_invalid(player_name, ctx)
         if player is None:
             return
 
@@ -690,9 +796,8 @@ class PlayerStats(commands.Cog):
         if god_id is not None:
             if god_id not in stats:
                 await self.__send_invalid(
-                    message,
-                    base,
-                    f"{player.name} doesn't have any worshippers for {self.__provider.gods[god_id].name}!",
+                    ctx,
+                    error_info=f"{player.name} doesn't have any worshippers for {self.__provider.gods[god_id].name}!",
                 )
                 return
 
@@ -715,7 +820,7 @@ class PlayerStats(commands.Cog):
             stats_embed.add_field(name="Worshippers", value=worshippers)
             stats_embed.set_thumbnail(url=self.__provider.gods[god_id].icon_url)
 
-            await message.channel.send(embed=stats_embed)
+            await ctx.respond(embed=stats_embed, ephemeral=True)
             return
 
         if god_role is not None:
@@ -757,4 +862,76 @@ class PlayerStats(commands.Cog):
         stats_embed.add_field(name="Overall Worshippers", value=total_worshippers_str)
         stats_embed.set_thumbnail(url=player.avatar_url)
 
-        await message.channel.send(embed=stats_embed)
+        await ctx.respond(embed=stats_embed, ephemeral=True)
+
+    @commands.user_command(
+        name="Smite Total Worshipper Stats",
+        guild_ids=[396874836250722316, 845718807509991445],
+    )
+    async def worshipper_lookup(
+        self, ctx: discord.ApplicationContext, member: discord.Member
+    ) -> None:
+        if member.id not in self.__user_id_to_smite_username:
+            await self.__send_invalid(
+                ctx,
+                error_info="Unable to find that player.",
+            )
+            return
+
+        player = await self.__get_player_or_return_invalid(
+            self.__user_id_to_smite_username[member.id], ctx
+        )
+
+        god_ranks = await self.__provider.get_god_ranks(player.id)
+        stats = {
+            GodId(int(god["god_id"])): {
+                "assists": int(god["Assists"]),
+                "deaths": int(god["Deaths"]),
+                "kills": int(god["Kills"]),
+                "losses": int(god["Losses"]),
+                "rank": int(god["Rank"]),
+                "wins": int(god["Wins"]),
+                "worshippers": int(god["Worshippers"]),
+                "minions": int(god["MinionKills"]),
+            }
+            for god in god_ranks
+        }
+
+        stats_embed = discord.Embed(
+            color=discord.Color.blue(),
+            title=f"{player.name}'s Overall Stats",
+        )
+
+        total_kills = 0
+        total_assists = 0
+        total_deaths = 0
+        total_minions = 0
+        total_wins = 0
+        total_losses = 0
+        total_worshippers = 0
+        for _, god in stats.items():
+            total_kills += god["kills"]
+            total_assists += god["assists"]
+            total_deaths += god["deaths"]
+            total_minions += god["minions"]
+            total_wins += god["wins"]
+            total_losses += god["losses"]
+            total_worshippers += god["worshippers"]
+        total_avg_kda = (total_kills + (total_assists / 2)) / (
+            total_deaths if total_deaths > 0 else 1
+        )
+        total_kda = (
+            f"• _Total Kills_: {total_kills:,}\n• _Total Deaths_: {total_deaths:,}\n• _Total Assists_: {total_assists:,}"
+            f"\n• _Overall Avg. KDA_: {total_avg_kda:.2f}\n• _Total Minion Kills_: {total_minions:,}"
+        )
+
+        total_wlr = f"• _Total Wins_: {total_wins:,}\n• _Total Losses_: {total_losses:,}\n• _Overall Win Rate_: {int((total_wins / (total_wins + total_losses)) * 100)}%"
+
+        total_worshippers_str = f"_Total Worshippers_: {total_worshippers:,}"
+
+        stats_embed.add_field(name="Overall KDA", value=total_kda)
+        stats_embed.add_field(name="Overall Win/Loss Ratio", value=total_wlr)
+        stats_embed.add_field(name="Overall Worshippers", value=total_worshippers_str)
+        stats_embed.set_thumbnail(url=player.avatar_url)
+
+        await ctx.respond(embed=stats_embed, ephemeral=True)

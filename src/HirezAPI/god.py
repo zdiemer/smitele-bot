@@ -211,7 +211,7 @@ class God(object):
         god = God()
 
         god.abilities = [
-            Ability.from_json(obj[f"Ability_{idx}"]) for idx in range(1, 6)
+            Ability.from_json(obj[f"Ability_{idx}"], idx == 5) for idx in range(1, 6)
         ]
         god.stats = GodStats.from_json(obj)
         god.name = obj["Name"]
@@ -268,23 +268,6 @@ class God(object):
                 level = 8 if level > 8 else level
                 speed = self.stats.values[stat].base
                 return speed + (speed * 0.03 * (level - 1))
-            if (
-                stat == ItemAttribute.COOLDOWN_REDUCTION
-                and self.role == GodRole.WARRIOR
-            ):
-                return 0.05 + (0.0025 * level)
-            if (
-                stat == ItemAttribute.PHYSICAL_PENETRATION
-                and self.role == GodRole.ASSASSIN
-            ):
-                return 5 + (0.25 * level)
-            if stat == ItemAttribute.MAGICAL_POWER and self.role == GodRole.MAGE:
-                return 20 + level
-            if (
-                stat == ItemAttribute.CROWD_CONTROL_REDUCTION
-                and self.role == GodRole.GUARDIAN
-            ):
-                return 0.10 + (0.005 * level)
             if self.id in (GodId.CU_CHULAINN, GodId.YEMOJA):
                 if stat == ItemAttribute.MANA:
                     return 0
@@ -302,6 +285,7 @@ class God(object):
                     return (god_stat.base + god_stat.per_level * (level - 1)) + (
                         mana_stat.base + mana_stat.per_level * (level - 1)
                     )
+
             god_stat = self.stats.values[stat]
             return god_stat.base + god_stat.per_level * (level - 1)
         except KeyError:

@@ -22,6 +22,7 @@ class GodId(Enum):
     BABA_YAGA = 3925
     BACCHUS = 1809
     BAKASURA = 1755
+    BAKE_KUJIRA = 4312
     BARON_SAMEDI = 3518
     BASTET = 1678
     BELLONA = 2047
@@ -76,6 +77,7 @@ class GodId(Enum):
     KUZENBO = 2260
     LANCELOT = 4075
     LOKI = 1797
+    MAMAN_BRIGITTE = 4301
     MARTICHORAS = 4213
     MAUI = 4183
     MEDUSA = 2051

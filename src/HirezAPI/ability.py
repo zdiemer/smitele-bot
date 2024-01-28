@@ -68,24 +68,31 @@ class Ability(object):
     id: int
     name: str
     icon_url: str
+    is_passive: bool
 
     def __init__(
-        self, item_description: _itemDescription, id: int, name: str, icon_url: str
+        self,
+        item_description: _itemDescription,
+        id: int,
+        name: str,
+        icon_url: str,
+        is_passive: bool,
     ):
         self.__item_description = item_description
         self.id = id
         self.name = name
         self.icon_url = icon_url
+        self.is_passive = is_passive
 
     @staticmethod
-    def from_json(obj):
+    def from_json(obj, is_passive: bool = False):
         item_description = _itemDescription.from_json(
             obj["Description"]["itemDescription"]
         )
         id = int(obj["Id"])
         name = obj["Summary"]
         icon_url = obj["URL"]
-        return Ability(item_description, id, name, icon_url)
+        return Ability(item_description, id, name, icon_url, is_passive)
 
     @property
     def cooldown_by_rank(self) -> List[float]:

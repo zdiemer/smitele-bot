@@ -36,6 +36,7 @@ class ItemAttribute(Enum):
     PENETRATION = "penetration"
     PHYSICAL_CRITICAL_STRIKE_CHANCE = "physical critical strike chance"
     PROTECTIONS = "protections"
+    LIFESTEAL = "lifesteal"
 
     @staticmethod
     def from_string(value: str):
