@@ -4,3 +4,4 @@ session
 version
 voice.ogg
 collector.log
+cache/**

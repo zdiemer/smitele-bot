@@ -1,11 +1,14 @@
 import datetime
+import pytz
 from itertools import groupby
 from typing import Any, Dict, List
 
 import discord
+from aiohttp import ClientConnectionError
 from discord.ext import commands
 
 from god import GodId, GodRole
+from match import PlayerMatch
 from player import Player, PlayerId, StatusId
 from SmiteProvider import SmiteProvider
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
@@ -120,6 +123,8 @@ class PlayerStats(commands.Cog):
         254016582244630540: "PlŠŠŠŠTwink",
         267050303902187520: "mehtev4s",
         250146567011434506: "doyleville",
+        478381808912695298: "NDependntVariabl",
+        475838616770314240: "Guenhywvar",
     }
 
     def __init__(self, provider: SmiteProvider):
@@ -210,17 +215,23 @@ class PlayerStats(commands.Cog):
         emoji = (
             "🥉"
             if tier_id.value <= 5
-            else "🥈"
-            if tier_id.value <= 10
-            else "🥇"
-            if tier_id.value <= 15
-            else "🏅"
-            if tier_id.value <= 20
-            else "💎"
-            if tier_id.value <= 25
-            else "🏆"
-            if tier_id.value == 26
-            else "💯"
+            else (
+                "🥈"
+                if tier_id.value <= 10
+                else (
+                    "🥇"
+                    if tier_id.value <= 15
+                    else (
+                        "🏅"
+                        if tier_id.value <= 20
+                        else (
+                            "💎"
+                            if tier_id.value <= 25
+                            else "🏆" if tier_id.value == 26 else "💯"
+                        )
+                    )
+                )
+            )
         )
         return f"{emoji} **{tier_id.display_name}** ({int(round(mmr))} MMR)"
 
@@ -251,15 +262,12 @@ class PlayerStats(commands.Cog):
             )
             return
         invalid_msg = ""
-        if (
-            player_status is None
-            or player_status.status == StatusId.UNKNOWN
-            or (
-                player_status.status == StatusId.IN_GAME
-                and player_status.match_id is None
-            )
-        ):
+        if player_status is None or player_status.status == StatusId.UNKNOWN:
             invalid_msg = f"You must've broken something. I can't tell what {player.name} is doing right now."
+        elif player_status.status == StatusId.IN_GAME and (
+            player_status.match_id is None or int(player_status.match_id) == 0
+        ):
+            invalid_msg = f"{player.name} is in a game, but details aren't available. They're probably playing a custom game mode."
         elif player_status.status == StatusId.OFFLINE:
             invalid_msg = f"{player.name} is currently offline."
         elif player_status.status in (StatusId.IN_LOBBY, StatusId.ONLINE):
@@ -285,7 +293,10 @@ class PlayerStats(commands.Cog):
             output = ""
             for member in team_list:
                 member_info = ""
-                if QueueId.is_ranked(player_status.queue_id):
+                if (
+                    QueueId.is_ranked(player_status.queue_id)
+                    and int(member["Tier"]) != 0
+                ):
                     member_info += f' - {self.get_tier_string(TierId(int(member["Tier"])), float(member["Rank_Stat"]))}'
                 else:
                     member_info += f' - Level {member["Account_Level"]} (God Mastery {member["GodLevel"]})'
@@ -355,6 +366,9 @@ class PlayerStats(commands.Cog):
         player = await self.__get_player_or_return_invalid(
             self.__user_id_to_smite_username[member.id], ctx
         )
+
+        if player is None:
+            return
 
         stats_embed = discord.Embed(
             color=discord.Color.blue(),
@@ -882,6 +896,9 @@ class PlayerStats(commands.Cog):
             self.__user_id_to_smite_username[member.id], ctx
         )
 
+        if player is None:
+            return
+
         god_ranks = await self.__provider.get_god_ranks(player.id)
         stats = {
             GodId(int(god["god_id"])): {
@@ -935,3 +952,290 @@ class PlayerStats(commands.Cog):
         stats_embed.set_thumbnail(url=player.avatar_url)
 
         await ctx.respond(embed=stats_embed, ephemeral=True)
+
+    @commands.user_command(
+        name="Smite Match History",
+        guild_ids=[396874836250722316, 845718807509991445],
+    )
+    async def match_history_lookup(
+        self, ctx: discord.ApplicationContext, member: discord.Member
+    ) -> None:
+        if member.id not in self.__user_id_to_smite_username:
+            await self.__send_invalid(
+                ctx,
+                error_info="Unable to find that player.",
+            )
+            return
+
+        player = await self.__get_player_or_return_invalid(
+            self.__user_id_to_smite_username[member.id], ctx
+        )
+
+        await self.__match_history_lookup(ctx, player)
+
+    @commands.slash_command(
+        name="match_history",
+        description="Look up a Smite player's match history",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    async def match_history(self, ctx: discord.ApplicationContext, player_name: str):
+        player = await self.__get_player_or_return_invalid(player_name, ctx)
+
+        await self.__match_history_lookup(ctx, player)
+
+    async def __match_history_lookup(
+        self, ctx: discord.ApplicationContext, player: Player
+    ):
+        if player is None:
+            return
+
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.blue(),
+                description=f"Fetching {player.name}'s recent match history.",
+            ),
+            ephemeral=True,
+        )
+
+        async with ctx.channel.typing():
+            match_history = await player.get_match_history()
+
+            if not any(match_history):
+                embed = discord.Embed(
+                    color=discord.Color.red(),
+                    title=f"{player.name} has no recent matches.",
+                )
+
+                await ctx.respond(embed=embed)
+                return
+
+            def get_match_string(match: PlayerMatch):
+                region_tz = (
+                    "US/Eastern"
+                    if match.match.region == "NA"
+                    else (
+                        "US/Pacific"
+                        if match.match.region == "NA-West"
+                        else (
+                            "Brazil/DeNoronha"
+                            if match.match.region == "Brazil"
+                            else (
+                                "Australia/Sydney"
+                                if match.match.region == "Australia"
+                                else (
+                                    "Japan"
+                                    if match.match.region == "Japan"
+                                    else (
+                                        "America/Santiago"
+                                        if match.match.region == "Latin America South"
+                                        else "UTC"
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+
+                tz_date = match.match.timestamp.replace(tzinfo=pytz.UTC).astimezone(
+                    pytz.timezone(region_tz)
+                )
+                date_str = (
+                    f"{datetime.datetime.strftime(tz_date, '%m/%d/%Y %I:%M %p %Z')}"
+                )
+                time_str = f"{int(match.match.match_time_seconds / 60)} min"
+                win_str = "🏆" if match.won else "❌"
+
+                healing_str = (
+                    f" / {match.healing.teammates:,} healing"
+                    if match.healing.teammates > 0
+                    else ""
+                )
+
+                return (
+                    f"**{match.match.queue_id.display_name} @ {match.match.region} "
+                    f"[{date_str}, {time_str}] {win_str}**\n"
+                    f"- **{match.god.name}** (**{match.kills}/{match.deaths}/{match.assists}**) "
+                    f"[{(match.kills + (match.assists * 0.5)) / (match.deaths or 1):0,.2f} KDA] - "
+                    f"{match.damage_dealt.god:,} damage / {match.damage_taken.total:,} taken / "
+                    f"{match.damage_taken.mitigated:,} mitigated{healing_str}\n\n"
+                )
+
+            MAX_MATCHES = 10
+            desc = ""
+
+            for match in match_history[:MAX_MATCHES]:
+                desc += get_match_string(match)
+
+            embed = discord.Embed(
+                color=discord.Color.blue(),
+                title=f"{player.name}'s Recent Match History",
+                description=desc,
+            )
+
+            await ctx.respond(embed=embed)
+
+    @commands.slash_command(
+        name="first_match",
+        description="Look up two Smite players' first match together.",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    @discord.option(
+        name="player_name_1",
+        type=str,
+        description="The player name of the first player",
+        required=True,
+    )
+    @discord.option(
+        name="player_name_2",
+        type=str,
+        description="The player name of the second player",
+        required=True,
+    )
+    async def first_match(
+        self, ctx: discord.ApplicationContext, player_name_1: str, player_name_2: str
+    ):
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.yellow(),
+                description="Finding their first match together...",
+            ),
+            ephemeral=True,
+        )
+        player_1 = await self.__get_player_or_return_invalid(player_name_1, ctx)
+        player_2 = await self.__get_player_or_return_invalid(player_name_2, ctx)
+
+        if player_1 is None or player_2 is None:
+            return
+
+        youngest_datetime = max(player_1.created_datetime, player_2.created_datetime)
+
+        fetch_date = youngest_datetime.replace(
+            minute=(youngest_datetime.minute // 10) * 10
+        )
+
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.yellow(),
+                description=f"Fetching {player_1.name} and {player_2.name}'s first match together, "
+                f"starting at {datetime.datetime.strftime(youngest_datetime, '%m/%d/%Y')}.",
+            ),
+            ephemeral=True,
+        )
+
+        found_match = False
+        found_matches = []
+        max_days = 365
+        days = 0
+
+        for queue in list(
+            filter(
+                QueueId.is_normal,
+                list(QueueId),
+            )
+        ):
+            while not found_match and days < max_days:
+                req_count = 0
+                while req_count < self.__provider.MAX_RETRIES:
+                    try:
+                        matches = await self.__provider.get_match_ids_by_queue(
+                            queue,
+                            fetch_date.strftime("%Y%m%d"),
+                            fetch_date.hour,
+                            fetch_date.minute,
+                        )
+
+                        match_ids = [
+                            match["Match"]
+                            for match in list(
+                                filter(lambda m: m["Active_Flag"] == "n", matches)
+                            )
+                        ]
+
+                        req_count = 0
+                        for i in range(0, len(match_ids), 10):
+                            req_count = 0
+                            while req_count < self.__provider.MAX_RETRIES:
+                                try:
+                                    match_res = (
+                                        await self.__provider.get_match_details_batch(
+                                            match_ids[i : i + 10]
+                                        )
+                                    )
+
+                                    match_res = list(
+                                        filter(
+                                            lambda m: m is not None
+                                            and m["ret_msg"] is None,
+                                            match_res,
+                                        )
+                                    )
+
+                                    match_dict: Dict[int, List[Any]] = {}
+
+                                    for match in match_res:
+                                        if match["Match"] in match_dict:
+                                            match_dict[match["Match"]].append(match)
+                                        else:
+                                            match_dict[match["Match"]] = [match]
+
+                                    for match_players in match_dict.values():
+                                        match_player_ids = [
+                                            m["playerId"] for m in match_players
+                                        ]
+
+                                        if (
+                                            player_1.id in match_player_ids
+                                            and player_2.id in match_player_ids
+                                        ):
+                                            found_match = True
+                                            found_matches.append(match_players)
+
+                                    break
+                                except ClientConnectionError:
+                                    req_count += 1
+                        break
+                    except ClientConnectionError:
+                        req_count += 1
+                day_before = fetch_date.day
+                fetch_date += datetime.timedelta(minutes=10)
+                day_after = fetch_date.day
+
+                if day_before < day_after:
+                    days += 1
+
+                    await ctx.respond(
+                        embed=discord.Embed(
+                            color=discord.Color.yellow(),
+                            description=f"Now checking {datetime.datetime.strftime(youngest_datetime, '%d/%m/%Y')}.",
+                        ),
+                        ephemeral=True,
+                    )
+
+        if any(found_matches):
+            first_found_match = None
+            min_datetime = datetime.datetime.utcnow()
+
+            for match in found_matches:
+                entry_datetime = datetime.datetime.strptime(
+                    match["Entry_Datetime"], "%d/%m/%Y %H:%M:%S %p"
+                )
+
+                if entry_datetime < min_datetime:
+                    min_datetime = entry_datetime
+                    first_found_match = match
+
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.blue(),
+                    description=f"{player_1.name} and {player_2.name}'s first match together "
+                    f"was on {first_found_match['Entry_Datetime']}. "
+                    f"It was on the game mode {match['name']}!",
+                ),
+                ephemeral=True,
+            )

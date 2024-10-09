@@ -90,6 +90,7 @@ class GodId(Enum):
     NEMESIS = 1980
     NIKE = 2214
     NOX = 2036
+    NUT = 4318
     NU_WA = 1958
     ODIN = 1669
     OLORUN = 3664

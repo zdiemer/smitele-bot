@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List
 from SmiteProvider import SmiteProvider
+from match import PlayerMatch
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
 
 
@@ -225,6 +226,20 @@ class Player:
     async def get_player_achievements(self) -> PlayerAchievements:
         player_achievements = await self.__provider.get_player_achievements(self.id)
         return PlayerAchievements.from_json(player_achievements)
+
+    async def get_match_history(self) -> List[PlayerMatch]:
+        match_history = await self.__provider.get_match_history(self.id)
+
+        if any(
+            match["ret_msg"] is not None
+            and match["ret_msg"].startswith("No Match History")
+            for match in match_history
+        ):
+            return []
+
+        return [
+            PlayerMatch.from_json(match, self.__provider) for match in match_history
+        ]
 
 
 class PlayerId:

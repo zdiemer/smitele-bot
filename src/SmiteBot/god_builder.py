@@ -3,7 +3,7 @@ import math
 import random
 import sys
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 
@@ -77,39 +77,42 @@ class BuildOptions:
         self.high_mmr = high_mmr
 
     def set_option(self, option: str, value: str):
-        if option in ("-g", "--god"):
-            self.god_id = GodId[
-                value.upper().replace(" ", "_").replace("'", "")
-            ]  # handles Chang'e case
-            self.__random_god = False
-        elif option in ("-p", "--prioritize"):
-            self.prioritization = BuildPrioritization(value.lower())
-        elif option in ("-q", "--queue"):
-            self.queue_id = QueueId[
-                value.upper().replace("(", "").replace(")", "").replace(" ", "_")
-            ]
-        elif option in ("-r", "--role"):
-            self.role = PlayerRole(value.lower())
-        elif option in ("-s", "--stat"):
-            self.stat = ItemAttribute(value.lower())
-        elif option in ("-t", "--type"):
-            self.build_type = BuildCommandType(value.lower())
-        elif option in ("-e", "--enemies"):
-            self.enemies = [
-                GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
-                for g in value.split(",")
-            ]
-        elif option in ("-a", "--allies"):
-            self.allies = [
-                GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
-                for g in value.split(",")
-            ]
-        elif option in ("-mmr", "--high_mmr"):
-            if value is not None:
+        try:
+            if option in ("-g", "--god"):
+                self.god_id = GodId[
+                    value.upper().replace(" ", "_").replace("'", "")
+                ]  # handles Chang'e case
+                self.__random_god = False
+            elif option in ("-p", "--prioritize"):
+                self.prioritization = BuildPrioritization(value.lower())
+            elif option in ("-q", "--queue"):
+                self.queue_id = QueueId[
+                    value.upper().replace("(", "").replace(")", "").replace(" ", "_")
+                ]
+            elif option in ("-r", "--role"):
+                self.role = PlayerRole(value.lower())
+            elif option in ("-s", "--stat"):
+                self.stat = ItemAttribute(value.lower())
+            elif option in ("-t", "--type"):
+                self.build_type = BuildCommandType(value.lower())
+            elif option in ("-e", "--enemies"):
+                self.enemies = [
+                    GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
+                    for g in value.split(",")
+                ]
+            elif option in ("-a", "--allies"):
+                self.allies = [
+                    GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
+                    for g in value.split(",")
+                ]
+            elif option in ("-mmr", "--high_mmr"):
+                if value is not None:
+                    raise InvalidOptionError
+                self.high_mmr = True
+            else:
                 raise InvalidOptionError
-            self.high_mmr = True
-        else:
-            raise InvalidOptionError
+        except KeyError as exc:
+            raise InvalidOptionError from exc
 
     def validate(self) -> str | None:
         if (
@@ -195,7 +198,7 @@ class GodBuilder:
             )
         )
 
-    def random(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
+    def random(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
         god = self.__gods[build_options.god_id]
         items_for_god = self.get_valid_items_for_god(god)
         optimizer = BuildOptimizer(god, items_for_god, self.__items)
@@ -204,7 +207,7 @@ class GodBuilder:
             items_for_god = optimizer.filter_queue_items(
                 items_for_god, build_options.queue_id
             )
-        build = []
+        build: List[Item] = []
 
         unfiltered_items = items_for_god  # Needed for Ratatoskr
         if build_options.prioritization is not None:
@@ -215,38 +218,63 @@ class GodBuilder:
             items_for_god = optimizer.filter_by_stat(items_for_god, build_options.stat)
         # Filter to just tier 3 items
         items = optimizer.filter_evolution_parents(
-            optimizer.filter_acorns(
-                optimizer.filter_recipes(optimizer.filter_tiers(items_for_god))
-            )
+            optimizer.filter_acorns(optimizer.filter_tiers(items_for_god))
         )
 
         # Ratatoskr always has his acorn!
         should_include_starter = int(
             not QueueId.is_duel(build_options.queue_id) and bool(random.randint(0, 1))
         )
-        should_include_glyph = bool(random.randint(0, 1))
         is_ratatoskr = god.id == GodId.RATATOSKR
         build_size = 6 - should_include_starter - int(is_ratatoskr)
 
-        glyphs = optimizer.get_glyphs(items_for_god)
         starters = optimizer.get_starters(items_for_god)
 
         if bool(should_include_starter) and not any(starters):
             build_size += 1
             should_include_starter = 0
 
-        # Add a glyph... maybe!!
-        if should_include_glyph and any(glyphs):
-            glyph = random.choice(glyphs)
-            build.append(glyph)
-            build_size = build_size - 1
-            items = optimizer.filter_glyph_parent(items, glyph)
-
         if len(items) < build_size:
             raise BuildFailedError
 
         # Add build_size random items from our tier 3 items, then shuffle the build order
         build.extend(random.sample(items, build_size))
+
+        build = sorted(build, key=lambda i: i.glyph, reverse=True)
+
+        glyph_parents: Set[Item] = set()
+        indexes_to_remove: List[int] = []
+
+        for idx, item in enumerate(build):
+            if item.glyph:
+                parent_item = self.__items[item.parent_item_id]
+                if parent_item in glyph_parents:
+                    indexes_to_remove.append(idx)
+                    continue
+                glyph_parents.add(self.__items[item.parent_item_id])
+            elif item in glyph_parents:
+                indexes_to_remove.append(idx)
+
+        if any(indexes_to_remove):
+            for idx in indexes_to_remove:
+                del build[idx]
+
+        if len(build) < build_size:
+            items_without_invalid = list(
+                filter(
+                    lambda i: i not in glyph_parents
+                    or (
+                        i.glyph and self.__items[i.parent_item_id] not in glyph_parents
+                    ),
+                    items,
+                )
+            )
+
+            if len(items_without_invalid) < build_size - len(build):
+                raise BuildFailedError
+
+            build.extend(random.sample(items_without_invalid, build_size - len(build)))
+
         random.shuffle(build)
 
         # Special casing Ratatoskr's acorn. Gotta have it!
@@ -260,12 +288,47 @@ class GodBuilder:
         if bool(should_include_starter):
             build.insert(0 + int(is_ratatoskr), random.choice(starters))
 
-        # If we decided to not have a random glyph, but still included a
-        # direct parent of a glyph... upgrade it anyway! Random!
-        if not should_include_glyph:
+        # Upgrade all potential glyphs to random glyphs
+        parent_idx, glyph = optimizer.get_glyph_parent_if_no_glyphs(build)
+
+        while glyph is not None:
+            build[parent_idx] = glyph
             parent_idx, glyph = optimizer.get_glyph_parent_if_no_glyphs(build)
-            if glyph is not None:
-                build[parent_idx] = glyph
+
+        shard = random.choice(
+            list(
+                filter(
+                    lambda i: i.type == ItemType.RELIC
+                    and i.active
+                    and i.tier == 2
+                    and i.root_item_id == 23795,  # Shard Relic
+                    self.__items.values(),
+                )
+            )
+        )
+
+        relics = random.sample(
+            list(
+                filter(
+                    lambda i: i.type == ItemType.RELIC
+                    and i.active
+                    and i.tier == 4
+                    and i.price == 500
+                    and i.id not in (21478, 21492),  # incorrectly listed as active
+                    self.__items.values(),
+                )
+            ),
+            2,
+        )
+
+        for relic in relics:
+            if relic.id == 25890:  # Blessed Barrier
+                # Smite API's link is broken
+                relic.icon_url = (
+                    "https://www.smitefire.com/images/item/blessed-barrier.png"
+                )
+
+        relics.insert(0, shard)
 
         prioritize_str = (
             f", with only {build_options.prioritization.value} items"
@@ -277,7 +340,7 @@ class GodBuilder:
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return (build, desc)
+        return (build, relics, desc)
 
     def __find_team_in_frame(
         self,
@@ -373,9 +436,11 @@ class GodBuilder:
             rank_stat_name, tier_name = (
                 ("Rank_Stat_Conquest", "Conquest_Tier")
                 if build_options.queue_id == QueueId.RANKED_CONQUEST
-                else ("Rank_Stat_Duel", "Duel_Tier")
-                if build_options.queue_id == QueueId.RANKED_DUEL
-                else ("Rank_Stat_Joust", "Joust_Tier")
+                else (
+                    ("Rank_Stat_Duel", "Duel_Tier")
+                    if build_options.queue_id == QueueId.RANKED_DUEL
+                    else ("Rank_Stat_Joust", "Joust_Tier")
+                )
             )
 
         if build_options.high_mmr:
@@ -428,34 +493,65 @@ class GodBuilder:
             )
 
         group_by = [
-            "Build",
+            "BuildHash",
         ]
 
         if build_options.was_random_god():
             group_by.insert(0, "GodId")
 
-        build_matches = winner_matches.loc[
-            (~winner_matches["Build"].str.contains(",0"))
-            & (~winner_matches["Build"].str.startswith("0,"))
-        ]
+        build_matches = winner_matches.loc[winner_matches["IsFullBuild"]]
 
-        relic_matches = winner_matches.loc[
-            (~winner_matches["Relics"].str.contains(",0"))
-            & (~winner_matches["Relics"].str.startswith("0,"))
-            & (~winner_matches["Relics"].str.contains("12333"))  # No Relic
-            & (~winner_matches["Relics"].str.contains("23795"))  # No Shard Relic
-        ]
+        relic_matches = winner_matches.loc[winner_matches["IsFullRelics"]]
 
         if build_matches.shape[0] == 0:
             raise BuildFailedError
 
-        most_freq = (
-            build_matches.groupby(group_by)
-            .size()
-            .reset_index()
-            .sort_values(by=0, ascending=False)
-            .iloc[0]
+        all_build_matches = god_matches.loc[god_matches["IsFullBuild"]]
+
+        all_grouped_builds = all_build_matches.groupby(group_by).size().reset_index()
+
+        # From: https://stackoverflow.com/questions/3749125/how-should-i-order-these-helpful-scores
+        def agresti_coull_lower(n: int, k: int) -> float:
+            kappa = 2.24140273  # 95% confidence interval
+            kest = k + kappa**2 / 2
+            nest = n + kappa**2
+            pest = kest / nest
+            radius = kappa * math.sqrt(pest * (1 - pest) / nest)
+            return max(0, pest - radius)
+
+        def get_build_rank(row: pd.Series) -> Tuple[float, float]:
+            build_win_count = row[0]
+            total_play_count = (
+                all_grouped_builds.loc[
+                    all_grouped_builds["BuildHash"] == row["BuildHash"]
+                ].iloc[0][0]
+                if build_win_count > 1
+                else 1
+            )
+
+            return (
+                agresti_coull_lower(total_play_count, build_win_count),
+                (build_win_count / total_play_count),
+            )
+
+        grouped_builds = build_matches.groupby(group_by).size().reset_index()
+
+        if grouped_builds.shape[0] >= 1_000:
+            # Drop the bottom 75% of builds by frequency if we have a lot of data.
+            # This significantly simplifies our build rank calculation, and those builds
+            # are not likely to compete for the top spots.
+            grouped_builds = grouped_builds.sort_values(by=0, ascending=False).iloc[
+                : min((grouped_builds.shape[0] // 10), 5_000)
+            ]
+
+        grouped_builds[["BuildRank", "WinPercent"]] = grouped_builds.apply(
+            get_build_rank, axis=1, result_type="expand"
         )
+
+        if grouped_builds.shape[0] == 0:
+            raise BuildFailedError
+
+        most_freq = grouped_builds.sort_values(by="BuildRank", ascending=False).iloc[0]
 
         most_freq_relics = None
 
@@ -474,14 +570,19 @@ class GodBuilder:
             else most_freq["GodId"]
         )
 
-        best_build = most_freq["Build"]
+        best_build_hash = most_freq["BuildHash"]
         build_count = most_freq[0]
+        build_win_pct = most_freq["WinPercent"]
 
         build = []
         relics = None
 
-        for i in best_build.split(","):
-            build.append(self.__items[int(i)])
+        best_build_row = winner_matches.loc[
+            winner_matches["BuildHash"] == best_build_hash
+        ].iloc[0]
+
+        for i in range(1, 7):
+            build.append(self.__items[int(best_build_row[f"ItemId{i}"])])
 
         if build_options.was_random_god():
             build_options.god_id = GodId(god_id)
@@ -494,7 +595,7 @@ class GodBuilder:
 
         win_count = winner_matches.shape[0]
         god_count = god_matches.shape[0]
-        unique_build_count = len(winner_matches["Build"].unique())
+        unique_build_count = len(winner_matches["BuildHash"].unique())
 
         if most_freq_relics is not None:
             relics = []
@@ -535,34 +636,38 @@ class GodBuilder:
         )
 
         mmr_str = ""
+        best_build_match = winner_matches.loc[
+            winner_matches["BuildHash"] == best_build_hash
+        ][
+            [
+                "Rank_Stat_Conquest",
+                "Rank_Stat_Duel",
+                "Rank_Stat_Joust",
+                "Conquest_Tier",
+                "Duel_Tier",
+                "Joust_Tier",
+                "Kills_Player",
+                "Deaths",
+                "Assists",
+                "Damage_Player",
+            ]
+        ].median()
 
         if rank_stat_name is not None:
-            median_mmr = winner_matches.loc[winner_matches["Build"] == best_build][
-                rank_stat_name
-            ].median()
-            median_tier = winner_matches.loc[winner_matches["Build"] == best_build][
-                tier_name
-            ].median()
+            median_mmr = best_build_match[rank_stat_name]
+            median_tier = best_build_match[tier_name]
 
             if median_mmr > 0:
                 mmr_str = (
-                    f"{'These winners have' if win_count > 1 else 'This winner has'} a "
-                    f"{'median ' if win_count > 1 else ''}rank of "
+                    f"{'These winners have' if build_count > 1 else 'This winner has'} a "
+                    f"{'median ' if build_count > 1 else ''}rank of "
                     f"**{PlayerStats.get_tier_string(TierId(math.floor(median_tier)), median_mmr)}**."
                 )
 
-        median_kills = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Kills_Player"
-        ].median()
-        median_deaths = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Deaths"
-        ].median()
-        median_assists = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Assists"
-        ].median()
-        median_damage = winner_matches.loc[winner_matches["Build"] == best_build][
-            "Damage_Player"
-        ].median()
+        median_kills = best_build_match["Kills_Player"]
+        median_deaths = best_build_match["Deaths"]
+        median_assists = best_build_match["Assists"]
+        median_damage = best_build_match["Damage_Player"]
 
         win_rate = float(win_count) / god_count
 
@@ -638,7 +743,8 @@ class GodBuilder:
             f"here's your {role_str}build, generated from **{unique_build_count:,}**"
             f" {'different ' if unique_build_count > 1 else ''} winning{god_name_str} "
             f"{role_str}build{'s' if unique_build_count > 1 else ''}{in_queue}. "
-            f"This exact build won **{build_count:,}** times. "
+            f"This exact build won **{build_count:,}** times, with a win "
+            f"percentage of **{(build_win_pct*100):,.2f}%**. "
             f"{mmr_str}\n\n{common_role_str}"
             f"Their {'overall ' if build_options.role is None else role_str}"
             f"win percentage{in_queue} is "

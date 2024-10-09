@@ -1,4 +1,5 @@
 import io
+import os
 import re
 from typing import Dict, List
 
@@ -238,14 +239,38 @@ class God(object):
         return god
 
     async def get_card_bytes(self) -> io.BytesIO:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.card_url) as res:
-                return io.BytesIO(await res.content.read())
+        folder_path = "cache\\gods\\cards"
+        file_name = self.card_url.split("/")[-1]
+        relative_path = os.path.join(folder_path, file_name)
 
-    async def get_icon_bytes(self) -> io.BytesIO:
+        if os.path.isfile(relative_path):
+            with open(relative_path, "rb") as f:
+                return io.BytesIO(f.read())
+
         async with aiohttp.ClientSession() as session:
             async with session.get(self.icon_url) as res:
-                return io.BytesIO(await res.content.read())
+                file = io.BytesIO(await res.content.read())
+                with open(relative_path, "wb") as f:
+                    f.write(file.getbuffer())
+                file.seek(0)
+                return file
+
+    async def get_icon_bytes(self) -> io.BytesIO:
+        folder_path = "cache\\gods\\icons"
+        file_name = self.icon_url.split("/")[-1]
+        relative_path = os.path.join(folder_path, file_name)
+
+        if os.path.isfile(relative_path):
+            with open(relative_path, "rb") as f:
+                return io.BytesIO(f.read())
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(self.icon_url) as res:
+                file = io.BytesIO(await res.content.read())
+                with open(relative_path, "wb") as f:
+                    f.write(file.getbuffer())
+                file.seek(0)
+                return file
 
     def get_stat_at_level(self, stat: ItemAttribute, level: int) -> float:
         try:

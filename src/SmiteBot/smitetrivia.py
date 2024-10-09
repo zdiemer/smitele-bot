@@ -785,6 +785,8 @@ class SmiteTrivia(commands.Cog):
         # 326896426619502593: "iskyerdo",
         # 311259851953274880: "ledweasel",
         # 184504307939278859: "WhiskeyTwentyTwo",
+        478381808912695298: "NDependntVariabl",
+        475838616770314240: "Guenhywvar",
     }
 
     def __init__(self, bot: commands.Bot, provider: SmiteProvider):

@@ -92,7 +92,9 @@ class MatchDataCollector:
                 try:
                     match_res = await self.__provider.get_match_details_batch(id_chunk)
                     if match_res is not None:
-                        match_details.extend(match_res)
+                        match_details.extend(
+                            list(filter(lambda m: m is not None, match_res))
+                        )
                     processed_count += len(id_chunk)
                     break
                 except (

@@ -30,7 +30,6 @@ from typing import Any, Callable, Coroutine, Dict, Generator, List, Set, Tuple
 import aiohttp
 import discord
 import edit_distance
-import pandas as pd
 from bs4 import BeautifulSoup
 from discord.ext import commands
 from PIL import Image
@@ -51,7 +50,7 @@ from player_stats import PlayerStats
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
-from HirezAPI import Smite, PlayerRole, QueueId
+from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 
 
@@ -326,10 +325,12 @@ class Smitele(commands.Cog):
 
     __tree_builder: ItemTreeBuilder
 
+    __dataframe_refresher_running: bool
+
     # A helper lambda for hitting a random Smite wiki voicelines route
-    __get_base_smite_wiki: Callable[
-        [commands.Cog, str], str
-    ] = lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
+    __get_base_smite_wiki: Callable[[commands.Cog, str], str] = (
+        lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
+    )
 
     def __init__(self, _bot: commands.Bot, _provider: SmiteProvider) -> None:
         # Setting our intents so that Discord knows what our bot is going to do
@@ -339,6 +340,7 @@ class Smitele(commands.Cog):
         self.__items = _provider.items
         self.__running_sessions = {}
         self.__tree_builder = ItemTreeBuilder(self.__items)
+        self.__dataframe_refresher_running = False
 
         if self.__config is None:
             try:
@@ -361,8 +363,37 @@ class Smitele(commands.Cog):
         await self.__bot.change_presence(
             status=discord.Status.online, activity=activity
         )
-        self.__bot.loop.create_task(self.__smite_client.load_dataframe())
+
+        if not self.__dataframe_refresher_running:
+            self.__bot.loop.create_task(self.__smite_client.load_dataframe())
+            self.__dataframe_refresher_running = True
+
         print("Smite-le Bot is ready!")
+
+    @commands.slash_command(
+        name="top_fun",
+        description="Figure out who's having top fun",
+        guild_ids=[845718807509991445, 396874836250722316],
+    )
+    async def top_fun(self, ctx: discord.ApplicationContext):
+        if ctx.user.voice is None:
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.yellow(),
+                    description="Nobody is having Top Fun.",
+                )
+            )
+
+        channel = ctx.user.voice.channel
+
+        member = random.choice(list(channel.voice_states.keys()))
+
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.yellow(),
+                description=f"<@{member}> is currently having Top Fun.",
+            )
+        )
 
     @commands.slash_command(
         name="build",
@@ -372,7 +403,7 @@ class Smitele(commands.Cog):
     @discord.option(
         name="god_name",
         type=str,
-        description="The god to return a build for. If no god name is entered will return a high winrate build.",
+        description="The god to return a build for",
         required=True,
     )
     @discord.option(
@@ -383,7 +414,13 @@ class Smitele(commands.Cog):
             q.display_name
             for q in list(
                 filter(
-                    lambda _q: QueueId.is_normal(_q) or QueueId.is_ranked(_q),
+                    lambda _q: (QueueId.is_normal(_q) or QueueId.is_ranked(_q))
+                    and _q
+                    not in (
+                        QueueId.UNDER_30_ARENA,
+                        QueueId.UNDER_30_CONQUEST,
+                        QueueId.UNDER_30_JOUST,
+                    ),
                     list(QueueId),
                 )
             )
@@ -397,18 +434,18 @@ class Smitele(commands.Cog):
         choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
-    @discord.option(
-        name="enemies",
-        type=str,
-        description="A comma-separated list of enemies which the player is up against",
-        default="",
-    )
-    @discord.option(
-        name="allies",
-        type=str,
-        description="A comma-separated list of allies which the player is teamed with",
-        default="",
-    )
+    # @discord.option(
+    #     name="enemies",
+    #     type=str,
+    #     description="A comma-separated list of enemies which the player is up against",
+    #     default="",
+    # )
+    # @discord.option(
+    #     name="allies",
+    #     type=str,
+    #     description="A comma-separated list of allies which the player is teamed with",
+    #     default="",
+    # )
     @discord.option(
         name="high_mmr",
         type=bool,
@@ -421,14 +458,21 @@ class Smitele(commands.Cog):
         god_name: str,
         match_queue: str,
         role: str,
-        enemies: str,
-        allies: str,
+        # enemies: str,
+        # allies: str,
         high_mmr: bool,
     ):
         build_options = BuildOptions(build_type=BuildCommandType.ML)
 
-        if god_name is not None and god_name != "":
-            build_options.set_option("-g", god_name)
+        try:
+            if god_name is not None and god_name != "":
+                build_options.set_option("-g", god_name)
+        except InvalidOptionError:
+            await self.__send_invalid(
+                ctx,
+                f"{god_name} is not a God.",
+            )
+            return
 
         if match_queue is not None and match_queue != "":
             build_options.set_option("-q", match_queue)
@@ -436,13 +480,30 @@ class Smitele(commands.Cog):
         if role is not None and role != "":
             build_options.set_option("-r", role)
 
-        if enemies is not None and enemies != "":
-            build_options.set_option("-e", enemies)
+        # try:
+        #     if enemies is not None and enemies != "":
+        #         build_options.set_option("-e", enemies)
+        # except InvalidOptionError:
+        #     await self.__send_invalid(
+        #         ctx,
+        #         f'One of "{enemies}" is not a God.',
+        #     )
+        #     return
 
-        if allies is not None and allies != "":
-            build_options.set_option("-a", allies)
+        # try:
+        #     if allies is not None and allies != "":
+        #         build_options.set_option("-a", allies)
+        # except InvalidOptionError:
+        #     await self.__send_invalid(
+        #         ctx,
+        #         f'One of "{enemies}" is not a God.',
+        #     )
+        #     return
 
         if high_mmr:
+            if build_options.queue_id is None:
+                build_options.set_option("-q", QueueId.RANKED_CONQUEST.name)
+
             build_options.set_option("-mmr", None)
 
         error_msg = build_options.validate()
@@ -517,7 +578,14 @@ class Smitele(commands.Cog):
         god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
 
         try:
-            build, desc = god_builder.random(build_options)
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.yellow(),
+                    title="Randomizing you the perfect build.",
+                )
+            )
+
+            build, relics, desc = god_builder.random(build_options)
         except BuildFailedError:
             await self.__send_invalid(
                 ctx,
@@ -530,6 +598,7 @@ class Smitele(commands.Cog):
             ctx,
             desc,
             self.__gods[build_options.god_id],
+            relics,
             no_god_specified=build_options.was_random_god(),
         )
         return
@@ -869,17 +938,14 @@ class Smitele(commands.Cog):
                 value=f"**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}",
             )
 
-            await message.channel.send(embed=item_embed)
-        async with message.channel.typing():
             if item.type == ItemType.ITEM and item.active:
-                tree_embed = discord.Embed(
-                    color=discord.Color.blue(),
-                    title=f"{self.__items[item.root_item_id].name} Tree:",
-                )
                 with await self.__tree_builder.generate_build_tree(item) as tree_image:
                     file = discord.File(tree_image, filename="tree.png")
-                    tree_embed.set_image(url="attachment://tree.png")
-                    await message.channel.send(file=file, embed=tree_embed)
+                    item_embed.set_image(url="attachment://tree.png")
+                    await message.channel.send(file=file, embed=item_embed)
+                    return
+            else:
+                await message.channel.send(embed=item_embed)
 
     @commands.command(
         aliases=["g"],
@@ -1104,7 +1170,7 @@ class Smitele(commands.Cog):
 
                 output_image = Image.new(
                     "RGBA",
-                    (96 * 5, 96 * 2),
+                    (96 * (3 + len(relics)), 96 * 2),
                     (250, 250, 250, 0),
                 )
 
