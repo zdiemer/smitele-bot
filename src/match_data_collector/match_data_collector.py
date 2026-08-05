@@ -7,9 +7,12 @@ import os
 import sys
 from typing import List
 
+import pandas as pd
 from aiohttp.client_exceptions import ClientConnectionError, ContentTypeError
 
+import match_storage
 import paths
+from match_storage import frame_for_storage as match_data_frame_for_storage
 from SmiteProvider import SmiteProvider
 from HirezAPI import QueueId
 
@@ -40,7 +43,7 @@ class MatchDataCollector:
         )
 
     def __get_output_file_name(self):
-        return f"{self.__OUTPUT_FILE_PREFIX}{self.__start_date.strftime(self.__OUTPUT_FILE_DATE_FORMAT)}.json"
+        return f"{self.__OUTPUT_FILE_PREFIX}{self.__start_date.strftime(self.__OUTPUT_FILE_DATE_FORMAT)}.parquet"
 
     async def __fetch_match_ids(self):
         match_ids = set()
@@ -131,15 +134,29 @@ class MatchDataCollector:
     async def __fetch_and_save_daily_matches(self):
         match_details = await self.__fetch_match_details()
 
-        if any(match_details):
-            output_path = os.path.join(
-                paths.MATCH_DATA_DIR, self.__get_output_file_name()
-            )
-            with open(output_path, "w", encoding="utf-8") as file:
-                json.dump(match_details, file)
-            print(f"Wrote {len(match_details):,} match details to {output_path}", flush=True)
-        else:
+        if not any(match_details):
             print("No match details fetched; nothing written", flush=True)
+            return
+
+        output_path = os.path.join(paths.MATCH_DATA_DIR, self.__get_output_file_name())
+
+        # Parquet, not JSON. A day of raw records is ~142MB as JSON and ~6MB
+        # here, and the bot reads it back roughly two orders of magnitude
+        # faster because it can project just the columns it wants instead of
+        # parsing every field of every row.
+        #
+        # Every column is kept, not just the ones SmiteProvider currently uses:
+        # the saving is already 25x, and a day that has passed cannot be
+        # re-collected if the set of interesting columns ever changes.
+        frame = pd.DataFrame.from_records(match_details)
+        frame = match_data_frame_for_storage(frame)
+        frame.to_parquet(output_path, compression="zstd", index=False)
+
+        print(
+            f"Wrote {frame.shape[0]:,} player rows x {frame.shape[1]} columns "
+            f"({os.path.getsize(output_path)/1e6:,.1f} MB) to {output_path}",
+            flush=True,
+        )
 
     def __archive_historical_matches(self):
         cutoff = datetime.datetime.utcnow() - datetime.timedelta(
@@ -148,22 +165,33 @@ class MatchDataCollector:
 
         for root, _, files in os.walk(paths.MATCH_DATA_DIR):
             for name in files:
+                file_date = self.__date_from_name(name)
                 # Anything that isn't one of our dated files gets left alone.
                 # This used to raise straight out of the job on the first
                 # unexpected name in the directory.
-                try:
-                    file_date = datetime.datetime.strptime(
-                        name,
-                        f"{self.__OUTPUT_FILE_PREFIX}{self.__OUTPUT_FILE_DATE_FORMAT}.json",
-                    )
-                except ValueError:
+                if file_date is None or file_date > cutoff:
                     continue
 
-                if file_date <= cutoff:
-                    os.rename(
-                        os.path.join(root, name),
-                        os.path.join(paths.MATCH_ARCHIVE_DIR, name),
-                    )
+                os.rename(
+                    os.path.join(root, name),
+                    os.path.join(paths.MATCH_ARCHIVE_DIR, name),
+                )
+
+    def __date_from_name(self, name: str) -> datetime.datetime:
+        """The day a corpus file covers, or None if it isn't one.
+
+        Both suffixes are recognised: rotation still has to work on the JSON
+        days collected before the switch to Parquet.
+        """
+        for suffix in (match_storage.SUFFIX, ".json"):
+            try:
+                return datetime.datetime.strptime(
+                    name,
+                    f"{self.__OUTPUT_FILE_PREFIX}{self.__OUTPUT_FILE_DATE_FORMAT}{suffix}",
+                )
+            except ValueError:
+                continue
+        return None
 
     async def run_job(self):
         print(

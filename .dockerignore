@@ -7,6 +7,9 @@ version
 gods.json
 items.json
 cache/
+# Locally-seeded historical corpus. It belongs on the NAS, not in a layer.
+matchDetails/
+templates/
 .venv/
 .git/
 **/__pycache__/

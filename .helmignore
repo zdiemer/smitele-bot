@@ -12,5 +12,7 @@ upgrade.sh
 *.md
 values.local.yaml
 cache/
+# Locally-seeded historical corpus: gigabytes, and nothing to do with the chart.
+matchDetails/
 __pycache__/
 *.pyc

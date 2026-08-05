@@ -1,5 +1,6 @@
 import asyncio
 import io
+import itertools
 import os
 from datetime import datetime, timedelta
 from json.decoder import JSONDecodeError
@@ -10,6 +11,7 @@ import ujson as json
 from aiohttp import ClientConnectionError, ContentTypeError
 
 import credentials
+import match_storage
 import paths
 from god import God
 from god_types import GodId
@@ -163,55 +165,39 @@ class SmiteProvider(Smite):
         if file_name in self.__fetched_match_detail_file_names:
             return df
 
-        with open(file_name, "r", encoding="utf-8") as f:
-            start = datetime.utcnow()
+        start = datetime.utcnow()
 
-            file_details = json.loads(f.read())
+        # Parquet, legacy flat-list JSON and legacy match-ID-keyed JSON all
+        # arrive here as the same frame; match_storage owns knowing which is
+        # which, and drops the excluded columns as early as the format allows.
+        match_details = match_storage.read_frame(
+            file_name, exclude=self.__COLUMNS_TO_EXCLUDE
+        )
 
-            file_details = list(
-                filter(
-                    lambda m: m is not None,
-                    file_details,
-                )
+        if not self._silent:
+            print(
+                f"Read {match_details.shape[0]:,} details from {file_name} "
+                f"in {(datetime.utcnow() - start).total_seconds():.2f}s"
             )
 
-            if not self._silent:
-                print(
-                    f"Reading from JSON file took {(datetime.utcnow() - start).total_seconds():.2f}s"
-                )
+        if df is None:
+            df = match_details
+        else:
+            df = pd.concat([df, match_details]).drop_duplicates().reset_index(drop=True)
 
-            start = datetime.utcnow()
-
-            match_details = pd.DataFrame.from_records(
-                file_details,
-                exclude=self.__COLUMNS_TO_EXCLUDE,
-            )
-
-            if not self._silent:
-                print(
-                    f"Converting {match_details.shape[0]:,} details from {file_name} "
-                    f"to DataFrame took {(datetime.utcnow() - start).total_seconds():.2f}s"
-                )
-
-            if df is None:
-                df = match_details
-            else:
-                df = (
-                    pd.concat([df, match_details])
-                    .drop_duplicates()
-                    .reset_index(drop=True)
-                )
-
-            self.__fetched_match_detail_file_names.add(file_name)
+        self.__fetched_match_detail_file_names.add(file_name)
 
         return df
 
     def __refresh_dataframe(self):
-        for root, _, files in os.walk(paths.MATCH_DATA_DIR):
-            for file in files:
-                self.__update_player_matches(
-                    self.__match_details_file_to_dataframe(os.path.join(root, file))
-                )
+        # The archive is read alongside the live directory. Rotating a file out
+        # of the collector's working set used to hide it from the bot entirely,
+        # capping builds at a 30-day window; Parquet makes the whole history
+        # cheap enough to keep loaded.
+        for path in match_storage.corpus_paths(
+            paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR
+        ):
+            self.__update_player_matches(self.__match_details_file_to_dataframe(path))
 
     def __update_player_matches(self, new_match_details: pd.DataFrame):
         if new_match_details is None or new_match_details.shape[0] == 0:
@@ -475,11 +461,12 @@ class SmiteProvider(Smite):
     async def __fetch_new_match_data(self, fetch_date: datetime):
         new_match_details: pd.DataFrame = None
 
-        for root, _, files in os.walk(paths.MATCH_DATA_DIR):
-            for file in files:
-                new_match_details = self.__match_details_file_to_dataframe(
-                    os.path.join(root, file), new_match_details
-                )
+        for path in match_storage.corpus_paths(
+            paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR
+        ):
+            new_match_details = self.__match_details_file_to_dataframe(
+                path, new_match_details
+            )
 
         match_ids = set()
 

@@ -21,6 +21,9 @@ pandas = "~=2.1.0"
 # but this was never declared — a clean `pipenv install --deploy` produced an
 # environment the bot could not start in.
 ujson = "~=5.8.0"
+# Parquet is the corpus format: ~25x smaller than the raw JSON and read
+# column-wise, so the bot loads only the fields it uses.
+pyarrow = "~=14.0"
 
 [dev-packages]
 
