@@ -6,7 +6,7 @@ from typing import List, Set
 
 import aiohttp
 
-import paths
+import art_cache
 from god_types import GodRole, GodType
 from passive_parser import PassiveAttribute, PassiveParser
 
@@ -178,19 +178,9 @@ class Item:
         return item
 
     async def get_icon_bytes(self) -> io.BytesIO:
-        relative_path = paths.cache_file("items", self.icon_url.split("/")[-1])
-
-        if os.path.isfile(relative_path):
-            with open(relative_path, "rb") as f:
-                return io.BytesIO(f.read())
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.icon_url) as res:
-                file = io.BytesIO(await res.content.read())
-                with open(relative_path, "wb") as f:
-                    f.write(file.getbuffer())
-                file.seek(0)
-                return file
+        return await art_cache.fetch(
+            self.icon_url, "items", self.icon_url.split("/")[-1]
+        )
 
 
 class ItemTreeNode:

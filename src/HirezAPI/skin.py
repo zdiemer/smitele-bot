@@ -4,7 +4,7 @@ from typing import Tuple
 
 import aiohttp
 
-import paths
+import art_cache
 from god_types import GodId
 
 
@@ -37,19 +37,9 @@ class Skin(object):
         if not self.has_url:
             raise ValueError(f"{self.name} is missing a URL")
 
-        relative_path = paths.cache_file("skins", self.card_url.split("/")[-1])
-
-        if os.path.isfile(relative_path):
-            with open(relative_path, "rb") as f:
-                return io.BytesIO(f.read())
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.card_url) as res:
-                file = io.BytesIO(await res.content.read())
-                with open(relative_path, "wb") as f:
-                    f.write(file.getbuffer())
-                file.seek(0)
-                return file
+        return await art_cache.fetch(
+            self.card_url, "skins", self.card_url.split("/")[-1]
+        )
 
     @property
     def has_url(self) -> bool:

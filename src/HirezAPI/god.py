@@ -5,7 +5,7 @@ from typing import Dict, List
 
 import aiohttp
 
-import paths
+import art_cache
 from ability import Ability
 from god_types import *
 from item import ItemAttribute
@@ -240,36 +240,16 @@ class God(object):
         return god
 
     async def get_card_bytes(self) -> io.BytesIO:
-        relative_path = paths.cache_file("gods", "cards", self.card_url.split("/")[-1])
-
-        if os.path.isfile(relative_path):
-            with open(relative_path, "rb") as f:
-                return io.BytesIO(f.read())
-
         # Keyed on card_url, so fetch card_url — this fetched icon_url, which
         # cached the icon under the card's name and served it as the card art.
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.card_url) as res:
-                file = io.BytesIO(await res.content.read())
-                with open(relative_path, "wb") as f:
-                    f.write(file.getbuffer())
-                file.seek(0)
-                return file
+        return await art_cache.fetch(
+            self.card_url, "gods", "cards", self.card_url.split("/")[-1]
+        )
 
     async def get_icon_bytes(self) -> io.BytesIO:
-        relative_path = paths.cache_file("gods", "icons", self.icon_url.split("/")[-1])
-
-        if os.path.isfile(relative_path):
-            with open(relative_path, "rb") as f:
-                return io.BytesIO(f.read())
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.icon_url) as res:
-                file = io.BytesIO(await res.content.read())
-                with open(relative_path, "wb") as f:
-                    f.write(file.getbuffer())
-                file.seek(0)
-                return file
+        return await art_cache.fetch(
+            self.icon_url, "gods", "icons", self.icon_url.split("/")[-1]
+        )
 
     def get_stat_at_level(self, stat: ItemAttribute, level: int) -> float:
         try:

@@ -31,7 +31,7 @@ import discord
 import edit_distance
 from bs4 import BeautifulSoup
 from discord.ext import commands
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from unidecode import unidecode
 
 import credentials
@@ -715,44 +715,82 @@ class Smitele(commands.Cog):
             await self.__send_invalid(ctx, f"**{against}** is not a known god name!")
             return
 
+        # Composing the build image fetches (cached) item icons, which can
+        # outrun the three seconds Discord allows before it calls the
+        # interaction failed.
+        await ctx.defer()
+
         builds = recommender.recommend(
             god_id=own.id.value,
             role=role,
             opponent_god_id=opponent.id.value if opponent else 0,
             top_n=3,
         )
-        if not any(builds):
-            await self.__send_invalid(
-                ctx, f"No builds recorded for **{own.name}** in the collected matches."
+        resolved = [
+            (self.__resolve_items(item_ids), score) for item_ids, score in builds
+        ]
+        resolved = [(items, score) for items, score in resolved if any(items)]
+
+        if not any(resolved):
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.red(),
+                    description=f"No builds recorded for **{own.name}** in the "
+                    "collected matches.",
+                )
             )
             return
 
-        description = []
-        for index, (item_ids, score) in enumerate(builds):
-            names = ", ".join(
-                self.__items[item_id].name
-                for item_id in item_ids
-                if item_id in self.__items
+        best, best_score = resolved[0]
+        matchup = f" vs {opponent.name}" if opponent is not None else ""
+
+        with await self.__make_build_image(best) as build_bytes:
+            file = discord.File(build_bytes, filename=self.BUILD_IMAGE_FILE)
+            embed = discord.Embed(
+                color=discord.Color.blue(),
+                title=f"Best {own.name} Build{matchup}",
+                description=f"Hey {ctx.user.mention}, this build wins "
+                f"**{best_score:.0%}** of the time"
+                + (f" against **{opponent.name}**" if opponent is not None else "")
+                + (f" in **{role}**" if role else "")
+                + ".",
             )
-            description.append(f"**{index + 1}.** ({score:.0%} win) {names}")
+            embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
+            embed.set_thumbnail(url=own.icon_url)
+            embed.add_field(
+                name="Items", value=", ".join(item.name for item in best), inline=False
+            )
 
-        title = f"{own.name} builds"
-        if opponent is not None:
-            title += f" vs {opponent.name}"
+            # Runners-up as text rather than three more images: one attachment
+            # per message, and three build images would bury the best one.
+            if len(resolved) > 1:
+                embed.add_field(
+                    name="Also strong here",
+                    value="\n".join(
+                        f"**{score:.0%}** — " + ", ".join(item.name for item in items)
+                        for items, score in resolved[1:]
+                    ),
+                    inline=False,
+                )
 
-        await ctx.respond(
-            embed=discord.Embed(
-                color=discord.Color.blurple(),
-                title=title,
-                description="\n".join(description),
-            ).set_footer(
+            embed.set_footer(
                 # Observational data: these builds are associated with winning,
                 # which is not the same as causing it. Saying so on the card
                 # keeps the number honest.
-                text=f"From builds actually played. Model AUC {recommender.test_auc:.2f} "
-                "— correlation, not causation."
+                text=f"Ranked from builds players actually ran (model AUC "
+                f"{recommender.test_auc:.2f}) — correlation, not causation."
             )
-        )
+            await ctx.respond(file=file, embed=embed)
+
+    def __resolve_items(self, item_ids: List[int]) -> List[Item]:
+        """Item objects for the model's ids, skipping any it no longer knows.
+
+        The corpus spans patches, so it can name items that have since been
+        removed from the game and are absent from the current item list.
+        """
+        return [
+            self.__items[item_id] for item_id in item_ids if item_id in self.__items
+        ]
 
     def __load_recommender(self):
         """Load the trained model once, and notice when one first appears.
@@ -1541,6 +1579,39 @@ class Smitele(commands.Cog):
                     error_rounds += 1
                     session.current_round.total_rounds -= 1
 
+    @staticmethod
+    def __make_placeholder_tile(name: str, size: int) -> Image.Image:
+        """A labelled stand-in for an item whose icon can't be fetched."""
+        tile = Image.new("RGBA", (size, size), (49, 51, 56, 255))
+        draw = ImageDraw.Draw(tile)
+        draw.rectangle([0, 0, size - 1, size - 1], outline=(114, 118, 125, 255))
+
+        font = ImageFont.load_default()
+        # Greedy wrap against the tile width, measured in the actual font.
+        lines, line = [], ""
+        for word in str(name).split():
+            candidate = f"{line} {word}".strip()
+            if draw.textlength(candidate, font=font) <= size - 8 or not line:
+                line = candidate
+            else:
+                lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+        lines = lines[:5]
+
+        line_height = 11
+        top = max(2, (size - len(lines) * line_height) // 2)
+        for index, text in enumerate(lines):
+            width = draw.textlength(text, font=font)
+            draw.text(
+                ((size - width) / 2, top + index * line_height),
+                text,
+                font=font,
+                fill=(220, 221, 222, 255),
+            )
+        return tile
+
     async def __make_build_image(self, build: List[Item]) -> io.BytesIO:
         # Appending the images into a single build image
         thumb_size = 96
@@ -1549,8 +1620,10 @@ class Smitele(commands.Cog):
             (thumb_size * min(3, len(build)), thumb_size * math.ceil(len(build) / 3)),
             (250, 250, 250, 0),
         ) as output_image:
-            pos_x, pos_y = (0, 0)
             for idx, item in enumerate(build):
+                row, column = divmod(idx, 3)
+                pos_x, pos_y = column * thumb_size, row * thumb_size
+
                 # First requesting and saving the image from the URLs we got
                 with await item.get_icon_bytes() as item_bytes:
                     try:
@@ -1561,12 +1634,15 @@ class Smitele(commands.Cog):
                             if image.mode != "RGBA":
                                 image = image.convert("RGBA")
                             output_image.paste(image, (pos_x, pos_y))
-                            if idx != 2:
-                                pos_x += thumb_size
-                            if idx == 2:
-                                pos_x, pos_y = (0, thumb_size)
                     except Exception as ex:
+                        # Hi-Rez has pulled the art for some older items and
+                        # now serves 403 for them. A named tile keeps the build
+                        # readable; a transparent gap just looks broken.
                         print(f"Unable to create an image for {item.name}, {ex}")
+                        output_image.paste(
+                            self.__make_placeholder_tile(item.name, thumb_size),
+                            (pos_x, pos_y),
+                        )
 
             file = io.BytesIO()
             output_image.save(file, format="PNG")
