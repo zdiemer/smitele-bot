@@ -46,6 +46,34 @@ else
   echo "docker or buildctl required"; exit 1
 fi
 
+# The trainer is the bot image plus torch. It is built from the tag just
+# pushed, so the model is always produced by the same code that scores with it.
+# Skipped with SKIP_TRAINER=1, since it is a slow ~800MB layer and most changes
+# don't touch training.
+if [[ "${SKIP_TRAINER:-0}" != "1" ]]; then
+  TRAINER_REPO="$(awk -F'"' '/smitele-bot-trainer/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
+  TRAINER_IMAGE="${TRAINER_REPO:-ghcr.io/zdiemer/smitele-bot-trainer}:${TAG}"
+
+  if command -v docker >/dev/null; then
+    echo "==> Building ${TRAINER_IMAGE} (docker)"
+    docker build -f "${HERE}/Dockerfile.train" \
+      --build-arg "BASE_IMAGE=${REPO}" --build-arg "BASE_TAG=${TAG}" \
+      -t "${TRAINER_IMAGE}" "${HERE}"
+    echo "==> Pushing ${TRAINER_IMAGE}"
+    docker push "${TRAINER_IMAGE}"
+  else
+    echo "==> Building + pushing ${TRAINER_IMAGE} (buildctl)"
+    buildctl build \
+      --frontend dockerfile.v0 \
+      --local context="${HERE}" \
+      --local dockerfile="${HERE}" \
+      --opt filename=Dockerfile.train \
+      --opt "build-arg:BASE_IMAGE=${REPO}" \
+      --opt "build-arg:BASE_TAG=${TAG}" \
+      --output "type=image,\"name=${TRAINER_IMAGE}\",push=true"
+  fi
+fi
+
 echo "==> Done. Run upgrade.sh to roll the cluster onto the new image."
 echo "    (First push only: set the ghcr.io/zdiemer/smitele-bot package"
 echo "     visibility to Public so every node can pull it anonymously.)"

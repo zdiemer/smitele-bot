@@ -78,6 +78,30 @@ def read_frame(path: str, exclude: Iterable[str] = ()) -> pd.DataFrame:
     )
 
 
+def read_frame_columns(path: str, columns: Iterable[str]) -> pd.DataFrame:
+    """Read exactly `columns` from one corpus file.
+
+    The inverse of read_frame's exclude list, for callers that know the small
+    set they want rather than the large set they don't — which is most of the
+    win from a columnar format. Columns absent from the file come back empty
+    rather than raising, so a corpus spanning schema changes still loads.
+    """
+    wanted = list(dict.fromkeys(columns))
+
+    if path.endswith(SUFFIX):
+        available = set(pq.read_schema(path).names)
+        frame = pd.read_parquet(path, columns=[c for c in wanted if c in available])
+    else:
+        with open(path, "r", encoding="utf-8") as file:
+            frame = pd.DataFrame.from_records(_flatten(json.loads(file.read())))
+        frame = frame[[c for c in wanted if c in frame.columns]]
+
+    for column in wanted:
+        if column not in frame.columns:
+            frame[column] = None
+    return frame[wanted]
+
+
 def _flatten(records: Any) -> List[Dict[str, Any]]:
     """Normalise either JSON shape to a flat list of player rows.
 
@@ -101,12 +125,17 @@ def corpus_paths(*directories: str) -> List[str]:
     The bot reads its live directory and its archive together, so history that
     has rotated out still feeds builds.
     """
-    found: List[str] = []
+    # Deduplicated by real path. The live and archive directories are normally
+    # distinct, but if they ever resolve to the same place a file read twice
+    # doubles every match's roster, and downstream code that checks roster size
+    # then silently discards the whole corpus.
+    found: Dict[str, str] = {}
     for directory in directories:
         if not directory or not os.path.isdir(directory):
             continue
         for root, _, files in os.walk(directory):
-            found.extend(
-                os.path.join(root, name) for name in files if is_corpus_file(name)
-            )
-    return sorted(found, key=os.path.basename)
+            for name in files:
+                if is_corpus_file(name):
+                    path = os.path.join(root, name)
+                    found.setdefault(os.path.realpath(path), path)
+    return sorted(found.values(), key=os.path.basename)

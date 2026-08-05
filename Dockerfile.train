@@ -1,0 +1,19 @@
+# The training image: the bot image plus torch.
+#
+# Kept separate because torch is ~800MB installed and the bot has no use for
+# it — inference runs through the numpy copy of the forward pass in
+# src/ml/model.py. Only the weekly training CronJob pulls this.
+#
+# Built by build.sh alongside the main image, and tagged in lockstep with it so
+# a model is always produced by the same code that will score with it.
+ARG BASE_IMAGE=ghcr.io/zdiemer/smitele-bot
+ARG BASE_TAG=latest
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+USER root
+# CPU wheels only. No node in the cluster has a GPU, and the CUDA build is
+# several gigabytes for hardware that isn't there.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+USER smitele
+
+ENTRYPOINT ["python", "./src/ml/train.py"]

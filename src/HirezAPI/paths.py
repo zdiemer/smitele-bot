@@ -54,6 +54,13 @@ MATCH_ARCHIVE_DIR: str = _resolve(
 
 CONFIG_FILE: str = os.environ.get("SMITELE_CONFIG_FILE") or "config.json"
 
+# Where the trainer writes model.npz and candidates.npz. Alongside the corpus
+# rather than inside it, so a model file is never picked up by anything walking
+# the match directories looking for corpus files.
+MODEL_DIR: str = _resolve(
+    "SMITELE_MODEL_DIR", os.path.dirname(MATCH_DATA_DIR.rstrip(os.sep)) or "."
+)
+
 
 def data_file(name: str) -> str:
     """A small state file living in DATA_DIR."""

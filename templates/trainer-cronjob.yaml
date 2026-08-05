@@ -1,0 +1,90 @@
+{{- if .Values.trainer.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "trainer.enabled requires matchData.enabled — there is no corpus to train on otherwise" }}
+{{- end }}
+{{/*
+Weekly retrain of the build-recommendation model. Writes model.npz and
+candidates.npz to the root of the match-data share, where the bot picks them up.
+
+Separate image from the bot: this one carries torch, which is ~800MB and only
+needed to fit the model. The bot scores builds with a numpy copy of the same
+forward pass, and training refuses to save if the two disagree.
+
+Manual run:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-trainer smitele-train-manual
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-trainer
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.trainer.schedule | quote }}
+  {{- with .Values.trainer.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.trainer.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: trainer
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: trainer
+              image: "{{ .Values.trainer.image.repository }}:{{ .Values.trainer.image.tag | default .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                - --days
+                - {{ .Values.trainer.days | quote }}
+                - --epochs
+                - {{ .Values.trainer.epochs | quote }}
+                {{- range .Values.trainer.queues }}
+                - --queue
+                - {{ . | quote }}
+                {{- end }}
+                - --out
+                - /matchdata/model.npz
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                - name: HOME
+                  value: /tmp
+                # Torch defaults to one thread per core and then thrashes on a
+                # shared node; the job is bounded by its CPU limit anyway.
+                - name: OMP_NUM_THREADS
+                  value: {{ .Values.trainer.threads | quote }}
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.trainer.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            - name: tmp
+              emptyDir:
+                sizeLimit: 2Gi
+{{- end }}

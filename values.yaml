@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.1.0"
+  tag: "1.2.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -96,6 +96,39 @@ collector:
       memory: 512Mi
     limits:
       memory: 2Gi
+
+# Weekly retrain of the build-recommendation model, which the bot loads from
+# the match-data share. Needs matchData.enabled — there's no corpus otherwise.
+#
+# Measured on 21 days (910k full-build rows): test AUC 0.675, a few minutes on
+# CPU. Both artefacts are tiny — 0.20MB model, 0.12MB candidate builds.
+trainer:
+  enabled: false
+  image:
+    repository: ghcr.io/zdiemer/smitele-bot-trainer
+    # Defaults to image.tag, so the trainer and the bot that scores with its
+    # output are always the same code.
+    tag: ""
+  # 04:40 Sunday UTC — after the daily collector, well away from it.
+  schedule: "40 4 * * 0"
+  timeZone: "Etc/UTC"
+  # Days of corpus to train on. More is better up to the point the meta shifts
+  # underneath it; a patch is roughly a month.
+  days: 60
+  epochs: 10
+  # Ranked Conquest. Builds are queue-specific, so mixing modes would average
+  # over strategies that have nothing to do with each other.
+  queues:
+    - 451
+  threads: 2
+  activeDeadlineSeconds: 5400
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 8Gi
 
 # The convention here is a *public* GHCR package: the cluster is multi-node and
 # anonymous pulls mean no per-namespace credential to keep alive. Until the

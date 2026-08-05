@@ -42,9 +42,13 @@ WORKDIR /home/smitele
 COPY src/HirezAPI/*.py src/HirezAPI/
 COPY src/SmiteBot/*.py src/SmiteBot/
 COPY src/match_data_collector/*.py src/match_data_collector/
+# The bot scores candidate builds with a numpy copy of the trained model, so it
+# needs this package but not torch. Training runs from Dockerfile.train, which
+# layers torch on top of this image.
+COPY src/ml/*.py src/ml/
 
-# Adding HirezAPI to PYTHONPATH
-ENV PYTHONPATH="/home/smitele/src/HirezAPI"
+# Adding HirezAPI and ml to PYTHONPATH
+ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
 
 # Two volumes, with very different shapes. /data is small and private to one
 # replica — session token, patch marker, gods/items caches, downloaded art.

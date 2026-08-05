@@ -54,6 +54,7 @@ from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
+from recommend import BuildRecommender
 
 # Guilds the slash commands are registered to. Guild-scoped rather than global
 # because guild commands appear the moment the bot connects, where global ones
@@ -343,6 +344,8 @@ class Smitele(commands.Cog):
 
     __status_server: StatusServer
 
+    __recommender: object
+
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = (
         lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
@@ -358,6 +361,7 @@ class Smitele(commands.Cog):
         self.__tree_builder = ItemTreeBuilder(self.__items)
         self.__dataframe_refresher_running = False
         self.__status_server = None
+        self.__recommender = None
 
         if self.__config is None:
             self.__config = credentials.load("discordToken")
@@ -669,6 +673,103 @@ class Smitele(commands.Cog):
         if god:
             return tuple(god.split())
         return ("easy",) if easy else ()
+
+    @commands.slash_command(
+        name="edge",
+        description="Highest win-rate builds for a god in a specific matchup",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(name="god", type=str, description="The god you're playing")
+    @discord.option(
+        name="against",
+        type=str,
+        description="The god you're laned against",
+        default="",
+    )
+    @discord.option(
+        name="role",
+        type=str,
+        description="Your role",
+        choices=["Solo", "Jungle", "Mid", "Support", "Carry"],
+        default="",
+    )
+    async def edge(
+        self, ctx: discord.ApplicationContext, god: str, against: str, role: str
+    ) -> None:
+        recommender = self.__load_recommender()
+        if recommender is None:
+            await self.__send_invalid(
+                ctx,
+                "No build model has been trained yet. It is built weekly from "
+                "collected match data.",
+            )
+            return
+
+        own = self.__god_by_name(god)
+        if own is None:
+            await self.__send_invalid(ctx, f"**{god}** is not a known god name!")
+            return
+
+        opponent = self.__god_by_name(against) if against else None
+        if against and opponent is None:
+            await self.__send_invalid(ctx, f"**{against}** is not a known god name!")
+            return
+
+        builds = recommender.recommend(
+            god_id=own.id.value,
+            role=role,
+            opponent_god_id=opponent.id.value if opponent else 0,
+            top_n=3,
+        )
+        if not any(builds):
+            await self.__send_invalid(
+                ctx, f"No builds recorded for **{own.name}** in the collected matches."
+            )
+            return
+
+        description = []
+        for index, (item_ids, score) in enumerate(builds):
+            names = ", ".join(
+                self.__items[item_id].name
+                for item_id in item_ids
+                if item_id in self.__items
+            )
+            description.append(f"**{index + 1}.** ({score:.0%} win) {names}")
+
+        title = f"{own.name} builds"
+        if opponent is not None:
+            title += f" vs {opponent.name}"
+
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.blurple(),
+                title=title,
+                description="\n".join(description),
+            ).set_footer(
+                # Observational data: these builds are associated with winning,
+                # which is not the same as causing it. Saying so on the card
+                # keeps the number honest.
+                text=f"From builds actually played. Model AUC {recommender.test_auc:.2f} "
+                "— correlation, not causation."
+            )
+        )
+
+    def __load_recommender(self):
+        """Load the trained model once, and notice when one first appears.
+
+        The bot starts before any model exists and the trainer only runs
+        weekly, so a miss is retried rather than cached as a permanent absence.
+        """
+        if self.__recommender is None:
+            self.__recommender = BuildRecommender.load(paths.MODEL_DIR)
+        return self.__recommender
+
+    def __god_by_name(self, name: str) -> God:
+        wanted = unidecode(str(name)).strip().lower().replace("'", "")
+        for god in self.__gods.values():
+            if unidecode(god.name).lower().replace("'", "") == wanted:
+                return god
+        return None
 
     @commands.slash_command(
         name="stop",
