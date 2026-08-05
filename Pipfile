@@ -24,6 +24,9 @@ ujson = "~=5.8.0"
 # Parquet is the corpus format: ~25x smaller than the raw JSON and read
 # column-wise, so the bot loads only the fields it uses.
 pyarrow = "~=14.0"
+# Streaming JSON, for converting archived days. Whole-file parsing needs about
+# eight times the file size in memory and archived days reach 3GB.
+ijson = "~=3.5"
 
 [dev-packages]
 

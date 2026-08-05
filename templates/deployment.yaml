@@ -49,6 +49,14 @@ spec:
               value: /tmp
             - name: SMITELE_STATUS_PORT
               value: {{ .Values.bot.statusPort | quote }}
+            {{- if .Values.bot.parquetOnlyCorpus }}
+            # Raw JSON days expand to many times their size in memory, well
+            # past this pod's limit. The bot reads only converted corpus files;
+            # anything still awaiting conversion is invisible to it rather than
+            # being an OOM waiting to happen.
+            - name: SMITELE_CORPUS_PARQUET_ONLY
+              value: "1"
+            {{- end }}
           ports:
             - name: status
               containerPort: {{ .Values.bot.statusPort }}

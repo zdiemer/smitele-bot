@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.3.0"
+  tag: "1.4.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -22,6 +22,10 @@ bot:
   # Serves /healthz: readiness, plus the in-progress game counts that
   # upgrade.sh refuses to roll over. Cluster-internal only.
   statusPort: 8080
+  # Ignore un-converted JSON days. Raw JSON expands to many times its size in
+  # memory — far past this pod's limit — so the bot reads only Parquet and
+  # anything awaiting conversion is simply invisible to it.
+  parquetOnlyCorpus: true
   resources:
     requests:
       cpu: 100m
@@ -129,6 +133,28 @@ trainer:
     limits:
       cpu: "2"
       memory: 8Gi
+
+# One-shot bulk conversion of archived JSON days to Parquet. Enable, watch it
+# finish, then disable again. Re-running is safe: already-converted days are
+# skipped, so a failed shard just gets re-run.
+#
+# The converter streams, so memory is set by batchRows and not by file size —
+# archived days reach 3GB, which no node here could parse whole.
+corpusConvert:
+  enabled: false
+  workers: 4
+  batchRows: 50000
+  # Leave false for the first pass. Once the Parquet output looks right, set it
+  # and re-run to drop the JSON originals — until then every converted day is
+  # on the share twice.
+  delete: false
+  backoffLimit: 4
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 3Gi
 
 # The convention here is a *public* GHCR package: the cluster is multi-node and
 # anonymous pulls mean no per-namespace credential to keep alive. Until the

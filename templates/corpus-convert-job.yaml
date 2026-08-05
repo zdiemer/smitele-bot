@@ -1,0 +1,90 @@
+{{- if .Values.corpusConvert.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "corpusConvert.enabled requires matchData.enabled — there is no corpus to convert" }}
+{{- end }}
+{{/*
+One-shot bulk conversion of archived JSON days to Parquet.
+
+An Indexed Job: each worker takes every Nth file from the same sorted listing,
+so the split needs no coordination and no two workers open the same file. The
+converter streams, so a worker's memory is set by --batch-rows rather than by
+the size of the file it happens to draw — which matters because archived days
+reach 3GB and parsing one whole would need more memory than any node here has.
+
+Not a CronJob and not enabled by default: this is run deliberately, once, after
+dropping an archive onto the share.
+
+  helm upgrade ... --set corpusConvert.enabled=true
+  kubectl -n {{ .Release.Namespace }} logs -f -l job-name={{ include "smitele-bot.fullname" . }}-convert
+
+Re-running is safe — a day whose Parquet already exists is skipped — so a
+failed shard can simply be re-run. Set corpusConvert.delete once the output
+looks right, to drop the JSON originals.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-convert
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+  annotations:
+    # Let a completed Job be replaced by the next run rather than blocking the
+    # upgrade with "field is immutable".
+    helm.sh/resource-policy: keep
+spec:
+  completions: {{ .Values.corpusConvert.workers }}
+  parallelism: {{ .Values.corpusConvert.workers }}
+  completionMode: Indexed
+  backoffLimit: {{ .Values.corpusConvert.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "smitele-bot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: corpus-convert
+    spec:
+      restartPolicy: Never
+      {{- include "smitele-bot.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: convert
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "./src/match_data_collector/convert_corpus.py"]
+          args:
+            - --batch-rows
+            - {{ .Values.corpusConvert.batchRows | quote }}
+            {{- if .Values.corpusConvert.delete }}
+            - --delete
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: SMITELE_CONVERT_SHARDS
+              value: {{ .Values.corpusConvert.workers | quote }}
+            # The converter is the one thing that must see the JSON.
+            - name: SMITELE_CORPUS_PARQUET_ONLY
+              value: "0"
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: matchdata
+              mountPath: /matchdata
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.corpusConvert.resources | nindent 12 }}
+      volumes:
+        - name: matchdata
+          persistentVolumeClaim:
+            claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+{{- end }}

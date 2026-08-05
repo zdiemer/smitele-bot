@@ -321,7 +321,6 @@ class Smitele(commands.Cog):
     SKIN_IMAGE_FILE: str = "skin.jpg"
     SKIN_CROP_IMAGE_FILE: str = "crop.jpg"
     VOICE_LINE_FILE: str = "voice.ogg"
-    GOD_ICON_FILE: str = "god_icon.jpg"
     # Hi-Rez serves item icons at 128px. This was 96, so every tile was
     # downscaled on the way in and then upscaled again by Discord fitting the
     # embed width — which is what made the build image look soft.
@@ -763,15 +762,7 @@ class Smitele(commands.Cog):
             )
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
 
-            # Uploaded rather than linked. A set_thumbnail(url=...) is fetched
-            # by Discord's own proxy, which Hi-Rez's CDN does not reliably
-            # serve — the thumbnail silently fails to render. Fetching it here
-            # goes through the cache and the URL fallback like everything else.
-            icon_bytes = await own.get_icon_bytes()
-            if art_cache.looks_like_image(icon_bytes.getvalue()):
-                files.append(discord.File(icon_bytes, filename=self.GOD_ICON_FILE))
-                embed.set_thumbnail(url=f"attachment://{self.GOD_ICON_FILE}")
-
+            await self.__attach_thumbnail(embed, files, own.icon_url, "gods", "icons")
             embed.add_field(
                 name="Items", value=", ".join(item.name for item in best), inline=False
             )
@@ -1399,9 +1390,9 @@ class Smitele(commands.Cog):
                 output_image.save(file_bytes, format="PNG")
                 file_bytes.seek(0)
 
-            file = discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)
+            files = [discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)]
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
-            embed.set_thumbnail(url=god.icon_url)
+            await self.__attach_thumbnail(embed, files, god.icon_url, "gods", "icons")
             embed.add_field(
                 name="Items", value=", ".join([item.name for item in build])
             )
@@ -1414,7 +1405,51 @@ class Smitele(commands.Cog):
                     text=no_god_specified_override
                     or f"(You didn't give me a god, so I picked {god.name} for you)"
                 )
-            await ctx.respond(file=file, embed=embed)
+            await ctx.respond(files=files, embed=embed)
+
+    async def __attach_thumbnail(
+        self,
+        embed: discord.Embed,
+        files: List[discord.File],
+        url: str,
+        *cache_parts: str,
+    ) -> None:
+        """Upload an icon and point the embed's thumbnail at the attachment.
+
+        set_thumbnail(url=...) makes Discord's own proxy fetch the URL, and
+        Hi-Rez's CDN does not reliably serve it — the thumbnail then silently
+        renders as a broken image. Fetching it here reuses the cache and the
+        URL fallback, so the bot and Discord never disagree about whether the
+        art exists.
+
+        The icon is re-encoded to PNG rather than uploaded as fetched. Embeds
+        are rendered through Discord's proxy with ?format=webp, and that
+        transcoder returns 415 on the JPEGs Hi-Rez serves — the attachment
+        itself is a valid image and downloads fine, it just never renders.
+        Re-encoding sidesteps the transcoder's opinion of the source file.
+        """
+        if not url:
+            return
+
+        icon = await art_cache.fetch(url, *cache_parts, url.split("/")[-1])
+        if not art_cache.looks_like_image(icon.getvalue()):
+            embed.set_thumbnail(url=url)
+            return
+
+        try:
+            with Image.open(icon) as image:
+                normalised = io.BytesIO()
+                image.convert("RGBA").save(normalised, format="PNG")
+                normalised.seek(0)
+        except Exception as ex:  # pylint: disable=broad-except
+            print(f"Could not re-encode thumbnail {url}: {ex}")
+            embed.set_thumbnail(url=url)
+            return
+
+        # Attachment names have to be unique within a message.
+        name = f"thumb{len(files)}.png"
+        files.append(discord.File(normalised, filename=name))
+        embed.set_thumbnail(url=f"attachment://{name}")
 
     async def __stop(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))

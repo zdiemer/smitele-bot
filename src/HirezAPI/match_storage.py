@@ -27,8 +27,23 @@ import ujson as json
 SUFFIX: str = ".parquet"
 
 
+# Legacy JSON is readable, but a reader with a memory limit should not attempt
+# it: a day of raw JSON peaks at roughly eight times its own size in Python
+# objects, and archived days run past a gigabyte. Set this where only converted
+# data should be touched — the bot, and anything else that has to stay inside a
+# pod limit while a conversion is in flight.
+PARQUET_ONLY: bool = os.environ.get("SMITELE_CORPUS_PARQUET_ONLY", "") not in (
+    "",
+    "0",
+    "false",
+    "False",
+)
+
+
 def is_corpus_file(name: str) -> bool:
-    return name.endswith(SUFFIX) or name.endswith(".json")
+    if name.endswith(SUFFIX):
+        return True
+    return not PARQUET_ONLY and name.endswith(".json")
 
 
 def frame_for_storage(frame: pd.DataFrame) -> pd.DataFrame:
