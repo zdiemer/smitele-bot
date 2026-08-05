@@ -1,0 +1,65 @@
+{{- if .Values.matchData.enabled }}
+{{/*
+SMB-backed storage for the match-detail corpus, via the csi-driver-smb cluster
+add-on (see README §Prerequisites). Read-write at the PV level because the
+collector writes here; the bot re-declares its own mount read-only so a bug in
+the bot can't damage the corpus.
+
+ReadWriteMany is the reason this is SMB rather than a PVC: the collector Job and
+the bot Deployment are separate pods that can land on different nodes, and
+local-path only ever offers ReadWriteOnce.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-smb-creds
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: {{ required "matchData.username required in values.local.yaml" .Values.matchData.username | quote }}
+  password: {{ required "matchData.password required in values.local.yaml" .Values.matchData.password | quote }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-matchdata
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  capacity:
+    # Advisory only — the real ceiling is whatever the NAS dataset allows.
+    storage: {{ .Values.matchData.size }}
+  accessModes:
+    - ReadWriteMany
+  # The corpus is the expensive thing here: it is accumulated one day at a time
+  # and cannot be backfilled beyond Hi-Rez's retention window.
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    {{- toYaml .Values.matchData.mountOptions | nindent 4 }}
+    - vers={{ .Values.matchData.vers }}
+  csi:
+    driver: smb.csi.k8s.io
+    volumeHandle: {{ include "smitele-bot.fullname" . }}-matchdata
+    volumeAttributes:
+      source: {{ printf "//%s/%s" (required "matchData.host required" .Values.matchData.host) (required "matchData.share required" .Values.matchData.share) | quote }}
+    nodeStageSecretRef:
+      name: {{ include "smitele-bot.fullname" . }}-smb-creds
+      namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-matchdata
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: {{ include "smitele-bot.fullname" . }}-matchdata
+  resources:
+    requests:
+      storage: {{ .Values.matchData.size }}
+{{- end }}

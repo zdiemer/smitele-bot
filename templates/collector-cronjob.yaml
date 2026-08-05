@@ -1,0 +1,93 @@
+{{- if .Values.collector.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "collector.enabled requires matchData.enabled — the collector has nowhere durable to write the corpus otherwise" }}
+{{- end }}
+{{/*
+The daily match data collector, replacing the Windows Task Scheduler job that
+used to run this script. Same image as the bot; only the command differs.
+
+Manual run (e.g. to backfill a day the schedule missed):
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-collector smitele-collect-manual
+  # ...then edit the job to pass a date, or set SMITELE_COLLECT_DATE=YYYY-MM-DD.
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-collector
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.collector.schedule | quote }}
+  {{- with .Values.collector.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.collector.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.collector.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.collector.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.collector.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.collector.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.collector.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: collector
+          annotations:
+            checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: collector
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "./src/match_data_collector/match_data_collector.py"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                - name: HOME
+                  value: /tmp
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.collector.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            {{/*
+              Deliberately NOT the bot's data PVC. That claim is ReadWriteOnce,
+              so sharing it would pin every run to whichever node the bot is on
+              and block scheduling when it isn't. The only thing lost by
+              starting cold is the gods/items cache — two API calls.
+            */}}
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

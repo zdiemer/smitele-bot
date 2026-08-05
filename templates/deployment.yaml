@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.bot.replicaCount }}
+  {{/*
+    Recreate, not RollingUpdate. The data PVC is ReadWriteOnce, and two pods
+    holding the same Discord token would each be told to disconnect by the
+    gateway. The old pod has to be gone before the new one starts.
+  */}}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "smitele-bot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "smitele-bot.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the bot onto a rotated token without needing a new image tag.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- include "smitele-bot.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # The data PVC is provisioned root-owned; fsGroup is what lets uid 1000
+        # write its caches into it.
+        fsGroup: 1000
+      containers:
+        - name: bot
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            {{- include "smitele-bot.credentialEnv" . | nindent 12 }}
+            # ffmpeg and PIL both want a writable HOME for scratch and font
+            # caching, and the root filesystem is read-only.
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: matchdata
+              mountPath: /matchdata
+              # The collector owns this corpus; the bot only reads it.
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.bot.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "smitele-bot.fullname" . }}-data
+        - name: matchdata
+          {{- if .Values.matchData.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            readOnly: true
+          {{- else }}
+          {{/*
+            No share yet. An empty directory keeps the mount path valid — the
+            bot walks it, finds nothing, and runs without historical match data
+            rather than failing to start.
+          */}}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

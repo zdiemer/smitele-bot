@@ -1,0 +1,103 @@
+image:
+  repository: ghcr.io/zdiemer/smitele-bot
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Discord token + Hi-Rez developer credentials. All three live in
+# values.local.yaml — never here. They reach both the bot and the collector as
+# environment variables; the code still accepts a config.json, but nothing
+# mounts one in the cluster.
+credentials:
+  discordToken: ""
+  hirezDevId: ""
+  hirezAuthKey: ""
+
+bot:
+  # One replica, always. The Discord gateway allows a single connection per
+  # token, and a second pod would fight the first for it.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      # pandas holds the whole match-detail corpus in memory once the collector
+      # starts filling the share, so this is the value to raise as it grows.
+      memory: 2Gi
+
+# Small, private, per-replica state: the Hi-Rez session token, the patch
+# version marker, the gods/items API caches, and downloaded god/item/skin art.
+# Regenerable — losing it costs a handful of API calls on the next start — but
+# keeping it across restarts avoids re-downloading a few hundred images.
+persistence:
+  data:
+    size: 5Gi
+    storageClass: ""          # "" → cluster default StorageClass
+    accessMode: ReadWriteOnce
+
+# The match-detail corpus, on the NAS over SMB. Grows daily and is shared
+# between the collector (writes) and the bot (reads), so it is neither local
+# nor single-writer — it needs ReadWriteMany, which local-path cannot do.
+#
+# DISABLED BY DEFAULT: this needs an SMB share that must be created on the NAS
+# first (see README §Prerequisites). With it off, the bot runs fine and simply
+# has no historical match data to draw builds from.
+matchData:
+  enabled: false
+  host: "192.168.4.36"        # the NAS on the LAN
+  share: "smite"              # //192.168.4.36/smite
+  vers: "3.0"                 # Pin SMB protocol; TrueNAS speaks 3.x
+  size: 500Gi
+  mountOptions:
+    - dir_mode=0775
+    - file_mode=0664
+    - noserverino
+  # SMB username/password live in values.local.yaml.
+  username: ""
+  password: ""
+
+# The daily match data collector. This was a Windows Task Scheduler job; here
+# it is a CronJob running the same script in the same image as the bot.
+#
+# Requires matchData.enabled — there is nowhere to write the corpus otherwise,
+# and a run that wrote to the pod's own disk would vanish with the pod.
+collector:
+  enabled: false
+  # 09:20 UTC. Hi-Rez only publishes match IDs for completed days, so this
+  # collects *yesterday*; the offset past midnight is slack for their data to
+  # settle, and the odd minute keeps it off the top-of-hour stampede.
+  schedule: "20 9 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 2
+  # A full day is ~1,700 match-ID requests plus a batched details pass. Six
+  # hours is far more than observed runs need and still bounds a stuck job well
+  # inside the next day's window.
+  activeDeadlineSeconds: 21600
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# The convention here is a *public* GHCR package: the cluster is multi-node and
+# anonymous pulls mean no per-namespace credential to keep alive. Until the
+# package visibility is flipped, a PAT with read:packages in values.local.yaml
+# generates a pull secret. Clear it once the package is public.
+imageCredentials:
+  registry: ghcr.io
+  username: zdiemer
+  pat: ""
+
+# Any additional, externally-managed pull secrets.
+imagePullSecrets: []
+
+nodeSelector: {}
+tolerations: []

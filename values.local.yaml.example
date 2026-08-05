@@ -1,0 +1,22 @@
+# Copy to values.local.yaml (gitignored) and fill in.
+#
+#   cp values.local.yaml.example values.local.yaml
+#
+# Hi-Rez credentials come from https://webcdn.hirezstudios.com/hirez-studios/legal/smite-api-developer-guide.pdf
+# (request a dev ID + auth key); the Discord token from the bot's application
+# page at https://discord.com/developers/applications.
+
+credentials:
+  discordToken: ""
+  hirezDevId: ""
+  hirezAuthKey: ""
+
+# Only needed once the NAS share exists and you flip these on. Same TrueNAS
+# user the other charts use.
+matchData:
+  enabled: false
+  username: ""
+  password: ""
+
+collector:
+  enabled: false

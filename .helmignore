@@ -1,0 +1,16 @@
+.git/
+.github/
+.venv/
+src/
+Dockerfile
+.dockerignore
+Pipfile
+Pipfile.lock
+config.json
+build.sh
+upgrade.sh
+*.md
+values.local.yaml
+cache/
+__pycache__/
+*.pyc

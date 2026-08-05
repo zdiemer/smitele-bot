@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-data
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.data.accessMode }}
+  {{/*
+    Rendering `storageClassName: ""` is not the same as omitting it: the empty
+    string means "no StorageClass", which leaves the claim Pending forever
+    rather than falling through to the cluster default.
+  */}}
+  {{- with .Values.persistence.data.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
