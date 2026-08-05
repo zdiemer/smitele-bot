@@ -1,0 +1,84 @@
+{{- if .Values.aggregate.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "aggregate.enabled requires matchData.enabled — there is no corpus to aggregate" }}
+{{- end }}
+{{/*
+Rolls the corpus into per-build win counts for /build to look up.
+
+This is what makes a 250-day corpus usable at all: the raw rows are ~132M and
+~36GB in pandas, where the aggregate of the same data is a few MB. The bot
+loads the aggregate, never the corpus.
+
+Runs after the daily collector so the day it just wrote is included.
+
+Manual run:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-aggregate smitele-aggregate-manual
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-aggregate
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.aggregate.schedule | quote }}
+  {{- with .Values.aggregate.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.aggregate.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: aggregate
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: aggregate
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "./src/match_data_collector/build_aggregate.py"]
+              args:
+                - --min-plays
+                - {{ .Values.aggregate.minPlays | quote }}
+                {{- with .Values.aggregate.days }}
+                - --days
+                - {{ . | quote }}
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                - name: HOME
+                  value: /tmp
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.aggregate.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+{{- end }}

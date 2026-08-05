@@ -1,0 +1,257 @@
+"""Roll the match corpus into per-build win counts.
+
+The bot used to hold every player row in memory to answer /build. At 250 days
+that is ~132M rows and ~36GB, which no pod here can hold, and it was always
+wasteful: /build never looks at individual rows, only at how often a build was
+played and how often it won.
+
+This precomputes exactly that. One row per
+(god, queue, role, high-mmr, build), with plays and wins — plus the items each
+build hash stands for, and the same treatment for relics. The result is small
+enough for the bot to load in seconds and stays flat as the corpus grows.
+
+    python src/match_data_collector/build_aggregate.py [--min-plays N] [--days N]
+
+Corpus files are processed one at a time and reduced immediately, so peak
+memory is one day rather than the whole history.
+
+Written to the root of the match-data share as build_stats.parquet,
+build_items.parquet and relic_stats.parquet.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+from typing import Dict, List
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HirezAPI"))
+
+import build_features  # noqa: E402  pylint: disable=wrong-import-position
+import match_storage  # noqa: E402  pylint: disable=wrong-import-position
+import paths  # noqa: E402  pylint: disable=wrong-import-position
+from HirezAPI import QueueId  # noqa: E402  pylint: disable=wrong-import-position
+from SmiteProvider import (  # noqa: E402  pylint: disable=wrong-import-position
+    SmiteProvider,
+)
+
+HIGH_MMR: int = 2000
+
+GROUP_KEYS: List[str] = ["GodId", "match_queue_id", "Role", "HighMmr"]
+
+# Under-30 queues are the same mode with a different id; /build folds them
+# together, so the aggregate has to as well or the two would never match.
+QUEUE_ALIASES: Dict[int, int] = {
+    QueueId.UNDER_30_ARENA.value: QueueId.ARENA.value,
+    QueueId.UNDER_30_CONQUEST.value: QueueId.CONQUEST.value,
+    QueueId.UNDER_30_JOUST.value: QueueId.JOUST.value,
+}
+
+NEEDED_COLUMNS: List[str] = (
+    [
+        "GodId",
+        "Role",
+        "Win_Status",
+        "match_queue_id",
+        "Rank_Stat_Conquest",
+        "Rank_Stat_Duel",
+        "Rank_Stat_Joust",
+    ]
+    + build_features.ITEM_COLUMNS
+    + build_features.RELIC_COLUMNS
+)
+
+
+def high_mmr_flag(frame: pd.DataFrame) -> pd.Series:
+    """Whether each row is a high-MMR player, by the stat its queue ranks on.
+
+    /build only ever set this for ranked queues — and indexed the frame with
+    None for every other queue, which raised. Conquest's rating is the sensible
+    default, so the flag is defined for every row here.
+    """
+    queue = pd.to_numeric(frame["match_queue_id"], errors="coerce").fillna(-1)
+
+    rating = pd.to_numeric(frame["Rank_Stat_Conquest"], errors="coerce").fillna(0.0)
+    duel = pd.to_numeric(frame["Rank_Stat_Duel"], errors="coerce").fillna(0.0)
+    joust = pd.to_numeric(frame["Rank_Stat_Joust"], errors="coerce").fillna(0.0)
+
+    rating = rating.where(queue != QueueId.RANKED_DUEL.value, duel)
+    rating = rating.where(queue != QueueId.RANKED_JOUST.value, joust)
+    return rating >= HIGH_MMR
+
+
+def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
+    frame = frame[frame["GodId"] != 0].copy()
+    if not frame.shape[0]:
+        return frame
+
+    frame["Win_Status"] = frame["Win_Status"] == "Winner"
+    frame["match_queue_id"] = (
+        pd.to_numeric(frame["match_queue_id"], errors="coerce")
+        .fillna(-1)
+        .astype(np.int64)
+        .replace(QUEUE_ALIASES)
+    )
+    frame["GodId"] = pd.to_numeric(frame["GodId"], errors="coerce").fillna(0).astype(
+        np.int64
+    )
+    frame["Role"] = frame["Role"].astype(str).fillna("Unknown")
+    frame["HighMmr"] = high_mmr_flag(frame)
+
+    build_features.annotate(frame, items)
+    return frame
+
+
+def reduce_file(frame: pd.DataFrame):
+    """Per-build and per-relic counts for one day."""
+    builds = frame.loc[frame["IsFullBuild"]]
+    build_counts = (
+        builds.groupby(GROUP_KEYS + ["BuildHash"], dropna=False, observed=True)
+        .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
+        .reset_index()
+    )
+
+    # One representative item set per hash. The hash is order-independent, so
+    # any row carrying it describes the same six items.
+    items = builds.drop_duplicates(subset=["BuildHash"])[
+        ["BuildHash"] + build_features.ITEM_COLUMNS
+    ]
+
+    relics = frame.loc[frame["IsFullRelics"]]
+    relic_counts = (
+        relics.groupby(GROUP_KEYS + ["Relics"], dropna=False, observed=True)
+        .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
+        .reset_index()
+    )
+
+    return build_counts, items, relic_counts
+
+
+def consolidate(frames: List[pd.DataFrame], keys: List[str]) -> pd.DataFrame:
+    if not frames:
+        return pd.DataFrame(columns=keys + ["plays", "wins"])
+    return (
+        pd.concat(frames, ignore_index=True)
+        .groupby(keys, dropna=False, observed=True)
+        .agg(plays=("plays", "sum"), wins=("wins", "sum"))
+        .reset_index()
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days", type=int, default=None)
+    parser.add_argument(
+        "--min-plays",
+        type=int,
+        default=3,
+        help="drop builds seen fewer than this many times across the corpus",
+    )
+    parser.add_argument("--out", default=paths.MODEL_DIR)
+    # Reducing after every file would rewrite the running total constantly;
+    # every N keeps the intermediate list small without that churn.
+    parser.add_argument("--consolidate-every", type=int, default=25)
+    args = parser.parse_args()
+
+    provider = SmiteProvider(silent=True)
+    import asyncio
+
+    asyncio.run(provider.create())
+    print(f"{len(provider.items):,} items, {len(provider.gods)} gods", flush=True)
+
+    corpus = match_storage.corpus_paths(paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR)
+    if args.days:
+        corpus = corpus[-args.days :]
+    if not corpus:
+        print("No corpus files found.", file=sys.stderr)
+        return 1
+
+    print(f"Aggregating {len(corpus)} corpus file(s)", flush=True)
+
+    build_parts: List[pd.DataFrame] = []
+    relic_parts: List[pd.DataFrame] = []
+    item_parts: List[pd.DataFrame] = []
+    builds_total = relics_total = pd.DataFrame()
+    rows_seen = 0
+    start = time.time()
+
+    for index, path in enumerate(corpus, start=1):
+        frame = prepare(
+            match_storage.read_frame_columns(path, NEEDED_COLUMNS), provider.items
+        )
+        if not frame.shape[0]:
+            continue
+
+        rows_seen += frame.shape[0]
+        build_counts, items, relic_counts = reduce_file(frame)
+        build_parts.append(build_counts)
+        relic_parts.append(relic_counts)
+        item_parts.append(items)
+        del frame
+
+        if index % args.consolidate_every == 0:
+            build_parts = [
+                consolidate(build_parts + [builds_total], GROUP_KEYS + ["BuildHash"])
+            ]
+            builds_total = build_parts.pop()
+            relic_parts = [
+                consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
+            ]
+            relics_total = relic_parts.pop()
+            item_parts = [
+                pd.concat(item_parts, ignore_index=True).drop_duplicates(
+                    subset=["BuildHash"]
+                )
+            ]
+            print(
+                f"  {index}/{len(corpus)} files, {rows_seen:,} rows, "
+                f"{builds_total.shape[0]:,} build groups, "
+                f"{time.time() - start:.0f}s",
+                flush=True,
+            )
+
+    builds = consolidate(build_parts + [builds_total], GROUP_KEYS + ["BuildHash"])
+    relics = consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
+    items = pd.concat(item_parts, ignore_index=True).drop_duplicates(
+        subset=["BuildHash"]
+    )
+
+    if args.min_plays > 1:
+        before = builds.shape[0]
+        # A build seen once carries no information — the ranking's confidence
+        # interval already puts it near zero — and they are the bulk of the
+        # rows, so dropping them is most of what keeps this small.
+        builds = builds[builds["plays"] >= args.min_plays]
+        print(
+            f"Dropped {before - builds.shape[0]:,} build groups below "
+            f"{args.min_plays} plays ({builds.shape[0]:,} kept)",
+            flush=True,
+        )
+        items = items[items["BuildHash"].isin(set(builds["BuildHash"]))]
+
+    os.makedirs(args.out, exist_ok=True)
+    written = []
+    for name, frame in (
+        ("build_stats", builds),
+        ("build_items", items),
+        ("relic_stats", relics),
+    ):
+        destination = os.path.join(args.out, f"{name}{match_storage.SUFFIX}")
+        partial = f"{destination}.partial"
+        frame.to_parquet(partial, compression="zstd", index=False)
+        os.replace(partial, destination)
+        written.append((destination, frame.shape[0], os.path.getsize(destination)))
+
+    print(f"Aggregated {rows_seen:,} player rows in {time.time() - start:.0f}s")
+    for destination, rows, size in written:
+        print(f"  {os.path.basename(destination)}: {rows:,} rows, {size/1e6:,.1f} MB")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

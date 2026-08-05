@@ -134,6 +134,29 @@ trainer:
       cpu: "2"
       memory: 8Gi
 
+# Rolls the corpus into per-build win counts for /build. This is what makes a
+# 250-day corpus usable: the raw rows are ~132M and ~36GB in pandas, where the
+# aggregate of the same data measured under 0.1MB for 21 days. The bot loads
+# the aggregate and never the corpus.
+aggregate:
+  enabled: false
+  # 10:10 UTC, after the 09:20 collector, so the day it just wrote is included.
+  schedule: "10 10 * * *"
+  timeZone: "Etc/UTC"
+  # Builds seen fewer times than this are dropped. They were 96% of the groups
+  # in the 21-day sample and carry no signal — the ranking's confidence
+  # interval already puts a build with one play near zero.
+  minPlays: 3
+  # Empty means the whole corpus. Set to limit to the most recent N days.
+  days: ""
+  activeDeadlineSeconds: 5400
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 6Gi
+
 # One-shot bulk conversion of archived JSON days to Parquet. Enable, watch it
 # finish, then disable again. Re-running is safe: already-converted days are
 # skipped, so a failed shard just gets re-run.

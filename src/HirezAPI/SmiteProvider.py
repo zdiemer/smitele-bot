@@ -11,6 +11,7 @@ import pandas as pd
 import ujson as json
 from aiohttp import ClientConnectionError, ContentTypeError
 
+import build_features
 import credentials
 import match_storage
 import paths
@@ -200,93 +201,6 @@ class SmiteProvider(Smite):
         ):
             self.__update_player_matches(self.__match_details_file_to_dataframe(path))
 
-    ITEM_COLUMNS: List[str] = [f"ItemId{slot}" for slot in range(1, 7)]
-    RELIC_COLUMNS: List[str] = [f"ActiveId{slot}" for slot in range(1, 3)]
-
-    # "No Relic" and "No Shard Relic" occupy a relic slot without filling it.
-    __EMPTY_RELIC_IDS: Tuple[int, ...] = (0, 12333, 23795)
-
-    def __generate_builds(self, frame: pd.DataFrame) -> None:
-        """Attach BuildHash, Relics, IsFullBuild and IsFullRelics.
-
-        Column-wise. This was a row-wise apply that rebuilt a Series and did
-        eight dictionary lookups for every player row, which is most of the
-        cost of loading the corpus at all.
-        """
-        items = self.__id_matrix(frame, self.ITEM_COLUMNS)
-        relics = self.__id_matrix(frame, self.RELIC_COLUMNS)
-
-        known_ids = np.fromiter(self.items.keys(), np.int64, len(self.items))
-        known_ids.sort()
-        # The original bailed out entirely on an id it didn't recognise — in
-        # either the item or the relic slots — so an unknown relic suppressed
-        # the build hash too. Preserved deliberately.
-        usable = np.isin(items, known_ids).all(axis=1) & np.isin(
-            relics, known_ids
-        ).all(axis=1)
-
-        counts_toward_build = np.fromiter(
-            (
-                item_id
-                for item_id, item in self.items.items()
-                if item.tier >= 3 or item.is_starter
-            ),
-            np.int64,
-        )
-        counts_toward_build.sort()
-        is_full_build = usable & (
-            np.isin(items, counts_toward_build) & (items != 0)
-        ).all(axis=1)
-
-        is_full_relics = usable & ~np.isin(
-            relics, np.array(self.__EMPTY_RELIC_IDS, np.int64)
-        ).any(axis=1)
-
-        build_hash = self.__hash_builds(items)
-        relic_text = np.char.add(
-            np.char.add(relics[:, 0].astype(str), ","), relics[:, 1].astype(str)
-        )
-
-        # Object dtype so the "not a full build" case stays None rather than
-        # becoming NaN, which is what the consumers in god_builder test for.
-        frame["BuildHash"] = np.where(is_full_build, build_hash, None)
-        frame["Relics"] = np.where(is_full_relics, relic_text, None)
-        frame["IsFullBuild"] = is_full_build
-        frame["IsFullRelics"] = is_full_relics
-
-    @staticmethod
-    def __id_matrix(frame: pd.DataFrame, columns: List[str]) -> "np.ndarray":
-        """Item/relic id columns as one integer matrix.
-
-        Anything unparseable becomes -1, which matches no known id and so falls
-        out as unusable rather than raising.
-        """
-        return (
-            frame[columns]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(-1)
-            .to_numpy(np.int64)
-        )
-
-    @staticmethod
-    def __hash_builds(items: "np.ndarray") -> "np.ndarray":
-        """triple32 over every slot, summed per row.
-
-        Order-independent, as before, because the slots are summed. This runs
-        in uint64 where the scalar version used unbounded Python ints, so the
-        values differ from previous runs — they are recomputed on every load
-        and only ever compared within one, so nothing persisted depends on them.
-        """
-        x = items.astype(np.uint64)
-        x ^= x >> np.uint64(17)
-        x *= np.uint64(0xED5AD4BB)
-        x ^= x >> np.uint64(11)
-        x *= np.uint64(0xAC4C1B51)
-        x ^= x >> np.uint64(15)
-        x *= np.uint64(0x31848BAB)
-        x ^= x >> np.uint64(14)
-        return x.sum(axis=1, dtype=np.uint64)
-
     def __update_player_matches(self, new_match_details: pd.DataFrame):
         if new_match_details is None or new_match_details.shape[0] == 0:
             if not self._silent:
@@ -328,7 +242,7 @@ class SmiteProvider(Smite):
         if not self._silent:
             print(f"Generating Builds for {details_length:,} player rows.")
 
-        self.__generate_builds(new_match_details)
+        build_features.annotate(new_match_details, self.items)
 
         # Drop all the columns we no longer need
         new_match_details.drop(
