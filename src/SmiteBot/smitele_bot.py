@@ -53,6 +53,7 @@ from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
+import art_cache
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
 from recommend import BuildRecommender
 
@@ -320,6 +321,11 @@ class Smitele(commands.Cog):
     SKIN_IMAGE_FILE: str = "skin.jpg"
     SKIN_CROP_IMAGE_FILE: str = "crop.jpg"
     VOICE_LINE_FILE: str = "voice.ogg"
+    GOD_ICON_FILE: str = "god_icon.jpg"
+    # Hi-Rez serves item icons at 128px. This was 96, so every tile was
+    # downscaled on the way in and then upscaled again by Discord fitting the
+    # embed width — which is what made the build image look soft.
+    BUILD_TILE_SIZE: int = 128
     # The name above is what Discord shows on the attachment; this is where the
     # file actually lands, which has to be somewhere writable.
     VOICE_LINE_PATH: str = paths.data_file("voice.ogg")
@@ -745,7 +751,7 @@ class Smitele(commands.Cog):
         matchup = f" vs {opponent.name}" if opponent is not None else ""
 
         with await self.__make_build_image(best) as build_bytes:
-            file = discord.File(build_bytes, filename=self.BUILD_IMAGE_FILE)
+            files = [discord.File(build_bytes, filename=self.BUILD_IMAGE_FILE)]
             embed = discord.Embed(
                 color=discord.Color.blue(),
                 title=f"Best {own.name} Build{matchup}",
@@ -756,7 +762,16 @@ class Smitele(commands.Cog):
                 + ".",
             )
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
-            embed.set_thumbnail(url=own.icon_url)
+
+            # Uploaded rather than linked. A set_thumbnail(url=...) is fetched
+            # by Discord's own proxy, which Hi-Rez's CDN does not reliably
+            # serve — the thumbnail silently fails to render. Fetching it here
+            # goes through the cache and the URL fallback like everything else.
+            icon_bytes = await own.get_icon_bytes()
+            if art_cache.looks_like_image(icon_bytes.getvalue()):
+                files.append(discord.File(icon_bytes, filename=self.GOD_ICON_FILE))
+                embed.set_thumbnail(url=f"attachment://{self.GOD_ICON_FILE}")
+
             embed.add_field(
                 name="Items", value=", ".join(item.name for item in best), inline=False
             )
@@ -780,7 +795,7 @@ class Smitele(commands.Cog):
                 text=f"Ranked from builds players actually ran (model AUC "
                 f"{recommender.test_auc:.2f}) — correlation, not causation."
             )
-            await ctx.respond(file=file, embed=embed)
+            await ctx.respond(files=files, embed=embed)
 
     def __resolve_items(self, item_ids: List[int]) -> List[Item]:
         """Item objects for the model's ids, skipping any it no longer knows.
@@ -1371,12 +1386,15 @@ class Smitele(commands.Cog):
 
                 output_image = Image.new(
                     "RGBA",
-                    (96 * (3 + len(relics)), 96 * 2),
+                    (self.BUILD_TILE_SIZE * (3 + len(relics)), self.BUILD_TILE_SIZE * 2),
                     (250, 250, 250, 0),
                 )
 
                 output_image.paste(build_image, (0, 0))
-                output_image.paste(relic_image, (288, 48))
+                output_image.paste(
+                    relic_image,
+                    (self.BUILD_TILE_SIZE * 3, self.BUILD_TILE_SIZE // 2),
+                )
                 file_bytes = io.BytesIO()
                 output_image.save(file_bytes, format="PNG")
                 file_bytes.seek(0)
@@ -1614,7 +1632,7 @@ class Smitele(commands.Cog):
 
     async def __make_build_image(self, build: List[Item]) -> io.BytesIO:
         # Appending the images into a single build image
-        thumb_size = 96
+        thumb_size = self.BUILD_TILE_SIZE
         with Image.new(
             "RGBA",
             (thumb_size * min(3, len(build)), thumb_size * math.ceil(len(build) / 3)),
