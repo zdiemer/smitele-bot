@@ -15,6 +15,7 @@ import edit_distance
 from discord.ext import commands
 from unidecode import unidecode
 
+import paths
 from player import Player, PlayerId
 from player_stats import QueueStats
 from SmiteProvider import SmiteProvider
@@ -794,6 +795,10 @@ class SmiteTrivia(commands.Cog):
         self.__gods = provider.gods
         self.__all_items = provider.items
         self.__provider = provider
+        # A trivia round lives entirely inside its coroutine, so there was
+        # nothing to ask about whether one was in progress. The deploy guard
+        # needs exactly that, since restarting mid-round drops the questions.
+        self.__active_rounds = 0
 
         active_item_list = list(
             filter(lambda i: i.active, list(self.__all_items.values()))
@@ -830,8 +835,12 @@ class SmiteTrivia(commands.Cog):
     ):
         await self.__smitetrivia(ctx, question_count, category)
 
-    @commands.command()
-    async def scores(self, ctx: commands.Context):
+    @commands.slash_command(
+        name="scores",
+        description="Show the Smite trivia scoreboard",
+        guild_ids=[845718807509991445, 396874836250722316, 480512578779611146],
+    )
+    async def scores(self, ctx: discord.ApplicationContext):
         await self.__scores(ctx)
 
     def __check_message(
@@ -964,11 +973,26 @@ class SmiteTrivia(commands.Cog):
             return generator.question
         raise ValueError
 
+    @property
+    def active_rounds(self) -> int:
+        """Trivia rounds currently in progress. Read by the deploy guard."""
+        return self.__active_rounds
+
     async def __smitetrivia(
         self, ctx: discord.ApplicationContext, question_count: int, input_category: str
     ):
         if ctx.author == self.__bot.user:
             return
+
+        self.__active_rounds += 1
+        try:
+            await self.__run_trivia_round(ctx, question_count, input_category)
+        finally:
+            self.__active_rounds -= 1
+
+    async def __run_trivia_round(
+        self, ctx: discord.ApplicationContext, question_count: int, input_category: str
+    ):
 
         correct_answers = {}
         was_stopped = False
@@ -1084,7 +1108,7 @@ class SmiteTrivia(commands.Cog):
 
             current_scores = {}
             try:
-                with open("scores.json", "r", encoding="utf-8") as f:
+                with open(paths.data_file("scores.json"), "r", encoding="utf-8") as f:
                     current_scores = json.load(f)
             except (FileNotFoundError, JSONDecodeError):
                 pass
@@ -1097,12 +1121,12 @@ class SmiteTrivia(commands.Cog):
             else:
                 current_scores = correct_answers
 
-            with open("scores.json", "w", encoding="utf-8") as f:
+            with open(paths.data_file("scores.json"), "w", encoding="utf-8") as f:
                 json.dump(current_scores, f)
 
     async def __scores(self, ctx):
         try:
-            with open("scores.json", "r", encoding="utf-8") as f:
+            with open(paths.data_file("scores.json"), "r", encoding="utf-8") as f:
                 current_scores = json.load(f)
                 current_scores = sorted(
                     current_scores.items(), key=lambda i: i[1], reverse=True

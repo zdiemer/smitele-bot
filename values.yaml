@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.0.0"
+  tag: "1.1.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -19,14 +19,24 @@ bot:
   # One replica, always. The Discord gateway allows a single connection per
   # token, and a second pod would fight the first for it.
   replicaCount: 1
+  # Serves /healthz: readiness, plus the in-progress game counts that
+  # upgrade.sh refuses to roll over. Cluster-internal only.
+  statusPort: 8080
   resources:
     requests:
       cpu: 100m
       memory: 512Mi
     limits:
-      # pandas holds the whole match-detail corpus in memory once the collector
-      # starts filling the share, so this is the value to raise as it grows.
+      # Measured at 1.14Gi peak loading a 1.06M-row corpus (21 days), of which
+      # the frame itself is 0.29Gi — the rest is transient decode. Raise as the
+      # corpus grows.
       memory: 2Gi
+
+# upgrade.sh refuses to roll the Deployment while a Smite-le or trivia round is
+# in progress, since a restart drops them mid-question. Override for a single
+# run with `./upgrade.sh --force-active-sessions`.
+deployGuard:
+  enabled: true
 
 # Small, private, per-replica state: the Hi-Rez session token, the patch
 # version marker, the gods/items API caches, and downloaded god/item/skin art.

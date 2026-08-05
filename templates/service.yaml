@@ -1,0 +1,20 @@
+{{/*
+Not for users — there is no web UI. This exists so `upgrade.sh` and the
+readiness probe can reach the bot's /healthz endpoint, which reports whether
+any Smite-le or trivia rounds are in progress.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.bot.statusPort }}
+      targetPort: status
+      protocol: TCP
+      name: status
+  selector:
+    {{- include "smitele-bot.selectorLabels" . | nindent 4 }}

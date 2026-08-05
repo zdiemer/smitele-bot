@@ -53,6 +53,16 @@ from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
+from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
+
+# Guilds the slash commands are registered to. Guild-scoped rather than global
+# because guild commands appear the moment the bot connects, where global ones
+# take up to an hour to propagate.
+SLASH_COMMAND_GUILD_IDS = [
+    845718807509991445,
+    396874836250722316,
+    480512578779611146,
+]
 
 
 class InvalidOptionError(Exception):
@@ -331,6 +341,8 @@ class Smitele(commands.Cog):
 
     __dataframe_refresher_running: bool
 
+    __status_server: StatusServer
+
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = (
         lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
@@ -345,9 +357,20 @@ class Smitele(commands.Cog):
         self.__running_sessions = {}
         self.__tree_builder = ItemTreeBuilder(self.__items)
         self.__dataframe_refresher_running = False
+        self.__status_server = None
 
         if self.__config is None:
             self.__config = credentials.load("discordToken")
+
+    @property
+    def active_sessions(self) -> int:
+        """Smite-le games currently in progress. Read by the deploy guard."""
+        return len(self.__running_sessions)
+
+    @property
+    def is_ready(self) -> bool:
+        """Whether the god/item caches are populated, i.e. games can start."""
+        return any(self.__gods) and any(self.__items)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -359,6 +382,20 @@ class Smitele(commands.Cog):
         if not self.__dataframe_refresher_running:
             self.__bot.loop.create_task(self.__smite_client.load_dataframe())
             self.__dataframe_refresher_running = True
+
+        # on_ready fires again on every gateway reconnect, so the port is only
+        # ever bound once.
+        if self.__status_server is None:
+            trivia: SmiteTrivia = self.__bot.get_cog("SmiteTrivia")
+            self.__status_server = StatusServer(
+                session_counts={
+                    "smitele": lambda: self.active_sessions,
+                    "trivia": (lambda: trivia.active_rounds) if trivia else (lambda: 0),
+                },
+                ready=lambda: self.is_ready,
+                port=int(os.environ.get("SMITELE_STATUS_PORT", DEFAULT_STATUS_PORT)),
+            )
+            await self.__status_server.start()
 
         print("Smite-le Bot is ready!")
 
@@ -595,25 +632,58 @@ class Smitele(commands.Cog):
         )
         return
 
-    @commands.command(
-        aliases=["smite-le", "st"],
-        brief="Starts a game of Smite-le.",
-        description="Starts a game of Smite-le. This is a five round game where "
-        "you must guess the god or goddess given different information per round.",
-        usage="[options]\n\nOptions:\n\t**easy** - gives you a list of gods to guess from\n\n"
-        "Example Usage:\n\n$smitele easy\n",
+    @commands.slash_command(
+        name="smitele",
+        description="Start a game of Smite-le, guessing a god from clues over six rounds",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    async def smitele(self, message: discord.Message, *args: tuple) -> None:
-        await self.__smitele(message, *args)
+    @discord.option(
+        name="easy",
+        type=bool,
+        description="Show a list of gods to pick from",
+        default=False,
+    )
+    @discord.option(
+        name="god",
+        type=str,
+        description="Force a specific god (bot owner only)",
+        default="",
+    )
+    async def smitele(
+        self, ctx: discord.ApplicationContext, easy: bool, god: str
+    ) -> None:
+        # The game itself runs for minutes and posts to the channel rather than
+        # to the interaction, so the interaction is acknowledged privately up
+        # front. Without this Discord reports the command as having failed
+        # three seconds in, while the game is still going.
+        await ctx.respond("Starting Smite-le!", ephemeral=True)
+        await self.__smitele(ctx, *self.__smitele_args(easy, god))
 
-    @commands.command(
-        brief="Stops a running game of Smite-le.",
-        description="This command allows you to stop a running game of Smite-le. "
-        "If you're not the bot owner, you'll only be able to stop your own game.",
-        usage="[session_id]",
+    @staticmethod
+    def __smitele_args(easy: bool, god: str) -> Tuple[str, ...]:
+        """Map the slash options onto the positional form __smitele parses.
+
+        A god name arrives as separate words because the parser rejoins them
+        with underscores to look up the GodId ("Baron Samedi" -> BARON_SAMEDI).
+        """
+        if god:
+            return tuple(god.split())
+        return ("easy",) if easy else ()
+
+    @commands.slash_command(
+        name="stop",
+        description="Stop a running game of Smite-le",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    async def stop(self, message: discord.Message, *args: tuple) -> None:
-        await self.__stop(message, *args)
+    @discord.option(
+        name="session_id",
+        type=str,
+        description="Stop someone else's session by ID (bot owner only)",
+        default="",
+    )
+    async def stop(self, ctx: discord.ApplicationContext, session_id: str) -> None:
+        await ctx.respond("Stopping Smite-le…", ephemeral=True)
+        await self.__stop(ctx, *((session_id,) if session_id else ()))
 
     @commands.command(
         brief="Returns the session ID for the running Smite-le game.",

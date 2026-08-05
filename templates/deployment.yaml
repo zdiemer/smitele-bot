@@ -47,6 +47,27 @@ spec:
             # caching, and the root filesystem is read-only.
             - name: HOME
               value: /tmp
+            - name: SMITELE_STATUS_PORT
+              value: {{ .Values.bot.statusPort | quote }}
+          ports:
+            - name: status
+              containerPort: {{ .Values.bot.statusPort }}
+              protocol: TCP
+          {{/*
+            Readiness only — no liveness probe. A wedged gateway connection is
+            not something restarting reliably fixes, and a restart would kill
+            any game in progress, which is the thing this whole endpoint exists
+            to avoid.
+          */}}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: status
+            # The corpus load runs at startup and takes over a minute; the bot
+            # is not ready until its caches are populated.
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 40
           volumeMounts:
             - name: data
               mountPath: /data
