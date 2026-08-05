@@ -11,16 +11,15 @@ from discord.ext import commands
 import editdistance
 from unidecode import unidecode
 
+import credentials
 from HirezAPI import Smite
 from item import Item, ItemType
 
 intents = discord.Intents.default()
 intents.messages = True
 bot = commands.Bot(command_prefix="%", intents=intents)
-config = {}
 
-with open("config.json") as f:
-    config = json.load(f)
+config = credentials.load("discordToken", "hirezAuthKey", "hirezDevId")
 
 smite_client = Smite(config["hirezAuthKey"], config["hirezDevId"])
 

@@ -1,3 +1,5 @@
+# Note: this also covers config.json, which holds the Discord token and the
+# Hi-Rez dev ID / auth key.
 *.json
 **/__pycache__
 session
@@ -5,3 +7,8 @@ version
 voice.ogg
 collector.log
 cache/**
+
+# Chart secrets: Discord token, Hi-Rez keys, NAS SMB credentials.
+values.local.yaml
+
+.venv/

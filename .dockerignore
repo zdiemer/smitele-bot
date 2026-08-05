@@ -1,0 +1,13 @@
+# Never let real credentials into an image layer. The Dockerfile copies
+# explicit paths rather than the whole tree, but this is the belt to that
+# braces — config.json holds the Discord token and Hi-Rez keys.
+config.json
+session
+version
+gods.json
+items.json
+cache/
+.venv/
+.git/
+**/__pycache__/
+*.pyc

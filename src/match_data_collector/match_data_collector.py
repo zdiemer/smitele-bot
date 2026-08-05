@@ -4,10 +4,12 @@ import asyncio
 import datetime
 import json
 import os
+import sys
 from typing import List
 
 from aiohttp.client_exceptions import ClientConnectionError, ContentTypeError
 
+import paths
 from SmiteProvider import SmiteProvider
 from HirezAPI import QueueId
 
@@ -108,6 +110,10 @@ class MatchDataCollector:
 
             chunk_time = datetime.datetime.utcnow()
             elapsed = chunk_time - start
+            # Every chunk so far can have exhausted its retries, leaving nothing
+            # processed and no rate to extrapolate from.
+            if processed_count == 0:
+                continue
             estimated_s = (total_match_ids - processed_count) * (
                 elapsed.total_seconds() / processed_count
             )
@@ -126,26 +132,37 @@ class MatchDataCollector:
         match_details = await self.__fetch_match_details()
 
         if any(match_details):
-            with open(
-                f"src/match_data_collector/output/{self.__get_output_file_name()}",
-                "w",
-                encoding="utf-8",
-            ) as file:
+            output_path = os.path.join(
+                paths.MATCH_DATA_DIR, self.__get_output_file_name()
+            )
+            with open(output_path, "w", encoding="utf-8") as file:
                 json.dump(match_details, file)
+            print(f"Wrote {len(match_details):,} match details to {output_path}", flush=True)
+        else:
+            print("No match details fetched; nothing written", flush=True)
 
     def __archive_historical_matches(self):
-        for root, _, files in os.walk("src/match_data_collector/output"):
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(
+            days=self.__ARCHIVE_CUTOFF_DAYS
+        )
+
+        for root, _, files in os.walk(paths.MATCH_DATA_DIR):
             for name in files:
-                if datetime.datetime.strptime(
-                    name,
-                    f"{self.__OUTPUT_FILE_PREFIX}{self.__OUTPUT_FILE_DATE_FORMAT}.json",
-                ) <= (
-                    datetime.datetime.utcnow()
-                    - datetime.timedelta(days=self.__ARCHIVE_CUTOFF_DAYS)
-                ):
+                # Anything that isn't one of our dated files gets left alone.
+                # This used to raise straight out of the job on the first
+                # unexpected name in the directory.
+                try:
+                    file_date = datetime.datetime.strptime(
+                        name,
+                        f"{self.__OUTPUT_FILE_PREFIX}{self.__OUTPUT_FILE_DATE_FORMAT}.json",
+                    )
+                except ValueError:
+                    continue
+
+                if file_date <= cutoff:
                     os.rename(
                         os.path.join(root, name),
-                        f"src/match_data_collector/archive/{name}",
+                        os.path.join(paths.MATCH_ARCHIVE_DIR, name),
                     )
 
     async def run_job(self):
@@ -161,11 +178,24 @@ class MatchDataCollector:
         self.__archive_historical_matches()
 
 
+def _start_date() -> datetime.datetime:
+    """The day to collect, defaulting to yesterday.
+
+    Hi-Rez only exposes match IDs for completed days, so "yesterday" is the
+    newest thing worth asking for and is what the daily schedule wants. An
+    explicit YYYY-MM-DD (argument or SMITELE_COLLECT_DATE) is for backfilling a
+    day the job missed.
+    """
+    override = (
+        sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SMITELE_COLLECT_DATE")
+    )
+    if override:
+        return datetime.datetime.strptime(override, "%Y-%m-%d")
+    return datetime.datetime.utcnow() - datetime.timedelta(days=1)
+
+
 if __name__ == "__main__":
     provider = SmiteProvider(silent=True)
     asyncio.run(provider.create())
-    collector = MatchDataCollector(
-        provider,
-        datetime.datetime.utcnow() - datetime.timedelta(days=1),
-    )
+    collector = MatchDataCollector(provider, _start_date())
     asyncio.run(collector.run_job())

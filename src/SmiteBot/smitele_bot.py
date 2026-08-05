@@ -4,10 +4,9 @@ This module implements a Discord bot which allows users to play a six round game
 channels. It requires some things in order to get this running: ffmpeg being installed on the
 host machine, access to the Hirez API, and a Discord token.
 
-Hirez API keys and Discord token are loaded via a config.json file, see the README for more
-details.
-
-TODO: Implement an environment variable method for loading secrets
+Hirez API keys and Discord token are loaded from the environment
+(SMITELE_DISCORD_TOKEN, SMITELE_HIREZ_DEV_ID, SMITELE_HIREZ_AUTH_KEY) or from a
+config.json file, see the README for more details.
 
 Typical usage example:
 
@@ -35,6 +34,8 @@ from discord.ext import commands
 from PIL import Image
 from unidecode import unidecode
 
+import credentials
+import paths
 from build_optimizer import BuildOptimizer
 from god import God
 from god_builder import (
@@ -302,12 +303,15 @@ class Smitele(commands.Cog):
 
     ABILITY_IMAGE_FILE: str = "ability.jpg"
     BUILD_IMAGE_FILE: str = "build.jpg"
-    CONFIG_FILE: str = "config.json"
+    CONFIG_FILE: str = paths.CONFIG_FILE
     GOD_IMAGE_FILE: str = "god.jpg"
     GOD_CROP_IMAGE_FILE: str = "godCrop.jpg"
     SKIN_IMAGE_FILE: str = "skin.jpg"
     SKIN_CROP_IMAGE_FILE: str = "crop.jpg"
     VOICE_LINE_FILE: str = "voice.ogg"
+    # The name above is what Discord shows on the attachment; this is where the
+    # file actually lands, which has to be somewhere writable.
+    VOICE_LINE_PATH: str = paths.data_file("voice.ogg")
 
     __bot: commands.Bot
 
@@ -343,19 +347,7 @@ class Smitele(commands.Cog):
         self.__dataframe_refresher_running = False
 
         if self.__config is None:
-            try:
-                with open(self.CONFIG_FILE, "r", encoding="utf-8") as file:
-                    self.__config = json.load(file)
-
-                    if not "discordToken" in self.__config:
-                        raise RuntimeError(
-                            f"{self.CONFIG_FILE} "
-                            'was missing value for "discordToken."'
-                        )
-            except (FileNotFoundError, JSONDecodeError) as exc:
-                raise RuntimeError(
-                    f"Failed to load {self.CONFIG_FILE}. Does this file exist?"
-                ) from exc
+            self.__config = credentials.load("discordToken")
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -1527,16 +1519,16 @@ class Smitele(commands.Cog):
                 # If the current player is in a voice channel,
                 # connect to it and play the voice line!
                 if context.player.voice is not None:
-                    with open(self.VOICE_LINE_FILE, "wb") as voice_file:
+                    with open(self.VOICE_LINE_PATH, "wb") as voice_file:
                         voice_file.write(await res.content.read())
                     voice_client = await context.player.voice.channel.connect()
 
                     async def disconnect():
                         await voice_client.disconnect()
-                        os.remove(self.VOICE_LINE_FILE)
+                        os.remove(self.VOICE_LINE_PATH)
 
                     voice_client.play(
-                        discord.FFmpegPCMAudio(source=self.VOICE_LINE_FILE),
+                        discord.FFmpegPCMAudio(source=self.VOICE_LINE_PATH),
                         after=lambda _: asyncio.run_coroutine_threadsafe(
                             coro=disconnect(), loop=voice_client.loop
                         ).result(),

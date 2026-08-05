@@ -4,6 +4,7 @@ from typing import Tuple
 
 import aiohttp
 
+import paths
 from god_types import GodId
 
 
@@ -36,9 +37,7 @@ class Skin(object):
         if not self.has_url:
             raise ValueError(f"{self.name} is missing a URL")
 
-        folder_path = "cache\\skins"
-        file_name = self.card_url.split("/")[-1]
-        relative_path = os.path.join(folder_path, file_name)
+        relative_path = paths.cache_file("skins", self.card_url.split("/")[-1])
 
         if os.path.isfile(relative_path):
             with open(relative_path, "rb") as f:

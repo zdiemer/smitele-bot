@@ -9,6 +9,8 @@ import pandas as pd
 import ujson as json
 from aiohttp import ClientConnectionError, ContentTypeError
 
+import credentials
+import paths
 from god import God
 from god_types import GodId
 from item import Item
@@ -16,10 +18,10 @@ from HirezAPI import Smite, QueueId
 
 
 class SmiteProvider(Smite):
-    CONFIG_FILE: str = "config.json"
-    GODS_FILE: str = "gods.json"
-    ITEMS_FILE: str = "items.json"
-    SMITE_PATCH_VERSION_FILE: str = "version"
+    CONFIG_FILE: str = paths.CONFIG_FILE
+    GODS_FILE: str = paths.data_file("gods.json")
+    ITEMS_FILE: str = paths.data_file("items.json")
+    SMITE_PATCH_VERSION_FILE: str = paths.data_file("version")
 
     gods: Dict[GodId, God]
     items: Dict[int, Item]
@@ -147,23 +149,7 @@ class SmiteProvider(Smite):
 
     def __init__(self, silent: bool = False):
         if self.__config is None:
-            try:
-                with open(self.CONFIG_FILE, "r", encoding="utf-8") as file:
-                    self.__config = json.load(file)
-
-                    if not "hirezDevId" in self.__config:
-                        raise RuntimeError(
-                            f"{self.CONFIG_FILE} " 'was missing value for "hirezDevId."'
-                        )
-                    if not "hirezAuthKey" in self.__config:
-                        raise RuntimeError(
-                            f"{self.CONFIG_FILE} "
-                            'was missing value for "hirezAuthKey."'
-                        )
-            except (FileNotFoundError, JSONDecodeError) as exc:
-                raise RuntimeError(
-                    f"Failed to load {self.CONFIG_FILE}. Does this file exist?"
-                ) from exc
+            self.__config = credentials.load("hirezDevId", "hirezAuthKey")
 
         self.__fetched_match_detail_file_names = set()
 
@@ -221,7 +207,7 @@ class SmiteProvider(Smite):
         return df
 
     def __refresh_dataframe(self):
-        for root, _, files in os.walk(".\\src\\match_data_collector\\output"):
+        for root, _, files in os.walk(paths.MATCH_DATA_DIR):
             for file in files:
                 self.__update_player_matches(
                     self.__match_details_file_to_dataframe(os.path.join(root, file))
@@ -489,7 +475,7 @@ class SmiteProvider(Smite):
     async def __fetch_new_match_data(self, fetch_date: datetime):
         new_match_details: pd.DataFrame = None
 
-        for root, _, files in os.walk(".\\src\\match_data_collector\\output"):
+        for root, _, files in os.walk(paths.MATCH_DATA_DIR):
             for file in files:
                 new_match_details = self.__match_details_file_to_dataframe(
                     os.path.join(root, file), new_match_details

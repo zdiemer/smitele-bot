@@ -14,6 +14,7 @@ from typing import Any
 
 import aiohttp
 
+import paths
 from god_types import GodId
 
 HIREZ_DATE_FORMAT = "%m/%d/%Y %I:%M:%S %p"
@@ -26,7 +27,7 @@ class _Base:
     for making API requests. It implements the non-game specific APIs.
     """
 
-    SESSION_FILE = "session"
+    SESSION_FILE = paths.data_file("session")
 
     MAX_RETRIES = 3
 

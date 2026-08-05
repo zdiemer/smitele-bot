@@ -17,6 +17,10 @@ python-dateutil = "~=2.8.2"
 pytz = "~=2023.3"
 tzdata = "~=2023.3"
 pandas = "~=2.1.0"
+# SmiteProvider does `import ujson as json` to parse the match-detail corpus,
+# but this was never declared — a clean `pipenv install --deploy` produced an
+# environment the bot could not start in.
+ujson = "~=5.8.0"
 
 [dev-packages]
 
