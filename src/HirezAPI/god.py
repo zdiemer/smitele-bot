@@ -134,10 +134,23 @@ class _basicAttackProperties:
 class GodStat:
     base: float
     per_level: float
+    curve: List[float]
 
-    def __init__(self, base: float, per_level: float = 0):
+    def __init__(self, base: float, per_level: float = 0, curve: List[float] = None):
         self.base = base
         self.per_level = per_level
+        # Smite 1 publishes a base and a per-level increment, which is exactly
+        # linear. Smite 2 publishes the value at each of the twenty levels, and
+        # those are not linear — Cu Chulainn's health runs 661 … 2319.84 at 19
+        # and then 2447 at 20, a step a (base, per_level) pair cannot express.
+        # When a curve is present it is the truth and the linear pair is only a
+        # fallback for callers that predate it.
+        self.curve = curve
+
+    def at_level(self, level: int) -> float:
+        if self.curve:
+            return self.curve[max(1, min(level, len(self.curve))) - 1]
+        return self.base + self.per_level * (level - 1)
 
 
 class GodStats:
@@ -187,6 +200,45 @@ class GodStats:
         return stats
 
 
+class Aspect:
+    """A Smite 2 god's Aspect — a way of playing them, chosen at god select.
+
+    An Aspect is toggled once during selection and fixed for the match; it
+    cannot be switched in game. It is neither cosmetic nor a set of extra
+    abilities of its own — it changes how the god's existing kit behaves, often
+    substantially enough that the god fills a different role. So an Anubis
+    played with one is not the same character as an Anubis without, and the
+    corpus carries the choice as its own column rather than folding it into the
+    build.
+
+    `changed_abilities` is the god's *own* abilities as the Aspect alters them,
+    keyed by slot — the wiki publishes both forms. An empty mapping means the
+    Aspect's effect is described in prose rather than as changed ability
+    numbers, which is common.
+
+    tracker.gg calls these `talent` in its equipment list. They are the same
+    thing: every one comes back named "Aspect of …", at most one per player,
+    which is what being a selection-time toggle implies.
+    """
+
+    name: str
+    description: str
+    icon_url: str
+    changed_abilities: dict
+
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        icon_url: str = None,
+        changed_abilities: dict = None,
+    ):
+        self.name = name
+        self.description = description
+        self.icon_url = icon_url
+        self.changed_abilities = changed_abilities or {}
+
+
 class God(object):
     abilities: List[Ability]
     stats: GodStats
@@ -204,6 +256,25 @@ class God(object):
     card_url: str
     icon_url: str
     id: GodId
+
+    # Smite 2 has no classes — no Mage, Guardian, Hunter — so `role` is None
+    # there and these carry what it does have. `positions` is where the god is
+    # played (which in this codebase is PlayerRole, not GodRole) and `specs` is
+    # the Nuker/Lockdown/Sustain vocabulary that replaced GodPro.
+    #
+    # Kept off GodRole deliberately: Item.from_json parses RestrictedRoles into
+    # GodRole and build_optimizer switches on it, so widening that enum to hold
+    # positions would quietly change which items a Smite 1 god may build.
+    positions: List = []
+    specs: List[str] = []
+
+    # Smite 2's resource is a characterTag rather than a hardcoded exception
+    # list. "mana" for almost everyone; rage, spirit, omi and health for the
+    # handful that differ.
+    resource: str = "mana"
+
+    # Smite 2 only, and None for the seventeen gods that have not been given one.
+    aspect: "Aspect" = None
 
     def __init__(self):
         pass
@@ -243,12 +314,28 @@ class God(object):
         # Keyed on card_url, so fetch card_url — this fetched icon_url, which
         # cached the icon under the card's name and served it as the card art.
         return await art_cache.fetch(
-            self.card_url, "gods", "cards", self.card_url.split("/")[-1]
+            self.card_url, "gods", "cards", art_cache.cache_key(self.card_url)
         )
 
     async def get_icon_bytes(self) -> io.BytesIO:
         return await art_cache.fetch(
-            self.icon_url, "gods", "icons", self.icon_url.split("/")[-1]
+            self.icon_url, "gods", "icons", art_cache.cache_key(self.icon_url)
+        )
+
+    @property
+    def is_manaless(self) -> bool:
+        """Whether this god's mana pool is really something else.
+
+        Smite 1 has exactly two and they are named here because the API gives
+        no other signal. Smite 2 publishes the resource as a tag, so its gods
+        answer from data — the hardcoded pair must not catch them, since the
+        two games' ids are disjoint but the *names* overlap.
+        """
+        if self.resource != "mana":
+            return True
+        return isinstance(self.id, GodId) and self.id in (
+            GodId.CU_CHULAINN,
+            GodId.YEMOJA,
         )
 
     def get_stat_at_level(self, stat: ItemAttribute, level: int) -> float:
@@ -271,28 +358,32 @@ class God(object):
                     return total_basic + (0.005 * level * total_basic)
                 return total_basic
             if stat == ItemAttribute.MOVEMENT_SPEED:
+                # Smite 2 publishes movement speed per level directly; Smite 1
+                # gives a base that grows 3% a level and stops at 8.
+                if self.stats.values[stat].curve:
+                    return self.stats.values[stat].at_level(level)
                 level = 8 if level > 8 else level
                 speed = self.stats.values[stat].base
                 return speed + (speed * 0.03 * (level - 1))
-            if self.id in (GodId.CU_CHULAINN, GodId.YEMOJA):
+            if self.is_manaless:
                 if stat == ItemAttribute.MANA:
                     return 0
                 if stat == ItemAttribute.MP5:
                     return 0
-                # These two have no mana bar, so the API's mana pool is really
-                # extra health and its MP5 extra HP5.
+                # No mana bar, so the mana pool is really extra health and the
+                # MP5 extra HP5.
                 if stat in (ItemAttribute.HEALTH, ItemAttribute.HP5):
-                    god_stat = self.stats.values[stat]
-                    pooled = self.stats.values[
+                    pooled_stat = (
                         ItemAttribute.MANA
                         if stat == ItemAttribute.HEALTH
                         else ItemAttribute.MP5
-                    ]
-                    return (god_stat.base + god_stat.per_level * (level - 1)) + (
-                        pooled.base + pooled.per_level * (level - 1)
                     )
+                    if pooled_stat not in self.stats.values:
+                        return self.stats.values[stat].at_level(level)
+                    return self.stats.values[stat].at_level(level) + self.stats.values[
+                        pooled_stat
+                    ].at_level(level)
 
-            god_stat = self.stats.values[stat]
-            return god_stat.base + god_stat.per_level * (level - 1)
+            return self.stats.values[stat].at_level(level)
         except KeyError:
             return 0

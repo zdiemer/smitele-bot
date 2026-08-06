@@ -38,7 +38,7 @@ class Skin(object):
             raise ValueError(f"{self.name} is missing a URL")
 
         return await art_cache.fetch(
-            self.card_url, "skins", self.card_url.split("/")[-1]
+            self.card_url, "skins", art_cache.cache_key(self.card_url)
         )
 
     @property

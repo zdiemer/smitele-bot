@@ -40,6 +40,25 @@ class ItemAttribute(Enum):
     PROTECTIONS = "protections"
     LIFESTEAL = "lifesteal"
 
+    # Smite 2. It replaced Physical/Magical Power with Strength and
+    # Intelligence, which every god has some of, and added the rest below.
+    # The 26 members of the wiki's Category:Stat templates map onto these.
+    STRENGTH = "strength"
+    INTELLIGENCE = "intelligence"
+    COOLDOWN_RATE = "cooldown rate"
+    BASIC_ATTACK_POWER = "basic attack power"
+    TENACITY = "tenacity"
+    CRITICAL_CHANCE = "critical chance"
+    HEALTH_REGEN = "health regen"
+    MANA_REGEN = "mana regen"
+    DAMPENING = "dampening"
+    ECHO = "echo"
+    PLATED = "plated"
+    CONSTRUCTION = "construction"
+    HEAL_REDUCTION = "heal reduction"
+    PATHFINDING = "pathfinding"
+    STAMINA = "stamina"
+
     @staticmethod
     def from_string(value: str):
         value = value.lower().strip()
@@ -179,7 +198,7 @@ class Item:
 
     async def get_icon_bytes(self) -> io.BytesIO:
         return await art_cache.fetch(
-            self.icon_url, "items", self.icon_url.split("/")[-1]
+            self.icon_url, "items", art_cache.cache_key(self.icon_url)
         )
 
 

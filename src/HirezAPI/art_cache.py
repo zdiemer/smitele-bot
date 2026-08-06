@@ -32,6 +32,18 @@ def looks_like_image(data: bytes) -> bool:
     return any(data.startswith(prefix) for prefix in _MAGIC)
 
 
+def cache_key(url: str) -> str:
+    """The stable filename to cache a URL's content under.
+
+    Callers used `url.split("/")[-1]`, which is fine for Hi-Rez's CDN and wrong
+    for the Smite 2 wiki's: it serves `…/T3_Book_of_Thoth.png?8326f`, where the
+    query changes whenever the file is rehashed. Keying on that would re-download
+    and re-store every asset each time the wiki touched it, growing the cache
+    without bound while never hitting it.
+    """
+    return url.split("?")[0].split("/")[-1]
+
+
 def candidate_urls(url: str) -> List[str]:
     """The URL, plus rewrites for the ways Hi-Rez misreports its own art paths.
 

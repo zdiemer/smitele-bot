@@ -249,6 +249,13 @@ def strip_markup(value: str) -> str:
     return value.strip()
 
 
+# The rank separator, in both spellings. `{{!}}` is how it is written in the
+# source; a bare pipe is what it becomes once markup is stripped. Splitting on
+# only the former quietly truncated every rank array to its first entry —
+# a cooldown of 10 where the ability really runs 10/9.5/9/8.5/8.
+_RANK_SEPARATOR = re.compile(r"\{\{!\}\}|\|")
+
+
 def rank_values(value: str) -> List[float]:
     """The per-rank numbers in `60 {{!}} 85 {{!}} 110 {{!}} 135 {{!}} 160`.
 
@@ -258,7 +265,7 @@ def rank_values(value: str) -> List[float]:
     with a zero standing in for "no cost" would read as a real value of zero.
     """
     out: List[float] = []
-    for piece in value.split("{{!}}"):
+    for piece in _RANK_SEPARATOR.split(value):
         match = _LEADING_NUMBER.search(strip_markup(piece))
         if match is not None:
             out.append(float(match.group(0)))
@@ -284,8 +291,10 @@ def parse_stat_line(line: str) -> Optional[Tuple[str, List[float], str]]:
     if not label or not values:
         return None
 
-    # Whatever trails the final number: "seconds", "%", "meters".
-    tail = strip_markup(remainder.split("{{!}}")[-1])
+    # Whatever trails the final number: "seconds", "%", "meters". Split with
+    # the same separator the values used, or the unit picks up the rest of the
+    # rank array instead.
+    tail = strip_markup(_RANK_SEPARATOR.split(remainder)[-1])
     match = _LEADING_NUMBER.search(tail)
     unit = tail[match.end() :].strip() if match is not None else ""
 
