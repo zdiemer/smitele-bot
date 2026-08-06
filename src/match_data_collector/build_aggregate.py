@@ -283,6 +283,68 @@ def consolidate(
     )
 
 
+def count_build_plays(
+    corpus: List[str], items: Dict[int, object], min_plays: int, every: int
+) -> set:
+    """First pass: which builds are played often enough to be worth keeping.
+
+    The full grouping is keyed on god, queue, role, MMR *and* build, which on
+    this corpus projects to ~45M groups — far more memory than the job has, and
+    min-plays cannot be applied early because it needs complete counts.
+
+    Counting by build alone first sidesteps that. It covers the same builds but
+    with two columns instead of fifteen, so it fits comfortably, and it yields
+    the set of builds that could possibly survive the filter. The second pass
+    carries only those, which is where the size comes off: builds seen once or
+    twice are the overwhelming majority of the groups and none of the signal.
+    """
+    print(f"Pass 1/2: counting plays per build across {len(corpus)} file(s)", flush=True)
+    columns = ["GodId"] + build_features.ITEM_COLUMNS + build_features.RELIC_COLUMNS
+    parts: List[pd.DataFrame] = []
+    total = pd.DataFrame()
+    start = time.time()
+
+    def fold(parts, total):
+        merged = (
+            pd.concat(parts + [total], ignore_index=True)
+            .groupby("BuildHash", observed=True)["plays"]
+            .sum()
+            .reset_index()
+        )
+        merged["plays"] = merged["plays"].astype("int32")
+        return merged
+
+    for index, path in enumerate(corpus, start=1):
+        frame = match_storage.read_frame_columns(path, columns)
+        frame = frame[frame["GodId"] != 0].copy()
+        if not frame.shape[0]:
+            continue
+        build_features.annotate(frame, items)
+        builds = frame.loc[frame["IsFullBuild"], ["BuildHash"]]
+        if builds.shape[0]:
+            counts = builds.groupby("BuildHash", observed=True).size()
+            parts.append(counts.rename("plays").reset_index())
+        del frame, builds
+
+        if index % every == 0:
+            total = fold(parts, total)
+            parts = []
+            print(
+                f"  {index}/{len(corpus)} files, {total.shape[0]:,} distinct builds, "
+                f"{time.time() - start:.0f}s",
+                flush=True,
+            )
+
+    total = fold(parts, total)
+    keep = set(total.loc[total["plays"] >= min_plays, "BuildHash"])
+    print(
+        f"Pass 1 done: {total.shape[0]:,} distinct builds, {len(keep):,} with "
+        f">= {min_plays} plays ({time.time() - start:.0f}s)",
+        flush=True,
+    )
+    return keep
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=None)
@@ -320,9 +382,13 @@ def main() -> int:
     dates = {path: corpus_date(path) for path in corpus}
     newest = max((d for d in dates.values() if d), default=None)
     print(
-        f"Aggregating {len(corpus)} corpus file(s); newest day {newest}, "
+        f"{len(corpus)} corpus file(s); newest day {newest}, "
         f"half-life {args.half_life_days}d",
         flush=True,
+    )
+
+    keep_builds = count_build_plays(
+        corpus, provider.items, args.min_plays, args.consolidate_every
     )
 
     build_parts: List[pd.DataFrame] = []
@@ -341,6 +407,9 @@ def main() -> int:
             continue
 
         rows_seen += frame.shape[0]
+        # Builds that cannot survive min-plays are dropped before grouping;
+        # carrying them is what made the full key too large to hold.
+        frame.loc[~frame["BuildHash"].isin(keep_builds), "IsFullBuild"] = False
         build_counts, items, relic_counts, god_counts = reduce_file(
             frame, recency_weight(dates.get(path), newest, args.half_life_days)
         )
@@ -382,18 +451,9 @@ def main() -> int:
         subset=["BuildHash"]
     )
 
-    if args.min_plays > 1:
-        before = builds.shape[0]
-        # A build seen once carries no information — the ranking's confidence
-        # interval already puts it near zero — and they are the bulk of the
-        # rows, so dropping them is most of what keeps this small.
-        builds = builds[builds["plays"] >= args.min_plays]
-        print(
-            f"Dropped {before - builds.shape[0]:,} build groups below "
-            f"{args.min_plays} plays ({builds.shape[0]:,} kept)",
-            flush=True,
-        )
-        items = items[items["BuildHash"].isin(set(builds["BuildHash"]))]
+    # No min-plays filter here: pass 1 already excluded everything below the
+    # threshold, before it could cost anything.
+    items = items[items["BuildHash"].isin(set(builds["BuildHash"]))]
 
     os.makedirs(args.out, exist_ok=True)
     written = []
