@@ -132,3 +132,95 @@ a thin subclass that only sets `BASE_URL` and the route wrappers. A `Smite2`
 subclass alongside it would reuse all of the auth machinery. What would *not*
 carry over is anything keyed to Smite 1 content — `GodId`, `QueueId`, item
 data, and the scraped Smite wiki URLs are all game-specific.
+
+#### tracker.gg as a third-party source
+
+Since Hi-Rez has not opened up, the only other place carrying per-match Smite 2
+builds is tracker.gg. Its internal API was probed on 2026-08-06; what follows is
+what that found. **Nothing here is implemented** — this is a feasibility record
+so the question does not have to be re-answered from scratch.
+
+The site slug is `smite2` (`smite-2` 404s) and the API host is `api.tracker.gg`.
+Both the site and the API refuse plain HTTP clients — the site serves a
+Cloudflare challenge, the API its own WAF block — so the probe drove a real
+browser (Camoufox) to get past them. Confirmed endpoints:
+
+| Endpoint | Notes |
+|---|---|
+| `/api/v2/smite2/standard/matches/{platform}/{handle}` | 25 matches, ~2.9 MB, pages with `?next=N` |
+| `/api/v2/smite2/standard/matches/{matchId}` | adds nothing the list above lacks |
+| `/api/v2/smite2/standard/profile/{platform}/{handle}` | ~1.3 MB |
+| `/api/v2/smite2/standard/profile/{platform}/{handle}/segments/{god,gamemode,role}` | 87 god segments for an active player |
+| `/api/v1/smite2/standard/leaderboards?type=stats&board=…` | 50 players/page; boards are `Kills`, `Wins`, `Assists`, `Damage`, `GoldEarned`, `XpEarned`, `TimePlayed` |
+
+Platforms are `steam` (steamid64), `epic`, `psn` and `xbl` (handles).
+`segments/overview`, `segments/item`, `sessions` and every `/api/v1/…/profile/…`
+route return "not implemented". The ranked `SkillRating` board 500s on every
+parameter set tried; it appears to be reachable server-side only.
+
+The match-list endpoint is the one worth having. Each response carries all ten
+players of all 25 matches, and every player row includes the god, assigned and
+played role, a `buildId`, ~55 stats, and a full ordered item list — 250
+player-builds per request. Per-match detail is therefore redundant.
+
+Two things make it awkward to feed the existing corpus. **Item identity is a
+slug**, not an integer: `build_features.annotate` wants `Dict[int, Item]` and
+keys `IsFullBuild` off `item.tier >= 3`, and tracker.gg publishes no tier — an
+`equipmentType` of `starter`/`relic`/`item-passive`/`item-active`/`talent` is
+all there is, so `is_starter` survives the move and `tier` does not. And
+**`ActiveId1`/`ActiveId2` have no analogue**: Smite 2 gives one relic and one
+starter where Smite 1 gives two relics, so `RELIC_COLUMNS`, `EMPTY_RELIC_IDS`
+and `IsFullRelics` are all Smite 1 shapes. Talents ("aspects") are new and have
+no Smite 1 concept at all.
+
+The six-item model does survive. The `items` array is variable length (3-9 over
+250 sampled rows) but positionally structured: 1 is the starter, 2 the relic,
+3-8 the six core item slots, with talents appended after. `ItemId1..6` maps onto
+positions 3-8, and `hash_builds` is order-independent and slot-count-agnostic,
+so it works unchanged on a six-wide matrix.
+
+Three details that will silently corrupt a build if missed:
+
+- `position` is **not contiguous** — `[1, 2, 4, 5, 6, 7]` is ordinary and means
+  an unfilled slot. Zipping the array to slots by index shifts every item down.
+- Array length varies per row. There is no fixed width to rely on.
+- Their data has dirt in it. At least one god comes back as the unnormalized
+  `Gods.CuChulainn`, and some items arrive as `equipmentType: "unknown"` with a
+  hex id and a name like `Unk Item 2D71`.
+
+#### What it would cost to collect
+
+The collection model inverts. `match_data_collector` enumerates *every* match by
+queue and ten-minute window, which is why the corpus is an unbiased daily
+sample. tracker.gg exposes matches only per player, so a collector has to seed
+from the leaderboards and snowball through the nine other players in each match.
+
+Discovery is free: one request surfaces 151 distinct players, so the frontier
+reaches any plausible player base in three hops. Collection is the cost, and it
+scales with how much coverage is wanted. At the 1.5 s pacing the probe used
+without drawing errors, and 2.9 MB per response:
+
+| Player base | Census (every player's own history) | Observe every player as an opponent |
+|---|---|---|
+| 1,000 | 1,000 reqs · 25 min · 2.9 GB | 46 reqs · 1 min · 0.1 GB |
+| 10,000 | 10,000 reqs · 4.2 hr · 29 GB | 610 reqs · 15 min · 1.8 GB |
+| 100,000 | 100,000 reqs · 1.7 days · 290 GB | 7,600 reqs · 3.2 hr · 22 GB |
+| 1,000,000 | 1,000,000 reqs · 17 days · 2.9 TB | 91,500 reqs · 1.6 days · 265 GB |
+
+Bandwidth binds long before time does: a census of any serious player base moves
+hundreds of gigabytes to extract a corpus the Smite 1 collector produces in ~6 MB
+a day. The right-hand column is the honest target — it treats each request as 250
+build samples rather than one player's history — but its coupon-collector maths
+assumes players mix uniformly, and matchmaking clusters by skill and region, so
+the tail to full coverage will be materially worse than shown.
+
+Whatever gets built, the sample is drawn from players tracker.gg happens to know
+about, seeded from leaderboards. That is a skill-biased population, and the
+build aggregate currently assumes it is looking at an unbiased one.
+
+Two practical notes for anyone picking this up. The `cf_clearance` cookie a
+browser mints is **portable** — replaying it from `urllib`, with a completely
+different TLS fingerprint, still returned 200 — so a collector needs a browser
+only to mint clearance, not per request. And this is an undocumented endpoint
+behind a WAF with no published rate limit or terms allowance for bulk pulls:
+cache aggressively, pace deliberately, and expect it to break without notice.
