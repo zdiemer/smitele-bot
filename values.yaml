@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.7.8"
+  tag: "1.7.9"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -246,6 +246,14 @@ smite2:
     requestIntervalSeconds: 1.5
     # A hard stop, so a slow night cannot overrun into the day.
     wallClockHours: 3
+    # Pages of history per player, 25 matches each — about three days. One is
+    # right for a nightly run, which only has to cover the time since the last
+    # one; anything more re-reads what yesterday already has. Raise it, with
+    # sinceDays, for a one-off backfill of days that predate the collector.
+    pages: 1
+    # With pages > 1, how far back to walk before giving up on a player, so an
+    # account that stopped playing is not paged to the beginning of time.
+    sinceDays: 0
     # Stop early once the recent days look this covered, measured by
     # capture-recapture rather than assumed. 0 disables it and spends the whole
     # budget. Treat the estimate as an upper bound — premades bias it high.

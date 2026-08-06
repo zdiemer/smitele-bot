@@ -99,7 +99,16 @@ async def crawl(args) -> int:
     corpus_dir = paths.game_match_data_dir(Game.SMITE_2)
     state_dir = paths.game_model_dir(Game.SMITE_2)
 
-    print(f"Smite 2 crawl · budget {args.budget:,} requests · {args.hours}h cap")
+    depth = (
+        f" · up to {args.pages} pages/player"
+        + (f" back to {args.horizon}" if args.horizon else "")
+        if args.pages > 1
+        else ""
+    )
+    print(
+        f"Smite 2 crawl · budget {args.budget:,} requests · "
+        f"{args.hours}h cap{depth}"
+    )
     print(f"  corpus  {corpus_dir}")
     print(f"  state   {state_dir}")
     if args.dry_run:
@@ -139,7 +148,10 @@ async def crawl(args) -> int:
             added = await seed(client, frontier, today, args.quiet)
             print(f"  seeded {added:,} new players from the leaderboards")
 
-            pending = frontier.select(args.budget, today)
+            # Budget is in requests; a player now costs up to --pages of
+            # them, so the roster is that much shorter. It refills as the
+            # snowball discovers people, so an underestimate costs nothing.
+            pending = frontier.select(args.budget // args.pages, today)
             print(f"  {len(pending):,} players to start with\n")
 
             visited: Set[str] = set()
@@ -202,7 +214,9 @@ async def crawl(args) -> int:
                     if remaining > 0:
                         pending = [
                             p
-                            for p in frontier.select(remaining, today)
+                            for p in frontier.select(
+                                max(1, remaining // args.pages), today
+                            )
                             if p.key not in visited
                         ]
                         if pending:
@@ -245,7 +259,12 @@ async def crawl(args) -> int:
 
 
 async def _visit(client, player, god_ids, seen, tracker, buffer, args):
-    """Read one player's most recent page and absorb what is new.
+    """Read a player's history and absorb what is new.
+
+    One page by default — 25 matches, roughly the last three days — which is all
+    a nightly run needs, since it ran yesterday too. `--pages` walks further
+    back for a backfill, and is the only way to reach a day that happened before
+    the collector existed.
 
     Returns matches seen, matches new, (unnameable items, item slots), the
     parties observed — which is how premade suppression learns who queues
@@ -254,32 +273,52 @@ async def _visit(client, player, god_ids, seen, tracker, buffer, args):
     found = fresh = unknown = slots = 0
     parties: Dict[str, Set[str]] = {}
     discovered: Set[Tuple[str, str]] = set()
+    horizon = args.horizon
 
     try:
-        async for match in client.iter_matches(player.platform, player.handle, 0):
-            found += 1
-            match_id = (match.get("attributes") or {}).get("id")
-            date = rows_module.match_date(match)
-            if not match_id or not date:
-                continue
+        for page in range(args.pages):
+            on_page = 0
+            oldest = None
 
-            tracker.observe(date, str(match_id), player.key)
-            for party, members in frontier_module.parties_in(match).items():
-                parties.setdefault(party, set()).update(members)
-            # Collected from every match, not only new ones: a match we already
-            # have can still name a player we have never queried.
-            discovered.update(frontier_module.players_in(match))
+            async for match in client.iter_matches(
+                player.platform, player.handle, page
+            ):
+                on_page += 1
+                found += 1
+                match_id = (match.get("attributes") or {}).get("id")
+                date = rows_module.match_date(match)
+                if not match_id or not date:
+                    continue
+                oldest = min(oldest or date, date)
 
-            if str(match_id) in seen:
-                continue
+                tracker.observe(date, str(match_id), player.key)
+                for party, members in frontier_module.parties_in(match).items():
+                    parties.setdefault(party, set()).update(members)
+                # Collected from every match, not only new ones: a match we
+                # already have can still name a player we have never queried.
+                discovered.update(frontier_module.players_in(match))
 
-            fresh += 1
-            seen.add(str(match_id), date)
-            for record in rows_module.player_rows(match, god_ids):
-                unknown += record.pop("UnknownItems", 0)
-                slots += record.pop("ItemSlots", 0)
-                if not args.dry_run:
-                    buffer.add(date, record)
+                if str(match_id) in seen:
+                    continue
+
+                fresh += 1
+                seen.add(str(match_id), date)
+                for record in rows_module.player_rows(match, god_ids):
+                    unknown += record.pop("UnknownItems", 0)
+                    slots += record.pop("ItemSlots", 0)
+                    if not args.dry_run:
+                        buffer.add(date, record)
+
+            # A page past the end of a history returns nothing rather than
+            # erroring, which is what makes walking backwards terminable at all.
+            if on_page == 0:
+                break
+            # Already older than the window being backfilled; deeper pages are
+            # only older still.
+            if horizon and oldest and oldest < horizon:
+                break
+            if client.requests >= args.budget:
+                break
     except (TrackerBlocked, ClearanceUnavailable):
         raise
     except Exception as error:  # noqa: BLE001
@@ -354,6 +393,21 @@ def main() -> int:
         default=0.0,
         help="stop once recent days are estimated this covered, e.g. 0.8",
     )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=1,
+        help="pages of history per player; 25 matches each, about three days. "
+        "One is right for a nightly run, which only has to cover since the last "
+        "one. Raise it to backfill days that predate the collector.",
+    )
+    parser.add_argument(
+        "--since-days",
+        type=int,
+        default=0,
+        help="with --pages, stop walking back once a player's history reaches "
+        "this far, so an inactive account is not paged to the beginning of time",
+    )
     parser.add_argument("--flush-every", type=int, default=50_000)
     parser.add_argument(
         "--dry-run",
@@ -368,6 +422,16 @@ def main() -> int:
         "caused it has since been fixed",
     )
     args = parser.parse_args()
+
+    args.pages = max(1, args.pages)
+    args.horizon = (
+        (
+            datetime.datetime.now(datetime.timezone.utc)
+            - datetime.timedelta(days=args.since_days)
+        ).strftime("%Y-%m-%d")
+        if args.since_days
+        else None
+    )
 
     if args.dry_run and args.budget > 200:
         # A dry run is for checking the shape of the output, not for pulling a

@@ -65,6 +65,14 @@ spec:
                 - {{ .Values.smite2.collector.wallClockHours | quote }}
                 - --interval
                 - {{ .Values.smite2.collector.requestIntervalSeconds | quote }}
+                {{- with .Values.smite2.collector.pages }}
+                - --pages
+                - {{ . | quote }}
+                {{- end }}
+                {{- with .Values.smite2.collector.sinceDays }}
+                - --since-days
+                - {{ . | quote }}
+                {{- end }}
                 {{- with .Values.smite2.collector.coverageTarget }}
                 - --coverage-target
                 - {{ . | quote }}
