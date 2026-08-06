@@ -195,6 +195,82 @@ corpusConvert:
     limits:
       memory: 3Gi
 
+# --- Smite 2 -----------------------------------------------------------------
+#
+# Static data (gods, items, abilities, art) comes from wiki.smite2.com and needs
+# no configuration: it is a public MediaWiki API, about twenty requests, cached
+# on disk and invalidated by a hash of the pages' revision ids. The bot picks it
+# up automatically, and falls back to a Smite-1-only bot if the wiki is
+# unreachable.
+#
+# Everything below is about match data, which comes from tracker.gg instead.
+smite2:
+  collector:
+    # Off by default, and this is not an oversight. tracker.gg's API is
+    # undocumented, sits behind a WAF, publishes no rate limit, and grants no
+    # allowance for bulk reads. A `helm upgrade` must never start crawling it
+    # by accident — turning this on is a decision someone makes deliberately.
+    enabled: false
+    image:
+      repository: ghcr.io/zdiemer/smitele-bot-s2collector
+      # Defaults to image.tag, so the crawl and the bot always agree about the
+      # corpus format.
+      tag: ""
+    # 02:40 UTC. Nothing depends on the hour — there is no "yesterday" to wait
+    # for, because matches are reachable per player rather than per day — so
+    # this is simply a quiet time.
+    schedule: "40 2 * * *"
+    timeZone: "Etc/UTC"
+    # Requests per night. At the interval below this is a little over an hour
+    # and roughly 12GB transferred, which measured out at about a quarter of
+    # each of the two most recent days. Raising it buys coverage roughly
+    # linearly until the frontier saturates.
+    requestBudget: 1500
+    # Seconds between requests. This is the figure the original probe sustained
+    # without drawing a single error, and it has no measured headroom: finding
+    # the real limit means being blocked by it. Raising this number is safe;
+    # lowering it is the one change here that could get the address banned.
+    requestIntervalSeconds: 1.5
+    # A hard stop, so a slow night cannot overrun into the day.
+    wallClockHours: 3
+    # Stop early once the recent days look this covered, measured by
+    # capture-recapture rather than assumed. 0 disables it and spends the whole
+    # budget. Treat the estimate as an upper bound — premades bias it high.
+    coverageTarget: 0
+    startingDeadlineSeconds: 3600
+    successfulJobsHistoryLimit: 2
+    failedJobsHistoryLimit: 3
+    # Enough for a browser plus a streaming JSON parse. The crawl itself is
+    # bounded by the row buffer, not by response size — responses are never
+    # held whole.
+    activeDeadlineSeconds: 18000
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+
+  aggregate:
+    enabled: false
+    # After the crawl. Note a day's numbers keep moving for a few days after
+    # it, because the crawl backfills roughly three calendar days at a time
+    # rather than closing one.
+    schedule: "50 6 * * *"
+    timeZone: "Etc/UTC"
+    # Lower than Smite 1's, because the corpus is far smaller: a build seen
+    # three times in a thin corpus is a real pattern, where in 250 days of
+    # Smite 1 data it is noise.
+    minPlays: 2
+    days: null
+    activeDeadlineSeconds: 3600
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        memory: 4Gi
+
 # The convention here is a *public* GHCR package: the cluster is multi-node and
 # anonymous pulls mean no per-namespace credential to keep alive. Until the
 # package visibility is flipped, a PAT with read:packages in values.local.yaml

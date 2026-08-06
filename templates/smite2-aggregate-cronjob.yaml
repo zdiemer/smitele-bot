@@ -1,0 +1,106 @@
+{{- if .Values.smite2.aggregate.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "smite2.aggregate.enabled requires matchData.enabled — there is no corpus to aggregate" }}
+{{- end }}
+{{/*
+Rolls the Smite 2 corpus into per-build win counts for /build to look up.
+
+Identical arithmetic to the Smite 1 aggregate — the only differences are the
+corpus it reads, the directory it writes, and the build shape, all of which the
+--game flag selects. Smite 2 has one relic where Smite 1 has two, and keeps its
+starter in a column of its own rather than a core slot.
+
+Runs after the nightly crawl so the days it just wrote are included. Note the
+crawl backfills roughly three calendar days at a time rather than closing one,
+so a day's numbers keep moving for a while after it ends.
+
+Manual run:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-s2aggregate smitele-s2aggregate-manual
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-s2aggregate
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.smite2.aggregate.schedule | quote }}
+  {{- with .Values.smite2.aggregate.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.smite2.aggregate.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: s2aggregate
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: s2aggregate
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "./src/match_data_collector/build_aggregate.py"]
+              args:
+                - --game
+                - smite2
+                - --min-plays
+                - {{ .Values.smite2.aggregate.minPlays | quote }}
+                {{- with .Values.smite2.aggregate.days }}
+                - --days
+                - {{ . | quote }}
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                # Aggregate only converted days. Reading a raw JSON day whole
+                # needs many times its size in memory and gets the job
+                # OOMKilled; conversion is a prerequisite, not something this
+                # job should attempt inline.
+                - name: SMITELE_CORPUS_PARQUET_ONLY
+                  value: "1"
+                - name: HOME
+                  value: /tmp
+                - name: SMITELE_S2_MATCH_DATA_DIR
+                  value: /matchdata/smite2/output
+                - name: SMITELE_S2_MATCH_ARCHIVE_DIR
+                  value: /matchdata/smite2/archive
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                # The job builds a SmiteProvider to read the item catalogue,
+                # and that writes its Hi-Rez session token to the data
+                # directory — which is otherwise on the read-only root.
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.smite2.aggregate.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+{{- end }}

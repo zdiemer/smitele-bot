@@ -1,0 +1,51 @@
+# The Smite 2 crawl image: the bot image plus a browser.
+#
+# tracker.gg and its API both sit behind Cloudflare, and neither will talk to a
+# plain HTTP client. A real browser has to solve the challenge once; the cookie
+# it earns is then replayed by curl_cffi for the rest of the night, so the
+# browser runs for about ten seconds of a multi-hour job and never sees a
+# multi-megabyte payload.
+#
+# Separate from the bot image because Camoufox drags in a patched Firefox and
+# the X and GTK libraries around it — several hundred megabytes that a bot pod
+# held under a 2Gi limit has no use for.
+#
+# Built by build.sh alongside the main image and tagged in lockstep with it.
+ARG BASE_IMAGE=ghcr.io/zdiemer/smitele-bot
+ARG BASE_TAG=latest
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+USER root
+
+# Firefox's runtime dependencies. Camoufox ships the browser itself but not the
+# system libraries it links against, and the failure without them is an opaque
+# "browser closed unexpectedly" rather than a missing-library error.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libgtk-3-0 \
+      libx11-xcb1 \
+      libxcb-shm0 \
+      libxcomposite1 \
+      libxcursor1 \
+      libxdamage1 \
+      libxfixes3 \
+      libxi6 \
+      libxrandr2 \
+      libxtst6 \
+      libasound2 \
+      libdbus-glib-1-2 \
+      libpci3 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir "camoufox[geoip]"
+
+# Fetch the browser at build time, not at run time. The CronJob runs with
+# readOnlyRootFilesystem, so a first-run download would have nowhere to land —
+# and a nightly job should not be pulling 200MB before it starts.
+ENV HOME=/home/smitele
+RUN python -m camoufox fetch \
+ && chmod -R a+rX /home/smitele
+
+USER smitele
+
+ENTRYPOINT ["python", "./src/smite2_collector/collect.py"]

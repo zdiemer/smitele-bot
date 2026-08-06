@@ -11,8 +11,38 @@ tracks `values.yaml` `image.tag`.
 
 | Piece | Kind | What it does |
 |---|---|---|
-| bot | Deployment (1 replica) | The Discord bot. Slash commands for the guessing game, god/item builds, trivia, and player stats. |
+| bot | Deployment (1 replica) | The Discord bot. Slash commands for the guessing game, god/item builds, trivia, and player stats — for both Smite 1 and Smite 2. |
 | collector | CronJob (daily) | Walks a day of Hi-Rez match IDs across 12 queues, fetches details in batches of 10, and writes `match_details_<date>.json` to the NAS. Files older than 30 days move to `archive/`. |
+| s2collector | CronJob (nightly, **off by default**) | Crawls tracker.gg for Smite 2 matches. Snowballs from the leaderboards rather than enumerating a day, because that source has no time enumeration. Writes into `smite2/output/`. |
+| s2aggregate | CronJob (nightly, **off by default**) | The same aggregate as Smite 1's, over the Smite 2 corpus. |
+
+### Which game a command answers for
+
+Every command that can differ takes a `game:` option. `/set_game` stores a
+per-server default so nobody has to pass it, and `DEFAULT_GAME` in
+`src/HirezAPI/game.py` is the one place the global fallback is decided — Smite 1
+for now.
+
+A game with no provider is not offered at all: the choice list is derived from
+what actually registered, so if wiki.smite2.com is unreachable the bot comes up
+Smite-1-only rather than broken.
+
+| Command | Smite 1 | Smite 2 |
+|---|---|---|
+| `/smitele`, `/trivia`, `$god`, `$item` | ✅ | ✅ from the wiki |
+| `/build`, `/edge` | ✅ | ✅ once the crawl and aggregate have run |
+| `/random_build` | ✅ | ⚠️ reduced — see below |
+| `/queue_stats`, `/rank`, `/worshippers`, `/match_history`, `/first_match` | ✅ Hi-Rez | ✅ tracker.gg, per player |
+| `/live_match` | ✅ | ❌ tracker.gg does not expose the lobby |
+
+Two Smite 2 gaps are deliberate. `/random_build` does not use the build
+optimizer and `$god -b` does not show derived combat numbers, because
+`stat_calculator` and `build_optimizer` encode Smite 1's stat model — Physical
+and Magical Power, its protection and mitigation formulas, a 130-entry archetype
+table keyed on `GodId`. Smite 2 replaced Power with Strength and Intelligence
+and changed the formulas, so running those over its items would produce
+confident nonsense. Both show summed item stats instead, which is true in either
+game, until that model is rewritten.
 
 The bot reads the corpus the collector writes: `SmiteProvider` loads every file
 into a pandas DataFrame and refreshes on a loop, which is what backs the
@@ -69,6 +99,38 @@ collector:
 the job would otherwise write a day's corpus to a pod filesystem that
 disappears with the pod.
 
+### Turning the Smite 2 crawl on
+
+Static Smite 2 data needs no configuration — the bot reads wiki.smite2.com on
+startup, about twenty requests, and caches it. Match data does:
+
+```yaml
+smite2:
+  collector:
+    enabled: true
+  aggregate:
+    enabled: true
+```
+
+Read `#### What measuring it actually found` below first. In short: this reads an
+undocumented endpoint behind a WAF with no published rate limit and no allowance
+for bulk pulls, which is why it is off by default and why
+`requestIntervalSeconds` has no measured headroom. Raising that number is safe.
+Lowering it is the one setting here that could get the address blocked.
+
+Start small and watch the coverage table the job prints:
+
+```sh
+kubectl -n discord create job --from=cronjob/smitele-bot-s2collector smite2-crawl-manual
+kubectl -n discord logs -f job/smite2-crawl-manual
+```
+
+Or locally, which writes nothing:
+
+```sh
+python src/smite2_collector/collect.py --dry-run
+```
+
 ### Backfilling a missed day
 
 The collector defaults to *yesterday* — Hi-Rez only publishes match IDs for
@@ -103,6 +165,16 @@ from the big corpus:
 | `SMITELE_MATCH_ARCHIVE_DIR` | `src/match_data_collector/archive` | corpus >30 days old |
 | `SMITELE_CONFIG_FILE` | `config.json` | credentials, if not in the environment |
 | `SMITELE_COLLECT_DATE` | yesterday | collector target day, `YYYY-MM-DD` |
+| `SMITELE_S2_MATCH_DATA_DIR` | `<matchdata>/smite2/output` | the Smite 2 corpus |
+| `SMITELE_S2_MATCH_ARCHIVE_DIR` | `<matchdata>/smite2/archive` | Smite 2 corpus, rotated |
+
+Smite 1's paths are deliberately unchanged rather than moved under a `smite/`
+subtree for symmetry. The corpus is 250 days deep on a network share and the
+aggregate is built from whatever `corpus_paths` finds there; relocating it would
+risk the bot reading a half-moved directory to gain nothing. Smite 2 gets its own
+subtree instead, which also means the two aggregates cannot contaminate each
+other — there is a test asserting exactly that, because a mixed aggregate does
+not raise, it just reports wrong win rates.
 
 ## Hi-Rez API notes
 

@@ -16,6 +16,7 @@ from player_stats import PlayerStats
 from player import Player
 from stat_calculator import DamageCalculator, GodBuild
 from SmiteProvider import SmiteProvider
+from game import Game, id_value, queues_for
 from HirezAPI import PlayerRole, QueueId, TierId
 
 
@@ -37,6 +38,38 @@ class BuildCommandType(Enum):
 class BuildPrioritization(Enum):
     POWER = "power"
     DEFENSE = "defense"
+
+
+def summarise_item_properties(build: List[Item]) -> str:
+    """Total flat and percentage stats across a build.
+
+    Deliberately plain arithmetic. It is the honest thing to show for a game
+    whose stat model this codebase does not yet implement — see
+    `GodBuilder.__build_stats_string` — and it is also correct for Smite 1,
+    which is why it lives outside the optimizer.
+    """
+    flat: Dict[ItemAttribute, float] = {}
+    percent: Dict[ItemAttribute, float] = {}
+    for item in build:
+        for prop in item.item_properties or []:
+            if prop.flat_value is not None:
+                flat[prop.attribute] = flat.get(prop.attribute, 0.0) + prop.flat_value
+            if prop.percent_value is not None:
+                percent[prop.attribute] = (
+                    percent.get(prop.attribute, 0.0) + prop.percent_value
+                )
+
+    lines = [
+        f"**{attribute.display_name}**: {value:,.0f}"
+        for attribute, value in sorted(flat.items(), key=lambda kv: kv[0].value)
+    ]
+    lines += [
+        f"**{attribute.display_name}**: {value:.0%}"
+        for attribute, value in sorted(percent.items(), key=lambda kv: kv[0].value)
+    ]
+    if not lines:
+        return ""
+    return "This build provides:\n" + "\n".join(lines)
 
 
 class BuildOptions:
@@ -109,8 +142,15 @@ class BuildOptions:
             elif option in ("-p", "--prioritize"):
                 self.prioritization = BuildPrioritization(value.lower())
             elif option in ("-q", "--queue"):
-                self.queue_id = QueueId[
-                    value.upper().replace("(", "").replace(")", "").replace(" ", "_")
+                queues = queues_for(
+                    self.__provider.game if self.__provider else Game.SMITE
+                )
+                self.queue_id = queues[
+                    value.upper()
+                    .replace("(", "")
+                    .replace(")", "")
+                    .replace(".", "")
+                    .replace(" ", "_")
                 ]
             elif option in ("-r", "--role"):
                 self.role = PlayerRole(value.lower())
@@ -143,11 +183,7 @@ class BuildOptions:
         ):
             return "The role option can only be used with the top or ML build types."
         if self.role is not None and self.queue_id is not None:
-            if self.queue_id not in (
-                QueueId.CONQUEST,
-                QueueId.CUSTOM_CONQUEST,
-                QueueId.RANKED_CONQUEST,
-            ):
+            if "CONQUEST" not in getattr(self.queue_id, "name", ""):
                 return (
                     "Cannot specify both role and queue for a non-Conquest game mode!"
                 )
@@ -159,14 +195,15 @@ class BuildOptions:
                 "Cannot prioritize a specific stat when pulling "
                 "a top player's build or querying match data."
             )
+        queues = queues_for(self.__provider.game if self.__provider else Game.SMITE)
         if (
             self.queue_id is not None
-            and not QueueId.is_normal(self.queue_id)
-            and not QueueId.is_ranked(self.queue_id)
+            and not queues.is_normal(self.queue_id)
+            and not queues.is_ranked(self.queue_id)
             and self.build_type == BuildCommandType.ML
         ):
             return "ML mode only supports Normal and Ranked modes."
-        if self.high_mmr and not QueueId.is_ranked(self.queue_id):
+        if self.high_mmr and not queues.is_ranked(self.queue_id):
             return "Cannot filter to high MMR for non-Ranked modes."
         if self.allies is not None and self.__random_god:
             return "Cannot filter by allies without also specifying a God."
@@ -207,7 +244,7 @@ class GodBuilder:
 
         starters = tuple(item.id for item in self.__items.values() if item.is_starter)
         best = stats.best_build(
-            god_id=build_options.god_id.value,
+            god_id=id_value(build_options.god_id),
             queue_id=queue_id,
             role=role,
             high_mmr=build_options.high_mmr,
@@ -224,7 +261,7 @@ class GodBuilder:
             raise BuildFailedError
 
         relic_ids = stats.best_relics(
-            god_id=build_options.god_id.value,
+            god_id=id_value(build_options.god_id),
             queue_id=queue_id,
             role=role,
             high_mmr=build_options.high_mmr,
@@ -236,7 +273,7 @@ class GodBuilder:
         )
 
         god_plays, god_wins = stats.god_totals(
-            god_id=build_options.god_id.value,
+            god_id=id_value(build_options.god_id),
             queue_id=queue_id,
             role=role,
             high_mmr=build_options.high_mmr,
@@ -254,7 +291,7 @@ class GodBuilder:
             else ""
         )
 
-        common_role = stats.common_role(build_options.god_id.value)
+        common_role = stats.common_role(id_value(build_options.god_id))
         common_role_str = (
             f"{god.name}'s most common role is **{common_role}**. "
             if common_role and (role or build_options.queue_id is not None)
@@ -283,10 +320,24 @@ class GodBuilder:
             f"**{int(best['avg_kills'])}/{int(best['avg_deaths'])}/"
             f"{int(best['avg_assists'])}**, dealing an average "
             f"**{int(best['avg_damage']):,}** player damage.\n\n"
-            f"{optimizer.get_build_stats_string(build)}"
+            f"{self.__build_stats_string(optimizer, build)}"
         )
 
         return (build, relics, desc)
+
+    def __build_stats_string(self, optimizer: BuildOptimizer, build: List[Item]) -> str:
+        """What a build gives you, in whichever terms the game uses.
+
+        Smite 1 goes through the optimizer, which knows its protection and
+        power formulas. Smite 2 replaced Physical/Magical Power with Strength
+        and Intelligence and changed the mitigation maths entirely, so running
+        those formulas over its items would produce confident nonsense. Until
+        that model is rewritten this simply sums what the items provide, which
+        is true in both games.
+        """
+        if self.__provider.game is Game.SMITE:
+            return optimizer.get_build_stats_string(build)
+        return summarise_item_properties(build)
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
         return list(
@@ -542,7 +593,7 @@ class GodBuilder:
         pm = self.__provider.player_matches
 
         god_matches: pd.DataFrame = (
-            pm.loc[pm["GodId"] == build_options.god_id.value]
+            pm.loc[pm["GodId"] == id_value(build_options.god_id)]
             if not build_options.was_random_god()
             else pm
         )
@@ -693,7 +744,7 @@ class GodBuilder:
             )
 
         god_id = (
-            build_options.god_id.value
+            id_value(build_options.god_id)
             if not build_options.was_random_god()
             else most_freq["GodId"]
         )
@@ -744,7 +795,7 @@ class GodBuilder:
         ):
             common_roles = (
                 pm.loc[
-                    (pm["GodId"] == build_options.god_id.value)
+                    (pm["GodId"] == id_value(build_options.god_id))
                     & (pm["Role"] != "Unknown")
                 ]["Role"]
                 .mode()

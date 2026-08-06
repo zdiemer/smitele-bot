@@ -74,6 +74,34 @@ if [[ "${SKIP_TRAINER:-0}" != "1" ]]; then
   fi
 fi
 
+# The Smite 2 crawler is the bot image plus Camoufox — a patched Firefox and
+# the X libraries around it, needed only to solve a Cloudflare challenge once
+# per cookie. Skipped with SKIP_S2COLLECTOR=1, on the same reasoning as the
+# trainer: a slow layer that most changes don't touch.
+if [[ "${SKIP_S2COLLECTOR:-0}" != "1" ]]; then
+  S2_REPO="$(awk -F'"' '/smitele-bot-s2collector/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
+  S2_IMAGE="${S2_REPO:-ghcr.io/zdiemer/smitele-bot-s2collector}:${TAG}"
+
+  if command -v docker >/dev/null; then
+    echo "==> Building ${S2_IMAGE} (docker)"
+    docker build -f "${HERE}/Dockerfile.s2collector" \
+      --build-arg "BASE_IMAGE=${REPO}" --build-arg "BASE_TAG=${TAG}" \
+      -t "${S2_IMAGE}" "${HERE}"
+    echo "==> Pushing ${S2_IMAGE}"
+    docker push "${S2_IMAGE}"
+  else
+    echo "==> Building + pushing ${S2_IMAGE} (buildctl)"
+    buildctl build \
+      --frontend dockerfile.v0 \
+      --local context="${HERE}" \
+      --local dockerfile="${HERE}" \
+      --opt filename=Dockerfile.s2collector \
+      --opt "build-arg:BASE_IMAGE=${REPO}" \
+      --opt "build-arg:BASE_TAG=${TAG}" \
+      --output "type=image,\"name=${S2_IMAGE}\",push=true"
+  fi
+fi
+
 echo "==> Done. Run upgrade.sh to roll the cluster onto the new image."
 echo "    (First push only: set the ghcr.io/zdiemer/smitele-bot package"
 echo "     visibility to Public so every node can pull it anonymously.)"

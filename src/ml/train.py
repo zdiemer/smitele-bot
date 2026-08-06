@@ -34,7 +34,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HirezAPI"))
 
 import features  # noqa: E402  pylint: disable=wrong-import-position
 import model as model_module  # noqa: E402  pylint: disable=wrong-import-position
-import paths  # noqa: E402  pylint: disable=wrong-import-position
+import paths
+from game import Game  # noqa: E402  pylint: disable=wrong-import-position
 import recommend  # noqa: E402  pylint: disable=wrong-import-position
 
 
@@ -65,15 +66,35 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--queue", type=int, action="append", default=None)
     parser.add_argument(
-        "--out", default=os.path.join(paths.MATCH_DATA_DIR, "..", "model.npz")
+        "--game",
+        default=Game.SMITE.value,
+        choices=[g.value for g in Game],
+        help="which game's corpus to train on",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="where to write model.npz; defaults to the game's model dir",
     )
     args = parser.parse_args()
+
+    # The two games share no god or item vocabulary, so a model trained on one
+    # cannot score the other's builds — hence a model per game, in its own
+    # directory, rather than one keyed on both.
+    game = Game(args.game)
+    corpus_dirs = (
+        [paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR]
+        if game is Game.SMITE
+        else [paths.game_match_data_dir(game), paths.game_match_archive_dir(game)]
+    )
+    out_path = args.out or os.path.join(paths.game_model_dir(game), "model.npz")
+    print(f"Training {game.display_name} from {corpus_dirs[0]}", flush=True)
 
     import torch
 
     print("Loading corpus…", flush=True)
     raw = features.load_corpus(
-        [paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR],
+        corpus_dirs,
         queue_ids=args.queue,
         limit_files=args.days,
     )
@@ -185,7 +206,7 @@ def main() -> int:
         print("Scorer disagrees with the trained module; refusing to save.", file=sys.stderr)
         return 1
 
-    out = os.path.abspath(args.out)
+    out = os.path.abspath(out_path)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     scorer.save(out)
 

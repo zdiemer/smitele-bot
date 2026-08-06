@@ -90,6 +90,38 @@ def game_option(command):
     )(command)
 
 
+def queue_choices() -> List[str]:
+    """The `match_queue:` choices, across every game.
+
+    One flat list rather than a per-game one, because Discord fixes a command's
+    choices when it is registered and cannot narrow them once the user picks a
+    game. The names do not collide — Smite 2's are prefixed where they would —
+    and `BuildOptions.set_option` resolves against the chosen game's enum, so
+    naming a Smite 1 queue while asking about Smite 2 is rejected rather than
+    silently answered.
+    """
+    from smite2.queues import Smite2QueueId  # noqa: PLC0415
+
+    smite1 = [
+        q.display_name
+        for q in QueueId
+        if (QueueId.is_normal(q) or QueueId.is_ranked(q))
+        and q
+        not in (
+            QueueId.UNDER_30_ARENA,
+            QueueId.UNDER_30_CONQUEST,
+            QueueId.UNDER_30_JOUST,
+        )
+    ]
+    smite2 = [
+        q.display_name
+        for q in Smite2QueueId
+        if Smite2QueueId.is_normal(q) or Smite2QueueId.is_ranked(q)
+    ]
+    seen = set(smite1)
+    return smite1 + [name for name in smite2 if name not in seen]
+
+
 async def god_autocomplete(ctx: discord.AutocompleteContext):
     """God names for whichever game the interaction is about.
 
@@ -550,21 +582,7 @@ class Smitele(commands.Cog):
         name="match_queue",
         type=str,
         description="The queue to get results for, defaults to any queue",
-        choices=[
-            q.display_name
-            for q in list(
-                filter(
-                    lambda _q: (QueueId.is_normal(_q) or QueueId.is_ranked(_q))
-                    and _q
-                    not in (
-                        QueueId.UNDER_30_ARENA,
-                        QueueId.UNDER_30_CONQUEST,
-                        QueueId.UNDER_30_JOUST,
-                    ),
-                    list(QueueId),
-                )
-            )
-        ],
+        choices=queue_choices(),
         default="",
     )
     @discord.option(
@@ -618,8 +636,20 @@ class Smitele(commands.Cog):
             )
             return
 
-        if match_queue is not None and match_queue != "":
-            build_options.set_option("-q", match_queue)
+        # The choice list spans both games, because Discord fixes a command's
+        # choices at registration and cannot narrow them once a game is picked.
+        # Naming a mode the chosen game does not have is therefore a normal
+        # mistake to make, and gets a normal answer.
+        try:
+            if match_queue is not None and match_queue != "":
+                build_options.set_option("-q", match_queue)
+        except InvalidOptionError:
+            await self.__send_invalid(
+                ctx,
+                f"**{match_queue}** isn't a "
+                f"{provider.game.display_name} game mode.",
+            )
+            return
 
         if role is not None and role != "":
             build_options.set_option("-r", role)

@@ -44,6 +44,32 @@ class Game(Enum):
         raise ValueError(f"not a game: {value!r}")
 
 
+def queues_for(game: Game):
+    """That game's queue enum.
+
+    `QueueId` and `Smite2QueueId` deliberately share method names and
+    signatures — `is_normal`, `is_ranked`, `display_name` — so callers that only
+    classify a queue can take the enum as a parameter rather than branching.
+    """
+    if game is Game.SMITE:
+        from HirezAPI import QueueId  # noqa: PLC0415
+
+        return QueueId
+    from smite2.queues import Smite2QueueId  # noqa: PLC0415
+
+    return Smite2QueueId
+
+
+def id_value(identifier) -> int:
+    """The integer behind a god id, whichever game issued it.
+
+    Smite 1's ids are `GodId` members and carry a `.value`; Smite 2's are plain
+    integers derived from the god's slug, because they are already deterministic
+    and an enum would only add a file to regenerate every time a god ships.
+    """
+    return identifier.value if hasattr(identifier, "value") else int(identifier)
+
+
 # THE ONE PLACE THE DEFAULT GAME IS DECIDED.
 #
 # Smite 1 while the Smite 2 corpus is too thin to rank builds from. Flipping

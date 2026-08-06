@@ -1,0 +1,128 @@
+{{- if .Values.smite2.collector.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "smite2.collector.enabled requires matchData.enabled — the crawl has nowhere durable to write" }}
+{{- end }}
+{{/*
+The nightly Smite 2 crawl.
+
+Its own image, not the bot's: it needs Camoufox to solve a Cloudflare challenge,
+which drags in a patched Firefox and the X and GTK libraries around it. None of
+that belongs in a bot pod held under a 2Gi limit, and the browser runs for about
+ten seconds of a multi-hour job.
+
+Disabled by default, deliberately. This reads an undocumented endpoint behind a
+WAF with no published rate limit and no allowance for bulk pulls, so a
+`helm upgrade` must never start one by accident.
+
+Manual run:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-s2collector smite2-crawl-manual
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-s2collector
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.smite2.collector.schedule | quote }}
+  {{- with .Values.smite2.collector.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ .Values.smite2.collector.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.smite2.collector.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.smite2.collector.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      {{/*
+        No retries. A failed crawl is usually a WAF refusal, and the correct
+        response to that is to stop for the night, not to come straight back.
+      */}}
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.smite2.collector.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: s2collector
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: s2collector
+              image: "{{ .Values.smite2.collector.image.repository }}:{{ .Values.smite2.collector.image.tag | default .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "./src/smite2_collector/collect.py"]
+              args:
+                - --budget
+                - {{ .Values.smite2.collector.requestBudget | quote }}
+                - --hours
+                - {{ .Values.smite2.collector.wallClockHours | quote }}
+                - --interval
+                - {{ .Values.smite2.collector.requestIntervalSeconds | quote }}
+                {{- with .Values.smite2.collector.coverageTarget }}
+                - --coverage-target
+                - {{ . | quote }}
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                {{/*
+                  Camoufox writes a profile and a cache. With a read-only root
+                  filesystem every one of these has to land on the emptyDir or
+                  the browser refuses to start.
+                */}}
+                - name: HOME
+                  value: /tmp
+                - name: XDG_CACHE_HOME
+                  value: /tmp/.cache
+                - name: XDG_CONFIG_HOME
+                  value: /tmp/.config
+                - name: XDG_DATA_HOME
+                  value: /tmp/.local/share
+                - name: SMITELE_S2_MATCH_DATA_DIR
+                  value: /matchdata/smite2/output
+                - name: SMITELE_S2_MATCH_ARCHIVE_DIR
+                  value: /matchdata/smite2/archive
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.smite2.collector.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            {{/*
+              Same reasoning as the Smite 1 collector: the bot's PVC is
+              ReadWriteOnce and sharing it would pin this to the bot's node.
+              The wiki cache is rebuilt in about ten seconds.
+            */}}
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir:
+                {{/* A browser needs considerably more scratch than a script. */}}
+                sizeLimit: 2Gi
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

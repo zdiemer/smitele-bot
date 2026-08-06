@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HirezAPI"))
 import build_features  # noqa: E402  pylint: disable=wrong-import-position
 import match_storage  # noqa: E402  pylint: disable=wrong-import-position
 import paths  # noqa: E402  pylint: disable=wrong-import-position
+from game import Game  # noqa: E402  pylint: disable=wrong-import-position
 from HirezAPI import QueueId  # noqa: E402  pylint: disable=wrong-import-position
 from SmiteProvider import (  # noqa: E402  pylint: disable=wrong-import-position
     SmiteProvider,
@@ -103,6 +104,64 @@ SUM_COLUMNS: List[str] = [f"sum_{name}" for name in STAT_COLUMNS] + [
 ]
 
 
+class GameConfig:
+    """Everything about an aggregate run that depends on which game it is.
+
+    The arithmetic is identical for both — group, count, weight by recency,
+    rank — and only the shape of a build and the queue vocabulary differ. This
+    keeps that difference in one object instead of threading four arguments
+    through six functions.
+    """
+
+    def __init__(self, game: Game):
+        self.game = game
+        self.shape = (
+            build_features.SMITE1 if game is Game.SMITE else build_features.SMITE2
+        )
+        # Smite 1 folds its under-30 queues into their parent modes because
+        # /build does. Smite 2 has no such split.
+        self.queue_aliases = QUEUE_ALIASES if game is Game.SMITE else {}
+        self.corpus_dirs = (
+            (paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR)
+            if game is Game.SMITE
+            else (
+                paths.game_match_data_dir(game),
+                paths.game_match_archive_dir(game),
+            )
+        )
+        self.out_dir = paths.game_model_dir(game)
+
+    @property
+    def needed_columns(self) -> List[str]:
+        return (
+            [
+                "GodId",
+                "Role",
+                "Win_Status",
+                "match_queue_id",
+                "Rank_Stat_Conquest",
+                "Rank_Stat_Duel",
+                "Rank_Stat_Joust",
+                "Conquest_Tier",
+                "Duel_Tier",
+                "Joust_Tier",
+            ]
+            + STAT_COLUMNS
+            + self.shape.item_columns
+            + self.shape.relic_columns
+        )
+
+    async def provider(self):
+        if self.game is Game.SMITE:
+            made = SmiteProvider(silent=True)
+        else:
+            from smite2.provider import Smite2Provider  # noqa: PLC0415
+
+            made = Smite2Provider(silent=True)
+        await made.create()
+        return made
+
+
 def queue_rating(frame: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
     """The rating and tier appropriate to each row's queue."""
     queue = pd.to_numeric(frame["match_queue_id"], errors="coerce").fillna(-1)
@@ -124,7 +183,11 @@ def queue_rating(frame: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
     )
 
 
-def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
+def prepare(
+    frame: pd.DataFrame,
+    items: Dict[int, object],
+    config: "GameConfig" = None,
+) -> pd.DataFrame:
     frame = frame[frame["GodId"] != 0].copy()
     if not frame.shape[0]:
         return frame
@@ -134,7 +197,7 @@ def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
         pd.to_numeric(frame["match_queue_id"], errors="coerce")
         .fillna(-1)
         .astype(np.int32)
-        .replace(QUEUE_ALIASES)
+        .replace(config.queue_aliases if config else QUEUE_ALIASES)
     )
     frame["GodId"] = (
         pd.to_numeric(frame["GodId"], errors="coerce").fillna(0).astype(np.int32)
@@ -151,7 +214,9 @@ def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
     for column in STAT_COLUMNS:
         frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
 
-    build_features.annotate(frame, items)
+    build_features.annotate(
+        frame, items, config.shape if config else build_features.SMITE1
+    )
     return frame
 
 
@@ -352,6 +417,7 @@ def count_build_plays(
     min_plays: int,
     every: int,
     previous: pd.DataFrame = None,
+    config: "GameConfig" = None,
 ):
     """First pass: which builds are played often enough to be worth keeping.
 
@@ -366,7 +432,8 @@ def count_build_plays(
     twice are the overwhelming majority of the groups and none of the signal.
     """
     print(f"Pass 1/2: counting plays per build across {len(corpus)} file(s)", flush=True)
-    columns = ["GodId"] + build_features.ITEM_COLUMNS + build_features.RELIC_COLUMNS
+    shape = config.shape if config else build_features.SMITE1
+    columns = ["GodId"] + shape.item_columns + shape.relic_columns
     parts: List[pd.DataFrame] = []
     total = previous if previous is not None else pd.DataFrame()
     start = time.time()
@@ -386,7 +453,7 @@ def count_build_plays(
         frame = frame[frame["GodId"] != 0].copy()
         if not frame.shape[0]:
             continue
-        build_features.annotate(frame, items)
+        build_features.annotate(frame, items, shape)
         builds = frame.loc[frame["IsFullBuild"], ["BuildHash"]]
         if builds.shape[0]:
             counts = builds.groupby("BuildHash", observed=True).size()
@@ -424,7 +491,17 @@ def main() -> int:
         default=3,
         help="drop builds seen fewer than this many times across the corpus",
     )
-    parser.add_argument("--out", default=paths.MODEL_DIR)
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="where to write the tables; defaults to the game's model dir",
+    )
+    parser.add_argument(
+        "--game",
+        default=Game.SMITE.value,
+        choices=[g.value for g in Game],
+        help="which game's corpus to aggregate",
+    )
     # Reducing after every file would rewrite the running total constantly;
     # every N keeps the intermediate list small without that churn.
     parser.add_argument("--consolidate-every", type=int, default=10)
@@ -447,13 +524,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    provider = SmiteProvider(silent=True)
     import asyncio
 
-    asyncio.run(provider.create())
-    print(f"{len(provider.items):,} items, {len(provider.gods)} gods", flush=True)
+    config = GameConfig(Game(args.game))
+    provider = asyncio.run(config.provider())
+    print(
+        f"{config.game.display_name}: {len(provider.items):,} items, "
+        f"{len(provider.gods)} gods",
+        flush=True,
+    )
+    out_dir = args.out or config.out_dir
 
-    corpus = match_storage.corpus_paths(paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR)
+    corpus = match_storage.corpus_paths(*config.corpus_dirs)
     if args.days:
         corpus = corpus[-args.days :]
     if not corpus:
@@ -472,7 +554,7 @@ def main() -> int:
     # A full pass is ~3.5 hours over 3,300 files; a day's worth of new files is
     # seconds. The stored total is aged forward first — weights are relative to
     # the newest day, and exponential decay means that is one multiplication.
-    previous = None if args.rebuild else load_previous(args.out)
+    previous = None if args.rebuild else load_previous(out_dir)
 
     # Incremental runs drift, in one direction and for one reason: a build only
     # starts accumulating per-matchup rows once it crosses min-plays, so a
@@ -510,6 +592,7 @@ def main() -> int:
         args.min_plays,
         args.consolidate_every,
         previous=previous["build_plays"] if previous is not None else None,
+        config=config,
     )
 
     build_parts: List[pd.DataFrame] = []
@@ -522,7 +605,9 @@ def main() -> int:
 
     for index, path in enumerate(pending, start=1):
         frame = prepare(
-            match_storage.read_frame_columns(path, NEEDED_COLUMNS), provider.items
+            match_storage.read_frame_columns(path, config.needed_columns),
+            provider.items,
+            config,
         )
         if not frame.shape[0]:
             continue
@@ -596,7 +681,7 @@ def main() -> int:
     # threshold, before it could cost anything.
     items = items[items["BuildHash"].isin(set(builds["BuildHash"]))]
 
-    os.makedirs(args.out, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     # The manifest is what makes the next run incremental: it records exactly
     # which files are already counted, and the day the weights are relative to.
@@ -611,9 +696,9 @@ def main() -> int:
             "newest": [newest.strftime("%Y-%m-%d") if newest else ""] * len(covered),
             "built": [built.strftime("%Y-%m-%d")] * len(covered),
         }
-    ).to_parquet(os.path.join(args.out, MANIFEST_NAME), compression="zstd", index=False)
+    ).to_parquet(os.path.join(out_dir, MANIFEST_NAME), compression="zstd", index=False)
     build_plays.to_parquet(
-        os.path.join(args.out, BUILD_PLAYS_NAME), compression="zstd", index=False
+        os.path.join(out_dir, BUILD_PLAYS_NAME), compression="zstd", index=False
     )
     written = []
     for name, frame in (
@@ -622,7 +707,7 @@ def main() -> int:
         ("relic_stats", relics),
         ("god_stats", gods),
     ):
-        destination = os.path.join(args.out, f"{name}{match_storage.SUFFIX}")
+        destination = os.path.join(out_dir, f"{name}{match_storage.SUFFIX}")
         partial = f"{destination}.partial"
         frame.to_parquet(partial, compression="zstd", index=False)
         os.replace(partial, destination)
