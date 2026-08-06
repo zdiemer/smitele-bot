@@ -31,6 +31,7 @@ from smite2 import items as items_module
 from smite2.clearance import ClearanceManager, ClearanceStore
 from smite2.ids import NameIndex
 from smite2.players import PlayerLookups
+from smite2 import voicelines
 from smite2.tracker_client import TrackerClient
 from smite2.wiki_client import WikiClient
 
@@ -255,6 +256,19 @@ class Smite2Provider:
         provider it is holding.
         """
         return list(self.__skins.get(god_id, []))
+
+    async def get_god_voicelines(self, god_id) -> list:
+        """This god's voice lines, or an empty list if the wiki has no page.
+
+        Fetched on demand rather than at load: 55 of 88 gods have a page, and a
+        game uses one line from one of them. Both requests go through the disk
+        cache, so a repeat within its lifetime costs nothing.
+        """
+        god = self.gods.get(god_id)
+        if god is None:
+            return []
+        async with self.__client() as client:
+            return await voicelines.load(client, god.name)
 
     async def get_god_leaderboard(self, _god_id, _queue) -> list:
         return []

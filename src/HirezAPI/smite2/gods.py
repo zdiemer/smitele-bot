@@ -180,11 +180,22 @@ def _skins(page: str, god, urls: Dict[str, str]) -> List[Skin]:
     params = invocations[0].params
 
     out: List[Skin] = []
+    claimed: Dict[str, str] = {}
     for key, name in sorted(params.items()):
         if not _SKIN_KEY.match(key) or not name.strip():
             continue
-        image = _file_name(params.get(f"{key}_img") or params.get(f"{key}_icon") or "")
-        url = urls.get(_titled(image)) if image else None
+        url = None
+        for candidate in _skin_art(params, key):
+            resolved = urls.get(_titled(candidate))
+            # A prism recolour inherits its parent's `_img` — the wiki does not
+            # publish separate full art for it — so taking the first hit would
+            # give five Neiths the identical picture, and `/smitele` would show
+            # the same image for the skin round and the base-card round. Skip to
+            # the model render, which is the one thing that does differ.
+            if resolved and claimed.get(resolved, key) == key:
+                url = resolved
+                claimed[resolved] = key
+                break
         if not url:
             continue
 
@@ -205,6 +216,22 @@ def _skins(page: str, god, urls: Dict[str, str]) -> List[Skin]:
     return out
 
 
+_SKIN_ART_SUFFIXES = ("_img", "_model", "_icon")
+
+
+def _skin_art(params: Dict[str, str], key: str) -> List[str]:
+    """Candidate File: names for one skin, best art first.
+
+    Full art if it has any of its own, then the model render, then the icon.
+    """
+    out = []
+    for suffix in _SKIN_ART_SUFFIXES:
+        name = _file_name(params.get(f"{key}{suffix}") or "")
+        if name:
+            out.append(name)
+    return out
+
+
 def _skin_files(page: str) -> List[str]:
     """Every File: a god's skins reference, for one batched URL lookup."""
     section = _sections(page, ("skins",))
@@ -215,7 +242,7 @@ def _skin_files(page: str) -> List[str]:
         if not template.name.lower().startswith("#invoke:skinviewer"):
             continue
         for key, value in template.params.items():
-            if key.endswith("_img") or key.endswith("_icon"):
+            if key.endswith(_SKIN_ART_SUFFIXES):
                 name = _file_name(value)
                 if name:
                     out.append(name)
@@ -228,6 +255,8 @@ def _ability_icons(page: str) -> List[str]:
         return []
     out = []
     for template in wikitext.parse_templates(section, "Ability"):
+        if _is_basic_attack(template):
+            continue
         name = _file_name(template.get("icon"))
         if name:
             out.append(name)
@@ -284,11 +313,27 @@ def _abilities(page: str, urls: Dict[str, str] = None) -> List[Ability]:
     Scoped to the Abilities section because 70 of 88 articles repeat every
     `{{Ability}}` in the Aspect section in its altered form. Parsing the whole
     page silently doubles the kit and picks whichever copy comes first.
+
+    The basic attack is dropped. The wiki gives it an `{{Ability}}` block of its
+    own, which Smite 1 does not — `God.abilities` there is five abilities and a
+    passive — so keeping it would make the two games disagree about what an
+    ability is. It also is not god-specific in the ways the bot uses abilities
+    for: its name is "<God> Basic Attack" and its icon is one of two shared
+    files, so trivia would ask questions with half the roster as the answer and
+    `/smitele` would show every magical god the same picture.
     """
     section = _sections(page, _ABILITY_SECTIONS)
     if section is None:
         return []
-    return [_ability(t, urls) for t in wikitext.parse_templates(section, "Ability")]
+    return [
+        _ability(t, urls)
+        for t in wikitext.parse_templates(section, "Ability")
+        if not _is_basic_attack(t)
+    ]
+
+
+def _is_basic_attack(template: wikitext.Template) -> bool:
+    return wikitext.strip_markup(template.get("slot")).strip().lower() == "basic attack"
 
 
 def _aspect(page: str, urls: Dict[str, str]) -> Optional[Aspect]:

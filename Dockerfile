@@ -62,7 +62,7 @@ ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
 # The bot's imports all resolve from the source tree whether or not the
 # Dockerfile copies them, so nothing before this caught a missed COPY.
 RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/ml', 'src/SmiteBot']; \
-import smite2.players, smite2.provider, smite2.tracker_client, smite2.wikitext; \
+import smite2.players, smite2.provider, smite2.tracker_client, smite2.voicelines, smite2.wikitext; \
 import providers, game, guild_settings; \
 print('image imports ok')"
 

@@ -59,7 +59,7 @@ from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 import art_cache
-from game import Game
+from game import Game, id_value
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
 from recommend import BuildRecommender
 
@@ -1969,7 +1969,44 @@ class Smitele(commands.Cog):
             file.seek(0)
             return file
 
+    def __build_from_aggregate(self, session: SmiteleGame) -> List[Item]:
+        """The god's most-won build, out of the corpus.
+
+        Smite 2 has no leaderboard route to scrape a build off, but it has the
+        same aggregate `/build` reads, which is a better answer anyway: the
+        modal winning build rather than one arbitrary top player's last game.
+        """
+        stats = session.provider.build_stats
+        if stats is None:
+            raise IndexError("no build aggregate yet")
+
+        starters = tuple(
+            item.id for item in session.provider.items.values() if item.is_starter
+        )
+        best = stats.best_build(
+            god_id=id_value(session.god.id),
+            queue_id=None,
+            role=None,
+            high_mmr=False,
+            require_starter=True,
+            starter_ids=starters,
+        )
+        if best is None or not any(best["items"]):
+            raise IndexError(f"no recorded build for {session.god.name}")
+
+        build = [
+            session.provider.items[i]
+            for i in best["items"]
+            if i in session.provider.items
+        ]
+        if not build:
+            raise IndexError(f"no recorded build for {session.god.name}")
+        return build
+
     async def __prefetch_build_image(self, session: SmiteleGame) -> io.BytesIO:
+        if session.provider.game is not Game.SMITE:
+            return await self.__make_build_image(self.__build_from_aggregate(session))
+
         # Index maps to position in build
         build: List[Item] = []
 
@@ -2006,6 +2043,42 @@ class Smitele(commands.Cog):
 
         return await self.__make_build_image(build)
 
+    @staticmethod
+    def __random_crop(img: Image.Image, into: io.BytesIO) -> None:
+        """A random square of a god's art, written as a JPEG.
+
+        Two things the Hi-Rez CDN never made us think about, both of which the
+        wiki does. Its art is often RGBA — JPEG has no alpha, and Pillow raises
+        rather than dropping it, which is what killed `/smitele game:Smite 2`
+        before its first round. And where Hi-Rez serves filled cards, the wiki
+        serves cutout renders on transparency, so a uniformly random square is
+        frequently all background: a clue with nothing in it. The crop is taken
+        from inside the opaque bounding box instead, and flattened onto black.
+        """
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGBA")
+            box = img.getchannel("A").getbbox()
+            flat = Image.new("RGB", img.size, (0, 0, 0))
+            flat.paste(img, mask=img.getchannel("A"))
+            img = flat
+        else:
+            box = None
+            img = img.convert("RGB")
+
+        left, top, right, bottom = box or (0, 0, img.width, img.height)
+        size = math.floor(img.width / 4.0)
+        # A cutout narrower than the crop would give an empty random range; fall
+        # back to the whole frame rather than fail.
+        if right - left < size or bottom - top < size:
+            left, top, right, bottom = 0, 0, img.width, img.height
+        x = random.randint(left, right - size)
+        y = random.randint(top, bottom - size)
+        crop = img.crop((x, y, x + size, y + size))
+        if crop.size != (180, 180):
+            crop = crop.resize((180, 180))
+        crop.save(into, format="JPEG", quality=95)
+        into.seek(0)
+
     async def __send_god_skin(self, session: SmiteleGame, skins: List[Skin]) -> bool:
         # Fetching a random god skin
         skin = random.choice(list(filter(lambda s: s.has_url, skins)))
@@ -2015,15 +2088,7 @@ class Smitele(commands.Cog):
             with io.BytesIO() as file:
                 # Cropping the skin image that we got randomly
                 with Image.open(skin_image) as img:
-                    width, height = img.size
-                    size = math.floor(width / 4.0)
-                    left = random.randint(0, width - size)
-                    top = random.randint(0, height - size)
-                    crop_image = img.crop((left, top, left + size, top + size))
-                    if crop_image.size != (180, 180):
-                        crop_image = crop_image.resize((180, 180))
-                    crop_image.save(file, format="JPEG", quality=95)
-                    file.seek(0)
+                    self.__random_crop(img, file)
 
                 desc = "Name the god with this skin"
                 session.current_round.file_bytes = file
@@ -2034,23 +2099,79 @@ class Smitele(commands.Cog):
         self, session: SmiteleGame, build_task: "asyncio.Task[io.BytesIO]"
     ) -> bool:
         with await build_task as file:
-            desc = "Hint: A top-ranked player of this god recently used this build."
+            desc = (
+                "Hint: A top-ranked player of this god recently used this build."
+                if session.provider.game is Game.SMITE
+                # Smite 2's comes out of the corpus, not one player's last game.
+                else "Hint: This is this god's most successful recorded build."
+            )
             session.current_round.file_bytes = file
             session.current_round.file_name = self.BUILD_IMAGE_FILE
             return await self.__send_round_and_wait_wrapper(desc, session)
 
+    async def __play_voiceline(self, session: SmiteleGame, audio: bytes) -> bool:
+        """Play the clip into the player's voice channel, or upload it."""
+        context = session.context
+        if context.player.voice is not None:
+            with open(self.VOICE_LINE_PATH, "wb") as voice_file:
+                voice_file.write(audio)
+            voice_client = await context.player.voice.channel.connect()
+
+            async def disconnect():
+                await voice_client.disconnect()
+                os.remove(self.VOICE_LINE_PATH)
+
+            voice_client.play(
+                discord.FFmpegPCMAudio(source=self.VOICE_LINE_PATH),
+                after=lambda _: asyncio.run_coroutine_threadsafe(
+                    coro=disconnect(), loop=voice_client.loop
+                ).result(),
+            )
+        else:
+            with io.BytesIO(audio) as file:
+                dis_file = discord.File(file, filename=self.VOICE_LINE_FILE)
+                await context.channel.send(file=dis_file)
+
+        session.current_round.reset_file()
+        return await self.__send_round_and_wait_wrapper(
+            "Whose voice line was that?", session
+        )
+
+    async def __send_smite2_voiceline(self, session: SmiteleGame) -> bool:
+        """Smite 2's voice line round, off wiki.smite2.com.
+
+        33 of the 88 gods have no voicelines page, and a line whose audio will
+        not fetch is no better than none, so both cases raise IndexError and the
+        round loop renumbers around them.
+        """
+        lines = await session.provider.get_god_voicelines(session.god.id)
+        if not lines:
+            raise IndexError(f"no voicelines page for {session.god.name}")
+
+        random.shuffle(lines)
+        async with aiohttp.ClientSession() as client:
+            for line in lines:
+                try:
+                    async with client.get(line.url) as res:
+                        if res.status != 200:
+                            continue
+                        audio = await res.content.read()
+                except aiohttp.ClientError:
+                    continue
+                return await self.__play_voiceline(session, audio)
+
+        raise IndexError(f"no playable voiceline for {session.god.name}")
+
     async def __send_god_voiceline(
         self, session: SmiteleGame, skins: List[Skin]
     ) -> bool:
-        context = session.context
         if session.provider.game is not Game.SMITE:
-            # This scrapes smite.fandom.com, which is Smite 1's wiki. Many gods
-            # exist in both games, so a Smite 2 round would not merely fail to
-            # find a page — it would serve Smite 1 Anubis's voiceline as a clue
-            # for Smite 2 Anubis. Dropped until wiki.smite2.com's own
-            # "<God> voicelines" pages are wired up; IndexError is how the round
-            # loop is told to renumber and move on.
-            raise IndexError("no Smite 2 voicelines yet")
+            # The scrape below targets smite.fandom.com, which is Smite 1's
+            # wiki. Most of the roster exists in both games, so pointing a
+            # Smite 2 round at it would not merely fail to find a page — it
+            # would serve Smite 1 Anubis's line as the clue for Smite 2 Anubis.
+            # wiki.smite2.com publishes its own, so Smite 2 has its own path.
+            return await self.__send_smite2_voiceline(session)
 
         audio_src = None
         skin_copy = skins.copy()
@@ -2096,33 +2217,7 @@ class Smitele(commands.Cog):
                 except (ValueError, IndexError):
                     skin_copy = remove_skin(skin.name)
             async with client.get(audio_src) as res:
-                # If the current player is in a voice channel,
-                # connect to it and play the voice line!
-                if context.player.voice is not None:
-                    with open(self.VOICE_LINE_PATH, "wb") as voice_file:
-                        voice_file.write(await res.content.read())
-                    voice_client = await context.player.voice.channel.connect()
-
-                    async def disconnect():
-                        await voice_client.disconnect()
-                        os.remove(self.VOICE_LINE_PATH)
-
-                    voice_client.play(
-                        discord.FFmpegPCMAudio(source=self.VOICE_LINE_PATH),
-                        after=lambda _: asyncio.run_coroutine_threadsafe(
-                            coro=disconnect(), loop=voice_client.loop
-                        ).result(),
-                    )
-                else:
-                    # Otherwise, just upload the voice file to Discord
-                    with io.BytesIO(await res.content.read()) as file:
-                        dis_file = discord.File(file, filename=self.VOICE_LINE_FILE)
-                        await context.channel.send(file=dis_file)
-
-                session.current_round.reset_file()
-                return await self.__send_round_and_wait_wrapper(
-                    "Whose voice line was that?", session
-                )
+                return await self.__play_voiceline(session, await res.content.read())
 
     async def __send_god_ability_icon(self, session: SmiteleGame) -> bool:
         saved_image = False
@@ -2174,15 +2269,7 @@ class Smitele(commands.Cog):
         with io.BytesIO() as crop_file:
             with await base_skin.get_card_bytes() as card_bytes:
                 with Image.open(card_bytes) as img:
-                    width, height = img.size
-                    size = math.floor(width / 4.0)
-                    left = random.randint(0, width - size)
-                    top = random.randint(0, height - size)
-                    crop_image = img.crop((left, top, left + size, top + size))
-                    if crop_image.size != (180, 180):
-                        crop_image = crop_image.resize((180, 180))
-                    crop_image.save(crop_file, format="JPEG", quality=95)
-                    crop_file.seek(0)
+                    self.__random_crop(img, crop_file)
 
                 desc = "Hint: This is a crop of the god's base skin"
                 session.current_round.file_bytes = crop_file
