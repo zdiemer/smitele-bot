@@ -69,6 +69,16 @@ class ClearanceUnavailable(RuntimeError):
     """No usable cookie, and minting one is not currently allowed."""
 
 
+class BrowserUnavailable(ClearanceUnavailable):
+    """The browser could not be started, so no challenge was ever attempted.
+
+    Kept distinct because the circuit breaker exists to stop us hammering
+    Cloudflare, and this failure never reached Cloudflare. Counting a missing
+    browser as a refusal put a four-hour backoff on a misconfigured image and
+    made a one-line fix look like a rate limit.
+    """
+
+
 @dataclass
 class Clearance:
     """A cookie and the user agent it is bound to.
@@ -156,7 +166,19 @@ async def mint(headless: bool = True, timeout: int = MINT_TIMEOUT_SECONDS) -> Cl
     Imported lazily so that anything not minting — the aggregate job, a test —
     does not need Camoufox installed to import this module.
     """
-    from camoufox.async_api import AsyncCamoufox  # noqa: PLC0415
+    try:
+        from camoufox.async_api import AsyncCamoufox  # noqa: PLC0415
+        from camoufox.pkgman import installed_verstr  # noqa: PLC0415
+
+        # An explicit precondition rather than a surprise mid-launch. camoufox
+        # locates the browser through XDG_CACHE_HOME, so an image that fetched
+        # it under one HOME and runs under another fails here — and that is a
+        # deployment mistake, not Cloudflare turning us away.
+        installed_verstr()
+    except ClearanceUnavailable:
+        raise
+    except Exception as error:  # noqa: BLE001
+        raise BrowserUnavailable(f"no usable browser: {error}") from error
 
     deadline = time.time() + timeout
     async with AsyncCamoufox(headless=headless, geoip=True, humanize=True) as browser:
@@ -225,6 +247,11 @@ class ClearanceManager:
             self.__log(f"minting (mint {len(recent) + 1} of {MAX_MINTS_PER_DAY} today)")
             try:
                 clearance = await mint()
+            except BrowserUnavailable:
+                # Never reached Cloudflare, so there is nothing to back off
+                # from. Arming the breaker here would turn a broken image into
+                # a four-hour outage that looks like a rate limit.
+                raise
             except Exception as error:  # noqa: BLE001
                 state.mints = recent + [now]
                 state.blocked_until = now + BACKOFF_SECONDS
@@ -237,6 +264,22 @@ class ClearanceManager:
             state.blocked_until = 0.0
             self.__store.save(state)
             return clearance
+
+    def reset(self) -> None:
+        """Clear the backoff and the mint log, keeping any working cookie.
+
+        For when the breaker tripped on something that has since been fixed —
+        a broken image, a bad deploy — and waiting out four hours would only
+        punish the operator. Deliberately manual: nothing calls this on its
+        own, because a breaker that resets itself is not a breaker.
+        """
+        state = self.__store.load()
+        self.__log(
+            f"reset: clearing {len(state.mints)} recorded mint(s) and any backoff"
+        )
+        state.mints = []
+        state.blocked_until = 0.0
+        self.__store.save(state)
 
     def invalidate(self, used: Clearance) -> None:
         """Discard a cookie that has stopped working.

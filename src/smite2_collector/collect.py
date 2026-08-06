@@ -32,7 +32,7 @@ import datetime
 import os
 import sys
 import time
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Set
 
 sys.path.insert(
     0,
@@ -49,7 +49,6 @@ from smite2.clearance import (  # noqa: E402
     ClearanceStore,
     ClearanceUnavailable,
 )
-from smite2.ids import NameIndex  # noqa: E402
 from smite2.provider import CLEARANCE_FILE, Smite2Provider  # noqa: E402
 from smite2.tracker_client import (  # noqa: E402
     LEADERBOARDS,
@@ -127,6 +126,8 @@ async def crawl(args) -> int:
     manager = ClearanceManager(
         ClearanceStore(os.path.join(state_dir, CLEARANCE_FILE))
     )
+    if args.reset_clearance:
+        manager.reset()
 
     new_matches = 0
     unknown_items = 0
@@ -316,6 +317,12 @@ def main() -> int:
         help="crawl and report, writing nothing",
     )
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--reset-clearance",
+        action="store_true",
+        help="clear a tripped backoff before crawling, for when whatever "
+        "caused it has since been fixed",
+    )
     args = parser.parse_args()
 
     if args.dry_run and args.budget > 200:
