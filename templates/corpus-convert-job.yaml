@@ -15,7 +15,7 @@ Not a CronJob and not enabled by default: this is run deliberately, once, after
 dropping an archive onto the share.
 
   helm upgrade ... --set corpusConvert.enabled=true
-  kubectl -n {{ .Release.Namespace }} logs -f -l job-name={{ include "smitele-bot.fullname" . }}-convert
+  kubectl -n {{ .Release.Namespace }} logs -f -l job-name={{ include "smitele-bot.fullname" . }}-convert-{{ .Values.image.tag | replace "." "-" }}
 
 Re-running is safe — a day whose Parquet already exists is skipped — so a
 failed shard can simply be re-run. Set corpusConvert.delete once the output
@@ -24,7 +24,13 @@ looks right, to drop the JSON originals.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "smitele-bot.fullname" . }}-convert
+  {{/*
+    Job specs are immutable, so a fixed name makes a completed conversion block
+    every later `helm upgrade` that changes the image — "field is immutable".
+    Including the tag means a new version is a new Job, and the old one is left
+    alone rather than fought with.
+  */}}
+  name: {{ include "smitele-bot.fullname" . }}-convert-{{ .Values.image.tag | replace "." "-" }}
   labels:
     {{- include "smitele-bot.labels" . | nindent 4 }}
   annotations:

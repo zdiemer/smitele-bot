@@ -20,17 +20,24 @@ class BaseCalculator:
         is_crit: bool = False,
         crit_bonus: float = 1.75,
     ):
+        # per_level applies from level 2, so a level-1 god has exactly its base
+        # damage. This counted one level too many, and disagreed with
+        # God.get_stat_at_level, which had it right — the same quantity coming
+        # out differently depending on which one you asked.
         return (
             (crit_bonus if is_crit else 1)
             * progression
-            * (base + (per_level * level) + (scaling * power))
+            * (base + (per_level * (level - 1)) + (scaling * power))
         )
 
     @staticmethod
     def protections(
         prots: float, red_pct: float, red_flat: float, pen_pct: float, pen_flat: int
     ):
-        return (prots * (1 - red_pct) - red_flat) * (1 - pen_pct) - pen_flat
+        # Floored at zero. Penetration removes protection, it does not invert
+        # it — and damage_dealt divides by (protections + 100), so unclamped
+        # negatives inflate damage and anything past -100 flips its sign.
+        return max(0.0, (prots * (1 - red_pct) - red_flat) * (1 - pen_pct) - pen_flat)
 
     @staticmethod
     def damage_dealt(
@@ -345,7 +352,9 @@ class BuildStatCalculator:
                 if magic_power >= 150
                 else 0
             )
-            stats.set_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE, max(0.70, crit_chance))
+            # Capped at 70%, so min. max() made 70% a floor instead, giving
+            # Olorun at least 70% crit at any magic power — including none.
+            stats.set_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE, min(0.70, crit_chance))
         for item in self.god.build:
             # Evolved Transcendence
             if item.id == 15767:

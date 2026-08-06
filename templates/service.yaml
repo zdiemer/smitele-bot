@@ -16,5 +16,11 @@ spec:
       targetPort: status
       protocol: TCP
       name: status
+  {{/*
+    Component matters here: every Job carries the same name/instance labels, so
+    without it a running collector or aggregate pod becomes an endpoint of the
+    bot's Service.
+  */}}
   selector:
     {{- include "smitele-bot.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: bot

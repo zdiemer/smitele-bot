@@ -13,6 +13,12 @@ spec:
   */}}
   strategy:
     type: Recreate
+  {{/*
+    Not adding component here: a Deployment's selector is immutable, so
+    narrowing it on an existing release fails the upgrade. The label on the
+    template is what everything else selects on, and a broader selector still
+    matches it.
+  */}}
   selector:
     matchLabels:
       {{- include "smitele-bot.selectorLabels" . | nindent 6 }}
@@ -20,6 +26,7 @@ spec:
     metadata:
       labels:
         {{- include "smitele-bot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bot
       annotations:
         # Roll the bot onto a rotated token without needing a new image tag.
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}

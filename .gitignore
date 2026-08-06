@@ -12,3 +12,6 @@ cache/**
 values.local.yaml
 
 .venv/
+
+# Claude Code session scratch (worktrees, local state)
+.claude/

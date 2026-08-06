@@ -263,11 +263,13 @@ class God(object):
                     + self.stats.basic_attack.per_level_back * (level - 1)
                 )
                 total_basic = basic + basic_back
-                return (
-                    total_basic + (0.005 * level * total_basic)
-                    if self.role == GodRole.HUNTER
-                    else 0
-                )
+                # Hunters get an extra 0.5% per level on top; everyone else
+                # gets the plain total. This returned 0 for every non-Hunter,
+                # so /build and the god stats card reported no basic attack
+                # damage at all for mages, warriors, guardians and assassins.
+                if self.role == GodRole.HUNTER:
+                    return total_basic + (0.005 * level * total_basic)
+                return total_basic
             if stat == ItemAttribute.MOVEMENT_SPEED:
                 level = 8 if level > 8 else level
                 speed = self.stats.values[stat].base
@@ -277,17 +279,17 @@ class God(object):
                     return 0
                 if stat == ItemAttribute.MP5:
                     return 0
-                if stat == ItemAttribute.HEALTH:
+                # These two have no mana bar, so the API's mana pool is really
+                # extra health and its MP5 extra HP5.
+                if stat in (ItemAttribute.HEALTH, ItemAttribute.HP5):
                     god_stat = self.stats.values[stat]
-                    mana_stat = self.stats.values[ItemAttribute.MANA]
+                    pooled = self.stats.values[
+                        ItemAttribute.MANA
+                        if stat == ItemAttribute.HEALTH
+                        else ItemAttribute.MP5
+                    ]
                     return (god_stat.base + god_stat.per_level * (level - 1)) + (
-                        mana_stat.base + mana_stat.per_level * (level - 1)
-                    )
-                if stat == ItemAttribute.MP5:
-                    god_stat = self.stats.values[stat]
-                    mana_stat = self.stats.values[ItemAttribute.MP5]
-                    return (god_stat.base + god_stat.per_level * (level - 1)) + (
-                        mana_stat.base + mana_stat.per_level * (level - 1)
+                        pooled.base + pooled.per_level * (level - 1)
                     )
 
             god_stat = self.stats.values[stat]

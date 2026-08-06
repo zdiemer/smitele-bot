@@ -50,7 +50,7 @@ fi
 # The image is python-slim with no curl, so the probe runs through python.
 if [[ "$FORCE_ACTIVE" == "0" && " $* " != *" --dry-run "* ]]; then
   POD="$(kubectl -n "${NAMESPACE}" get pod \
-    -l "app.kubernetes.io/name=smitele-bot,app.kubernetes.io/instance=${RELEASE}" \
+    -l "app.kubernetes.io/name=smitele-bot,app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=bot" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
   if [[ -n "$POD" ]]; then
