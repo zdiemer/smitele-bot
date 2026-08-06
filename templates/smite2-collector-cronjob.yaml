@@ -77,14 +77,18 @@ spec:
               env:
                 {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
                 {{/*
-                  Camoufox writes a profile and a cache. With a read-only root
-                  filesystem every one of these has to land on the emptyDir or
-                  the browser refuses to start.
+                  Camoufox needs somewhere writable for its profile, which the
+                  emptyDir provides.
+
+                  XDG_CACHE_HOME is deliberately NOT set here. That is where
+                  camoufox looks for the browser itself, which is baked into
+                  the image at build time; pointing it at the emptyDir sends it
+                  looking in an empty directory and the first mint fails with
+                  "official/stable is not installed". The image sets it, and
+                  the browser is only ever read, so a read-only root is fine.
                 */}}
                 - name: HOME
                   value: /tmp
-                - name: XDG_CACHE_HOME
-                  value: /tmp/.cache
                 - name: XDG_CONFIG_HOME
                   value: /tmp/.config
                 - name: XDG_DATA_HOME

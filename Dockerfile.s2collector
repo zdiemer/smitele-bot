@@ -39,12 +39,24 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir "camoufox[geoip]"
 
-# Fetch the browser at build time, not at run time. The CronJob runs with
+# Where the browser lives, declared rather than left to whatever HOME happens
+# to be. camoufox resolves its install directory through platformdirs, i.e.
+# XDG_CACHE_HOME — so if the pod points that at its writable emptyDir, camoufox
+# looks there, finds nothing, and fails with "official/stable is not installed"
+# at the first mint. Setting it in the image means the pod cannot get it wrong
+# by supplying its own HOME.
+ENV XDG_CACHE_HOME=/home/smitele/.cache
+
+# Fetch at build time, not at run time. The CronJob runs with
 # readOnlyRootFilesystem, so a first-run download would have nowhere to land —
-# and a nightly job should not be pulling 200MB before it starts.
-ENV HOME=/home/smitele
+# and a nightly job should not pull a browser before it starts.
 RUN python -m camoufox fetch \
- && chmod -R a+rX /home/smitele
+ && chmod -R a+rX /home/smitele/.cache
+
+# Prove the fetch landed where this image says it did. Without this the
+# mismatch above is invisible until a crawl fails against the live site.
+RUN python -c "from camoufox.pkgman import installed_verstr; \
+print('camoufox browser', installed_verstr())"
 
 USER smitele
 
