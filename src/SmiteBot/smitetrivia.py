@@ -27,6 +27,7 @@ from god import God, GodId
 from item import Item, ItemType
 from skin import Skin
 from HirezAPI import QueueId
+from build_optimizer import compute_item_price
 from item_tree_builder import ItemTreeBuilder
 
 
@@ -180,13 +181,11 @@ class ItemQuestionGenerator(QuestionGenerator):
         return (embed, question, None)
 
     def __compute_price(self, item: Item) -> int:
-        price = item.price
-        parent_id = item.parent_item_id
-        while parent_id is not None:
-            parent = self.__all_items[parent_id]
-            price += parent.price
-            parent_id = parent.parent_item_id
-        return price
+        # The shared implementation, which prefers a stated total over walking
+        # the chain. Smite 2's recipes fork — Book of Thoth is built from two
+        # items at once — so a walk down one branch reports 1,650 for an item
+        # that costs 2,300, and the trivia answer would be confidently wrong.
+        return compute_item_price(item, self.__all_items)
 
     async def generate_tree_question(self):
         tree_builder = ItemTreeBuilder(self.__all_items)
@@ -206,23 +205,37 @@ class ItemQuestionGenerator(QuestionGenerator):
         item = self.__item
         self.__question_bank = {
             ItemType.CONSUMABLE: [
-                TriviaQuestion(
-                    f"How much does "
-                    f'{"an" if item.name[0].lower() in "aeiou" else "a"} **{item.name}** cost?',
-                    f"{item.price}",
-                ),
-                TriviaQuestion(
-                    f"Name the consumable with this description: \n\n`{item.passive}`",
-                    item.name,
-                ),
-                TriviaQuestion("What consumable is this?", item.name, item.icon_url),
+                q
+                for q in [
+                    TriviaQuestion(
+                        f"How much does "
+                        f'{"an" if item.name[0].lower() in "aeiou" else "a"} **{item.name}** cost?',
+                        f"{item.price}",
+                    ),
+                    TriviaQuestion(
+                        f"Name the consumable with this description: \n\n`{item.passive}`",
+                        item.name,
+                    )
+                    if (item.passive or "").strip()
+                    else None,
+                    TriviaQuestion(
+                        "What consumable is this?", item.name, item.icon_url
+                    ),
+                ]
+                if q is not None
             ],
             ItemType.RELIC: [
-                TriviaQuestion(
-                    f"Name the relic with this description: \n\n`{item.passive}`",
-                    item.name,
-                ),
-                TriviaQuestion("What relic is this?", item.name, item.icon_url),
+                q
+                for q in [
+                    TriviaQuestion(
+                        f"Name the relic with this description: \n\n`{item.passive}`",
+                        item.name,
+                    )
+                    if (item.passive or "").strip()
+                    else None,
+                    TriviaQuestion("What relic is this?", item.name, item.icon_url),
+                ]
+                if q is not None
             ],
             ItemType.ITEM: list(
                 filter(
@@ -309,18 +322,72 @@ class GodQuestionGenerator(QuestionGenerator):
         return (embed, question, None)
 
     def __init_question_bank(self):
+        """Ask only about what this god actually has.
+
+        The bank used to be a fixed list, which assumed every field Smite 1
+        populates. Smite 2 has no god classes — `role` is None there, and
+        `pros` is empty — so a fixed list crashed on `god.role.name` and would
+        have followed it with a pro question that had no answer. What Smite 2
+        has instead is positions, specs and an Aspect, which are perfectly good
+        questions; they simply are not the same questions.
+        """
         god = self.__god
-        lore = god.lore.replace(god.name, "_____").replace("\\n", "\n")
-        self.__question_bank = [
-            TriviaQuestion(f"Name the god with this lore: \n\n```{lore}```", god.name),
-            TriviaQuestion(f"What pantheon is **{god.name}** a part of?", god.pantheon),
-            TriviaQuestion(f"Which god has the title **{god.title}**?", god.name),
-            TriviaQuestion(
-                f'Name {"one listed" if len(god.pros) > 1 else "the listed"} _pro_ for **{god.name}**.',
-                TriviaAnswer([pro.value.title() for pro in god.pros]),
-            ),
-            TriviaQuestion(f"What role is **{god.name}**?", god.role.name.title()),
-        ]
+        bank: List[TriviaQuestion] = []
+
+        lore = (god.lore or "").replace(god.name, "_____").replace("\\n", "\n")
+        if lore.strip():
+            bank.append(
+                TriviaQuestion(f"Name the god with this lore: \n\n```{lore}```", god.name)
+            )
+        if god.pantheon:
+            bank.append(
+                TriviaQuestion(f"What pantheon is **{god.name}** a part of?", god.pantheon)
+            )
+        if god.title:
+            bank.append(
+                TriviaQuestion(f"Which god has the title **{god.title}**?", god.name)
+            )
+
+        # Smite 1: a class, and the Pros the API lists.
+        if god.pros:
+            bank.append(
+                TriviaQuestion(
+                    f'Name {"one listed" if len(god.pros) > 1 else "the listed"} '
+                    f"_pro_ for **{god.name}**.",
+                    TriviaAnswer([pro.value.title() for pro in god.pros]),
+                )
+            )
+        if god.role is not None:
+            bank.append(
+                TriviaQuestion(f"What role is **{god.name}**?", god.role.name.title())
+            )
+
+        # Smite 2: where a god is played, what it is for, and its Aspect.
+        if god.positions:
+            bank.append(
+                TriviaQuestion(
+                    f'Name {"a" if len(god.positions) > 1 else "the"} position '
+                    f"**{god.name}** is played in.",
+                    TriviaAnswer([p.value.title() for p in god.positions]),
+                )
+            )
+        if god.specs:
+            bank.append(
+                TriviaQuestion(
+                    f'Name {"one" if len(god.specs) > 1 else "the"} thing '
+                    f"**{god.name}** is described as.",
+                    TriviaAnswer(list(god.specs)),
+                )
+            )
+        aspect = getattr(god, "aspect", None)
+        if aspect is not None and aspect.name:
+            bank.append(
+                TriviaQuestion(
+                    f"Which god has the Aspect **{aspect.name}**?", god.name
+                )
+            )
+
+        self.__question_bank = bank
 
     async def generate_skin_question(self):
         skins = list(
@@ -346,6 +413,11 @@ class GodQuestionGenerator(QuestionGenerator):
 
     @staticmethod
     def __generate_abilities_questions(god: God) -> List[TriviaQuestion]:
+        # A god whose abilities failed to parse would otherwise take down the
+        # round on random.choice of an empty list. Smite 1 always has five;
+        # Smite 2's come from a wiki page that could change shape.
+        if not god.abilities:
+            return []
         ability = random.choice(god.abilities)
         cooldown_rank = (
             random.randint(0, len(ability.cooldown_by_rank) - 1)
