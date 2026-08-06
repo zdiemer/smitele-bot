@@ -151,7 +151,9 @@ async def crawl(args) -> int:
             # Budget is in requests; a player now costs up to --pages of
             # them, so the roster is that much shorter. It refills as the
             # snowball discovers people, so an underestimate costs nothing.
-            pending = frontier.select(args.budget // args.pages, today)
+            pending = frontier.select(
+                args.budget // args.pages, today, revisit=args.revisit
+            )
             print(f"  {len(pending):,} players to start with\n")
 
             visited: Set[str] = set()
@@ -215,7 +217,9 @@ async def crawl(args) -> int:
                         pending = [
                             p
                             for p in frontier.select(
-                                max(1, remaining // args.pages), today
+                                max(1, remaining // args.pages),
+                                today,
+                                revisit=args.revisit,
                             )
                             if p.key not in visited
                         ]
@@ -407,6 +411,13 @@ def main() -> int:
         default=0,
         help="with --pages, stop walking back once a player's history reaches "
         "this far, so an inactive account is not paged to the beginning of time",
+    )
+    parser.add_argument(
+        "--revisit",
+        action="store_true",
+        help="re-read players already queried today. Pointless for a nightly "
+        "run, which would just refetch the same page, and necessary for a "
+        "backfill, whose deeper pages have never been read.",
     )
     parser.add_argument("--flush-every", type=int, default=50_000)
     parser.add_argument(

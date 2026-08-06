@@ -164,14 +164,21 @@ class Frontier:
                 if player is not None:
                     player.party_key = label
 
-    def select(self, budget: int, today: str) -> List[Player]:
+    def select(self, budget: int, today: str, revisit: bool = False) -> List[Player]:
         """Tonight's roster.
 
         Order: never-visited players first, because they are the snowball edge
         and the only way the frontier grows; then everyone else by how long it
         has been weighted by what they have historically produced. One member
         per party, since the others return the same matches.
+
+        Someone already read today is skipped, because a second read of their
+        most recent page returns what the first one did. `revisit` lifts that,
+        for a backfill: paging deeper reaches matches no same-day run has seen,
+        so the guard would otherwise leave it with an empty roster.
         """
+        if revisit:
+            today = ""
         seen_parties: Set[str] = set()
         chosen: List[Player] = []
 

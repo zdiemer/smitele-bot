@@ -141,3 +141,41 @@ class TestPageDepth:
         found, fresh, _c, _p, _d = visit(client, pages=1)
 
         assert (found, fresh) == (2, 1)
+
+
+class TestRevisit:
+    """A nightly run skips anyone read today — a second read of their most
+    recent page returns what the first one did. A backfill reads pages nobody
+    has, so the guard would hand it an empty roster and it would do nothing.
+    """
+
+    @staticmethod
+    def frontier_with_one_player_read_today(tmp_path):
+        import frontier as frontier_module
+
+        frontier = frontier_module.Frontier(str(tmp_path))
+        frontier.add("steam", "someone", "2026-08-06")
+        player = next(iter(frontier.players.values()))
+        frontier.record_visit(player, "2026-08-06", 25, 25)
+        return frontier
+
+    def test_a_nightly_run_skips_them(self, tmp_path):
+        frontier = self.frontier_with_one_player_read_today(tmp_path)
+        assert frontier.select(100, "2026-08-06") == []
+
+    def test_a_backfill_reaches_them(self, tmp_path):
+        frontier = self.frontier_with_one_player_read_today(tmp_path)
+        assert len(frontier.select(100, "2026-08-06", revisit=True)) == 1
+
+    def test_revisit_still_takes_one_player_per_party(self, tmp_path):
+        """Premade suppression is not a recency rule and must survive."""
+        import frontier as frontier_module
+
+        frontier = frontier_module.Frontier(str(tmp_path))
+        for handle in ("a", "b"):
+            frontier.add("steam", handle, "2026-08-06")
+        for player in frontier.players.values():
+            frontier.record_visit(player, "2026-08-06", 25, 25)
+        frontier.note_parties({"party-1": {"steam:a", "steam:b"}})
+
+        assert len(frontier.select(100, "2026-08-06", revisit=True)) == 1
