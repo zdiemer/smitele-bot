@@ -49,6 +49,23 @@ STAT_KEYS: Dict[str, ItemAttribute] = {
 # Character.Resource.Primary.X -> what the god actually spends.
 _RESOURCE_TAG = "Character.Resource.Primary."
 
+# Keyword.Scaling.X -> STR, INT or Hybrid. The god's damage stat, which is a
+# different question from `primaryDamageType` and the one that decides what it
+# builds.
+_SCALING_TAG = "Keyword.Scaling."
+
+# ItemStore.Filter.Role.<lane>.<stat> -> the filter the in-game store applies
+# when you open it as that god in that lane. `.Support` comes with no stat
+# suffix, since a support builds protections either way.
+_ROLE_TAG = "ItemStore.Filter.Role."
+
+_SCALING_NAMES: Dict[str, str] = {"str": "str", "int": "int", "hybrid": "hybrid"}
+
+_ROLE_STATS: Dict[str, ItemAttribute] = {
+    "str": ItemAttribute.STRENGTH,
+    "int": ItemAttribute.INTELLIGENCE,
+}
+
 _ABILITY_SECTIONS = ("abilities", "ability")
 _ASPECT_SECTIONS = ("god aspect", "aspect")
 _LORE_SECTIONS = ("lore",)
@@ -117,6 +134,45 @@ def _resource(record: Dict[str, Any]) -> str:
         if text.startswith(_RESOURCE_TAG):
             return text[len(_RESOURCE_TAG) :].split(".")[0].lower()
     return "mana"
+
+
+def _scaling(record: Dict[str, Any]) -> Optional[str]:
+    """The god's damage stat: "str", "int" or "hybrid"."""
+    for tag in record.get("characterTags") or []:
+        text = str(tag)
+        if text.startswith(_SCALING_TAG):
+            name = text[len(_SCALING_TAG) :].split(".")[0].lower()
+            if name in _SCALING_NAMES:
+                return _SCALING_NAMES[name]
+    return None
+
+
+def _role_scaling(record: Dict[str, Any]) -> Dict[PlayerRole, ItemAttribute]:
+    """Per-lane damage stat, out of the store's own role filters.
+
+    A lane the god is not filtered for at all is simply absent, which makes
+    this a better answer to "where is this god played" than the article's two
+    infobox slots: the tags list every lane the game itself offers items for.
+    """
+    out: Dict[PlayerRole, ItemAttribute] = {}
+    for tag in record.get("roleTags") or []:
+        text = str(tag)
+        if not text.startswith(_ROLE_TAG):
+            continue
+        parts = text[len(_ROLE_TAG) :].split(".")
+        lane = parts[0].strip().lower()
+        if lane in ("middle", "mid"):
+            lane = "mid"
+        try:
+            role = PlayerRole(lane)
+        except ValueError:
+            # `.Popular` and friends are not lanes.
+            continue
+        stat = _ROLE_STATS.get(parts[1].strip().lower()) if len(parts) > 1 else None
+        # A lane with no stat suffix (Support) or a Hybrid one still counts as
+        # a lane the god is played in; the stat is just left undecided.
+        out[role] = stat
+    return out
 
 
 def _specs(infobox: Optional[wikitext.Template]) -> List[str]:
@@ -474,6 +530,12 @@ async def load(
         god.resource = _resource(record)
         god.positions = _positions(infobox)
         god.specs = _specs(infobox)
+        god.scaling = _scaling(record)
+        # Deliberately not folded into `positions`: the store offers items for
+        # nearly every lane on nearly every god, so treating these as positions
+        # would say Ymir is played carry. It answers "what does this god build
+        # in lane X", not "is this god played in lane X".
+        god.role_scaling = _role_scaling(record)
 
         # No classes in Smite 2. Deliberately left None rather than mapped onto
         # a GodRole, which means something else — see God.positions.

@@ -3,12 +3,14 @@ import math
 import random
 import sys
 from enum import Enum
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, NamedTuple, Set, Tuple
 
 import pandas as pd
 
 import build_ranker
+import smite2_stats
 from build_optimizer import BuildOptimizer
+from smite2_optimizer import Smite2BuildOptimizer
 from god import God
 from god_types import GodId, GodRole, GodType
 from item import Item, ItemAttribute, ItemType
@@ -40,13 +42,105 @@ class BuildPrioritization(Enum):
     DEFENSE = "defense"
 
 
+class GeneratedBuild(NamedTuple):
+    """One generated build, whatever produced it.
+
+    `relics` carries the starter alongside the relic in Smite 2, because both
+    sit outside the six core slots and both are rendered in the same strip; the
+    embed labels it accordingly.
+
+    `aspect` is Smite 2 only and usually None — 17 gods have no Aspect at all,
+    and a random build rolls whether to use one. It is carried here rather than
+    folded into the description because the embed does two things with it: the
+    words go in the description, and the icon is composited onto the god's.
+    """
+
+    build: List[Item]
+    relics: List[Item]
+    description: str
+    aspect: object = None
+
+
+# Which stats count as offence and which as defence, for `--prioritize`. Smite 1
+# answers this from its own item attributes; Smite 2's vocabulary is different
+# enough — no Physical/Magical Power, and Plated and Dampening are new — that it
+# needs saying separately.
+_POWER_STATS = frozenset(
+    {
+        ItemAttribute.STRENGTH,
+        ItemAttribute.INTELLIGENCE,
+        ItemAttribute.BASIC_ATTACK_POWER,
+        ItemAttribute.ATTACK_SPEED,
+        ItemAttribute.CRITICAL_CHANCE,
+        ItemAttribute.PENETRATION,
+        ItemAttribute.LIFESTEAL,
+        ItemAttribute.ECHO,
+    }
+)
+
+_DEFENSE_STATS = frozenset(
+    {
+        ItemAttribute.HEALTH,
+        ItemAttribute.PHYSICAL_PROTECTION,
+        ItemAttribute.MAGICAL_PROTECTION,
+        ItemAttribute.PLATED,
+        ItemAttribute.DAMPENING,
+        ItemAttribute.TENACITY,
+        ItemAttribute.HP5,
+        ItemAttribute.HEALTH_REGEN,
+    }
+)
+
+
+def _prioritized(items: List[Item], prioritization: BuildPrioritization) -> List[Item]:
+    """Items carrying at least one stat of the requested kind."""
+    wanted = (
+        _POWER_STATS
+        if prioritization is BuildPrioritization.POWER
+        else _DEFENSE_STATS
+    )
+    return [
+        item
+        for item in items
+        if any(p.attribute in wanted for p in item.item_properties or [])
+        # An adaptive item is a damage item whose damage is written in prose.
+        or (
+            prioritization is BuildPrioritization.POWER
+            and smite2_stats.adaptive_stat(item) is not None
+        )
+    ]
+
+
+def _aspect_string(god: God, aspect) -> str:
+    """The Aspect paragraph, or a note that the roll came up without one.
+
+    Said either way on purpose: an Aspect changes how a god plays substantially
+    enough to change its role, so "no Aspect" is information about the build
+    rather than the absence of it.
+    """
+    if aspect is None:
+        if getattr(god, "aspect", None) is None:
+            return ""
+        return f"Played **without an Aspect** — {god.name}'s is optional.\n\n"
+
+    detail = (aspect.description or "").strip()
+    changed = ", ".join(sorted(aspect.changed_abilities or {}))
+    # Every Aspect is named "Aspect of …", so saying "the X Aspect" around it
+    # reads as a stutter.
+    lines = [f"Playing **{aspect.name}**."]
+    if detail:
+        lines.append(f"_{detail}_")
+    if changed:
+        lines.append(f"It changes {god.name}'s {changed}.")
+    return "\n".join(lines) + "\n\n"
+
+
 def summarise_item_properties(build: List[Item]) -> str:
     """Total flat and percentage stats across a build.
 
-    Deliberately plain arithmetic. It is the honest thing to show for a game
-    whose stat model this codebase does not yet implement — see
-    `GodBuilder.__build_stats_string` — and it is also correct for Smite 1,
-    which is why it lives outside the optimizer.
+    Plain arithmetic, correct in both games, and kept as the fallback for a
+    build whose god is not known — `smite2_stats.describe_build` needs the god
+    to resolve adaptive items and to add its base curves.
     """
     flat: Dict[ItemAttribute, float] = {}
     percent: Dict[ItemAttribute, float] = {}
@@ -173,15 +267,23 @@ class BuildOptions:
 
     def validate(self) -> str | None:
         if (
-            self.build_type != BuildCommandType.RANDOM
+            self.build_type
+            not in (BuildCommandType.RANDOM, BuildCommandType.OPTIMIZE)
             and self.prioritization is not None
         ):
-            return "The prioritize option can only be used with the random build type."
+            return (
+                "The prioritize option can only be used with the "
+                "random and optimize build types."
+            )
         if (
-            self.build_type not in (BuildCommandType.TOP, BuildCommandType.ML)
+            self.build_type
+            not in (BuildCommandType.TOP, BuildCommandType.ML, BuildCommandType.OPTIMIZE)
             and self.role is not None
         ):
-            return "The role option can only be used with the top or ML build types."
+            return (
+                "The role option can only be used with the top, ML "
+                "or optimize build types."
+            )
         if self.role is not None and self.queue_id is not None:
             if "CONQUEST" not in getattr(self.queue_id, "name", ""):
                 return (
@@ -230,7 +332,7 @@ class GodBuilder:
 
     def __ml_from_aggregate(
         self, build_options: BuildOptions, stats
-    ) -> Tuple[List[Item], List[Item], str]:
+    ) -> GeneratedBuild:
         """Pick a build from the precomputed per-build win counts."""
         god = self.__gods[build_options.god_id]
         queue_id = (
@@ -320,24 +422,27 @@ class GodBuilder:
             f"**{int(best['avg_kills'])}/{int(best['avg_deaths'])}/"
             f"{int(best['avg_assists'])}**, dealing an average "
             f"**{int(best['avg_damage']):,}** player damage.\n\n"
-            f"{self.__build_stats_string(optimizer, build)}"
+            f"{self.__build_stats_string(optimizer, build, god)}"
         )
 
-        return (build, relics, desc)
+        return GeneratedBuild(build, relics, desc)
 
-    def __build_stats_string(self, optimizer: BuildOptimizer, build: List[Item]) -> str:
+    def __build_stats_string(
+        self, optimizer: BuildOptimizer, build: List[Item], god: God = None
+    ) -> str:
         """What a build gives you, in whichever terms the game uses.
 
-        Smite 1 goes through the optimizer, which knows its protection and
-        power formulas. Smite 2 replaced Physical/Magical Power with Strength
-        and Intelligence and changed the mitigation maths entirely, so running
-        those formulas over its items would produce confident nonsense. Until
-        that model is rewritten this simply sums what the items provide, which
-        is true in both games.
+        Each game has its own model, because they are different games: Smite 1
+        has Physical/Magical Power and a 325 protection cap, Smite 2 has
+        Strength and Intelligence, per-stat caps and a different mitigation
+        curve. Running either game's formulas over the other's items produces
+        confident nonsense.
         """
         if self.__provider.game is Game.SMITE:
             return optimizer.get_build_stats_string(build)
-        return summarise_item_properties(build)
+        if god is None:
+            return summarise_item_properties(build)
+        return smite2_stats.describe_build(god, build)
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
         return list(
@@ -363,63 +468,97 @@ class GodBuilder:
             )
         )
 
-    def __random_smite2(
-        self, build_options: BuildOptions
-    ) -> Tuple[List[Item], List[Item], str]:
-        """A random Smite 2 build: six core items, a starter and a relic.
+    def __random_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
+        """A random Smite 2 build: six core items, a starter, a relic, an Aspect.
 
         The Smite 1 path cannot be reused. It selects relics by
         `root_item_id == 23795` and `tier == 4 and price == 500`, excludes two
         items by literal id, and special-cases Ratatoskr's acorn — every one of
-        those is a Smite 1 fact, and none of them matches anything in Smite 2's
-        catalogue, so it raised on an empty sequence.
+        those is a Smite 1 fact, none matches anything in Smite 2's catalogue,
+        and it raised on an empty sequence.
 
-        This is deliberately simple. It biases toward the god's damage stat and
-        stops there, because ranking a build properly needs the stat model that
-        `build_optimizer` implements for Smite 1 and nobody has yet written for
-        Smite 2 — see `summarise_item_properties`.
+        Random, but not arbitrary. The lane is rolled first, out of the lanes
+        the god is actually played in, and everything else follows from it: the
+        optimizer's shortlist for that lane is sampled rather than its single
+        best answer, so a jungle Thor and a solo Thor come back looking like a
+        jungler and a solo laner respectively, and neither looks the same twice.
+
+        Rolling the lane is the part that makes this worth doing. A Smite 2 god
+        is far less pinned down than a Smite 1 one — no class, one or two
+        published lanes, and a damage stat that can differ between them — so
+        "which lane" is the biggest real choice available, and the previous
+        version made none of it.
         """
         god = self.__gods[build_options.god_id]
-        catalogue = list(self.__items.values())
 
-        wanted = (
-            ItemAttribute.INTELLIGENCE
-            if god.type is GodType.MAGICAL
-            else ItemAttribute.STRENGTH
-        )
+        role = build_options.role or self.__random_role(god)
+        optimizer = Smite2BuildOptimizer(god, self.__items, role=role)
 
-        def provides(item: Item, attribute: ItemAttribute) -> bool:
-            return any(p.attribute is attribute for p in item.item_properties or [])
-
-        core = [i for i in catalogue if i.tier >= 3 and i.active]
-        # Prefer items carrying the god's damage stat, but fall back to the
-        # whole tier-3 pool rather than failing if that leaves too few.
-        preferred = [i for i in core if provides(i, wanted)]
-        pool = preferred if len(preferred) >= 6 else core
+        pool = optimizer.core_items()
+        if build_options.prioritization is not None:
+            pool = _prioritized(pool, build_options.prioritization)
+        if build_options.stat is not None:
+            pool = [
+                item
+                for item in pool
+                if any(
+                    p.attribute is build_options.stat
+                    for p in item.item_properties or []
+                )
+            ]
         if len(pool) < 6:
             raise BuildFailedError
 
-        build = random.sample(pool, 6)
+        build = optimizer.sample(6, pool=pool)
+        if len(build) < 6:
+            raise BuildFailedError
 
-        starters = [i for i in catalogue if i.is_starter and i.active]
-        relics = [i for i in catalogue if i.type is ItemType.RELIC and i.active]
-
-        chosen_relics = []
-        if starters:
-            chosen_relics.append(random.choice(starters))
+        # Starter and relic are rolled the same way — shortlisted by the same
+        # scoring, then picked from — so a support does not open on a carry's
+        # starter.
+        extras: List[Item] = []
+        starter = optimizer.sample(1, pool=optimizer.starters())
+        if starter:
+            extras.extend(starter)
+        relics = optimizer.relics()
         if relics:
-            chosen_relics.append(random.choice(relics))
+            extras.append(random.choice(relics))
+
+        # The Aspect is a coin flip because that is the choice the game offers:
+        # it is picked once at god select and cannot be changed, and playing
+        # without one is a real option rather than a worse one.
+        aspect = None
+        if getattr(god, "aspect", None) is not None and random.random() < 0.5:
+            aspect = god.aspect
+
+        stat_line = ""
+        if build_options.stat is not None:
+            stat_line = f", built around {build_options.stat.display_name}"
+        elif build_options.prioritization is not None:
+            stat_line = f", leaning {build_options.prioritization.value}"
 
         desc = (
-            "here's your random build!\n\n"
-            f"{summarise_item_properties(build)}\n\n"
-            "_Smite 2 builds are drawn at random from items matching "
-            f"{god.name}'s damage type — there's no build optimizer for "
-            "Smite 2's stat model yet._"
+            f"here's a random **{role.value.title()}** build for {god.name}"
+            f"{stat_line}!\n\n"
+            f"{_aspect_string(god, aspect)}"
+            f"{smite2_stats.describe_build(god, build + extras)}"
         )
-        return (build, chosen_relics, desc)
+        return GeneratedBuild(build, extras, desc, aspect)
 
-    def random(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
+    def __random_role(self, god: God) -> PlayerRole:
+        """A lane this god is actually played in.
+
+        The article's published positions first, then the lanes the in-game item
+        store offers this god a filter for, which covers gods too new to have
+        been written up. Mid last of all, as a neutral answer rather than no
+        answer.
+        """
+        positions = list(getattr(god, "positions", None) or [])
+        if not positions:
+            positions = list((getattr(god, "role_scaling", None) or {}).keys())
+        return random.choice(positions) if positions else PlayerRole.MID
+
+    def random(self, build_options: BuildOptions) -> GeneratedBuild:
         if self.__provider.game is not Game.SMITE:
             return self.__random_smite2(build_options)
 
@@ -564,7 +703,7 @@ class GodBuilder:
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return (build, relics, desc)
+        return GeneratedBuild(build, relics, desc)
 
     def __find_team_in_frame(
         self,
@@ -630,7 +769,7 @@ class GodBuilder:
             found_type_match,
         )
 
-    def ml(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
+    def ml(self, build_options: BuildOptions) -> GeneratedBuild:
         # The aggregate is the intended path: it covers the whole corpus, which
         # is far too large to hold as rows. The raw-frame version below remains
         # for installs where no aggregate has been built yet, and for the team
@@ -993,7 +1132,7 @@ class GodBuilder:
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return (build, relics, desc)
+        return GeneratedBuild(build, relics, desc)
 
     async def top(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
         god = self.__gods[build_options.god_id]
@@ -1099,7 +1238,10 @@ class GodBuilder:
 
         return (build, desc)
 
-    async def optimize(self, build_options: BuildOptions) -> Tuple[List[Item], str]:
+    async def optimize(self, build_options: BuildOptions) -> GeneratedBuild:
+        if self.__provider.game is not Game.SMITE:
+            return self.__optimize_smite2(build_options)
+
         god = self.__gods[build_options.god_id]
         items_for_god = self.get_valid_items_for_god(god)
         optimizer = BuildOptimizer(god, items_for_god, self.__items)
@@ -1145,7 +1287,15 @@ class GodBuilder:
                 f"{random_mage.god.name}, and {random_warrior.god.name}. "
             )
         else:
-            build = random.choice(builds)
+            # Previously `random.choice(builds)`, which is why only hunters
+            # were ever really optimized: every other role searched hundreds of
+            # thousands of combinations, kept the thousands that cleared its
+            # stat targets, and then picked one at random — so a guardian's
+            # build was arbitrary among the merely adequate, and asking twice
+            # gave two different answers with no sense in which either was
+            # better. Ranking by the archetype's own weights is what makes a
+            # tank's build the tankiest one available rather than a coin toss.
+            build = optimizer.rank_builds(builds)[0]
 
         ttk_str = ""
         if min_ttk < sys.maxsize:
@@ -1167,7 +1317,62 @@ class GodBuilder:
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return (build, desc)
+        return GeneratedBuild(build, [], desc)
+
+    def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
+        """The best Smite 2 build this model can find for a god in a lane.
+
+        Pure stat arithmetic, like the Smite 1 path and unlike `/build`: it
+        reads the item catalogue and nothing else. No aggregate, no match
+        history, no win rates — which is exactly why it can answer for a god
+        nobody has played, and why it keeps working when the corpus does not.
+
+        No search over combinations and no time-to-kill simulation, which is
+        what makes the Smite 1 path slow: `Smite2BuildOptimizer` scores a build
+        against the stat targets for that lane, so the answer comes from a few
+        thousand evaluations rather than millions.
+
+        The Aspect is stated rather than rolled here. `/optimize` is asked for
+        one answer, and the honest one for a god with an Aspect is that the
+        model has nothing to say about it — an Aspect changes ability behaviour
+        the item model never sees.
+        """
+        god = self.__gods[build_options.god_id]
+        role = build_options.role
+        optimizer = Smite2BuildOptimizer(god, self.__items, role=role)
+
+        pool = optimizer.core_items()
+        if build_options.prioritization is not None:
+            pool = _prioritized(pool, build_options.prioritization)
+        if build_options.stat is not None:
+            pool = [
+                item
+                for item in pool
+                if any(
+                    p.attribute is build_options.stat
+                    for p in item.item_properties or []
+                )
+            ]
+        if len(pool) < 6:
+            raise BuildFailedError
+
+        build = optimizer.optimize(6, pool=pool)
+        if len(build) < 6:
+            raise BuildFailedError
+
+        extras: List[Item] = []
+        starter = optimizer.best_starter()
+        if starter is not None:
+            extras.append(starter)
+
+        desc = (
+            f"here's your number crunched **{optimizer.role.value.title()}** "
+            f"build for {god.name}, built around "
+            f"**{optimizer.damage_stat.display_name}** for "
+            f"{smite2_stats.total_cost(build + extras):,} gold.\n\n"
+            f"{smite2_stats.describe_build(god, build + extras)}"
+        )
+        return GeneratedBuild(build, extras, desc)
 
     async def _get_random_god_by_role(
         self, role: GodRole, queue_id: QueueId

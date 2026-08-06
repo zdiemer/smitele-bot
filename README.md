@@ -31,18 +31,43 @@ Smite-1-only rather than broken.
 |---|---|---|
 | `/smitele`, `/trivia`, `$god`, `$item` | ✅ | ✅ from the wiki |
 | `/build`, `/edge` | ✅ | ✅ once the crawl and aggregate have run |
-| `/random_build` | ✅ | ⚠️ reduced — see below |
+| `/random_build` | ✅ | ✅ |
+| `/optimize` | ✅ | ✅ |
 | `/queue_stats`, `/rank`, `/worshippers`, `/match_history`, `/first_match` | ✅ Hi-Rez | ✅ tracker.gg, per player |
 | `/live_match` | ✅ | ❌ tracker.gg does not expose the lobby |
 
-Two Smite 2 gaps are deliberate. `/random_build` does not use the build
-optimizer and `$god -b` does not show derived combat numbers, because
-`stat_calculator` and `build_optimizer` encode Smite 1's stat model — Physical
-and Magical Power, its protection and mitigation formulas, a 130-entry archetype
-table keyed on `GodId`. Smite 2 replaced Power with Strength and Intelligence
-and changed the formulas, so running those over its items would produce
-confident nonsense. Both show summed item stats instead, which is true in either
-game, until that model is rewritten.
+### `/build` versus `/optimize`
+
+They answer different questions and neither substitutes for the other.
+`/build` answers **what wins**: it reads the aggregate over real matches, so it
+needs a corpus and says nothing about a god nobody has played lately.
+`/optimize` answers **what should work**: it reads the item catalogue and
+nothing else — no match history, no win rates — so it always has an answer, for
+any god, in any lane, in either game.
+
+Each game has its own model, because they are different games. Smite 1 keeps
+`stat_calculator` and `build_optimizer`: Physical and Magical Power, a 325
+protection cap, and an archetype table keyed on `GodId`. Smite 2 has
+`smite2_stats` and `smite2_optimizer`: Strength and Intelligence, per-stat caps,
+and the mitigation, cooldown-rate and penetration formulas from
+`wiki.smite2.com/w/Stats`. Running either game's formulas over the other's items
+produces confident nonsense, which is why there are two.
+
+Smite 2's optimizer aims at a stat *shape* per lane and damage stat — how much
+Intelligence, penetration and cooldown rate a mid build wants, and so on. Those
+targets were calibrated once against the corpus and are static constants; the
+command itself never reads match data. `src/tools/smite2_accuracy.py` measures
+how close its picks land to what actually wins, for anyone changing the model:
+
+```sh
+python src/tools/smite2_accuracy.py --aggregate /matchdata/smite2
+```
+
+It currently shares a mean of **1.95 of 6 items** with the six most-won items
+per god in Conquest, over the 56 gods with enough recorded wins to compare. The
+gap is mostly item passives — an execute threshold or a cooldown refund is a
+large part of why the corpus prefers an item, and the model reads only the parts
+of a passive written as stats.
 
 The bot reads the corpus the collector writes: `SmiteProvider` loads every file
 into a pandas DataFrame and refreshes on a loop, which is what backs the

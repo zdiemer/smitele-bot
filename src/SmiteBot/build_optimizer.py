@@ -8,7 +8,7 @@ from god import God
 from god_types import GodId, GodPro, GodRole, GodType
 from item import Item, ItemAttribute, ItemProperty
 from passive_parser import PassiveAttribute
-from stat_calculator import BuildStatCalculator, GodBuild, _Penetration
+from stat_calculator import BuildStatCalculator, GodBuild, _Penetration, _Stats
 from HirezAPI import QueueId
 
 
@@ -44,6 +44,17 @@ def compute_item_price(item: Item, all_items: Dict[int, Item]) -> int:
     return total_price
 
 
+# How many combinations to check between yields to the event loop. The search
+# runs inside the bot's process, so it has to let other commands through; it
+# does not have to do so half a million times.
+_YIELD_EVERY = 2048
+
+# How many equally-close builds to keep when nothing meets every target. Enough
+# to choose between, small enough that a search meeting none of them does not
+# accumulate a million builds.
+_NEAR_MISS_LIMIT = 200
+
+
 class BuildArchetype(Enum):
     # Assassin Archetypes
     ABILITY_BASED_ASSASSIN = 1
@@ -62,7 +73,12 @@ class BuildArchetype(Enum):
     # Hunter Archetypes
     CARRY_HUNTER = 10
     ABILITY_BASED_HUNTER = 11
-    ATTACK_SPEED_STIM_HUNTER = 23
+    # 23 was a copy of HEALER_GUARDIAN's value, which does not make two
+    # archetypes — an Enum turns the second name into an alias for the first, so
+    # this *was* HEALER_GUARDIAN, and `ATTACK_SPEED_STIM_HUNTER.name` returned
+    # "HEALER_GUARDIAN". No god maps to it today, so nothing was built as a
+    # healer by mistake; the next one to be added would have been.
+    ATTACK_SPEED_STIM_HUNTER = 26
 
     # Mage Archetypes
     MID_MAGE = 12
@@ -305,7 +321,18 @@ class BuildOptimizer:
         self.__init_archetype_passive_wishlist()
         self.__init_archetype_stat_targets()
         self.__init_archetype_weight_mappings()
+        # SUPPORT_ASSASSIN, MID_ASSASSIN and MID_GUARDIAN are declared but given
+        # neither stat targets nor weights, so a god mapped to one would raise a
+        # KeyError deep inside the search rather than at construction. Nothing
+        # maps to them today; this keeps that true if something ever does.
+        if (
+            self.__current_archetype not in self.__archetype_stat_targets
+            or self.__current_archetype not in self.__archetype_weight_mappings
+        ):
+            self.__current_archetype = BuildArchetype.default_archetype(self.god.role)
         self.__init_level_20_stats()
+        self.__item_stats_cache: Dict[int, _Stats] = {}
+        self.__item_scores = {}
         if stat is not None:
             self.__init_stat(stat.lower())
 
@@ -1024,12 +1051,89 @@ class BuildOptimizer:
                 ) * pct_weight
         return score
 
+    def __item_stats(self, item: Item) -> _Stats:
+        """One item's contribution, computed once and kept.
+
+        `optimize` asks for this hundreds of thousands of times across a search
+        — the same few dozen items, over and over — and rebuilding it from the
+        item's properties each time was the single largest cost in the walk.
+        """
+        cached = self.__item_stats_cache.get(item.id)
+        if cached is None:
+            cached = BuildStatCalculator(
+                GodBuild(self.god, [item], 20)
+            ).calculate_item_stats(item)
+            self.__item_stats_cache[item.id] = cached
+        return cached
+
+    def __build_stats(self, build) -> _Stats:
+        """The cached per-item stats of a build, summed into a fresh total.
+
+        Fresh on purpose. `_Stats.merge` adopts the other side's `_Penetration`
+        object rather than copying it when it holds none of its own, so merging
+        straight out of the cache would leave two builds sharing one mutable
+        object and the second would read the first's penetration.
+        """
+        total = _Stats()
+        for item in build:
+            source = self.__item_stats(item)
+            for stat, value in source.stats.items():
+                if isinstance(value, _Penetration):
+                    value = _Penetration(value.flat, value.percent)
+                total.add_or_set_stat(stat, value)
+        return total
+
+    def __target_vectors(
+        self, pool: List[Item], stat_targets: Dict[ItemAttribute, float] = None
+    ):
+        """The stat targets as arithmetic: one row per item, one goal vector.
+
+        A pre-filter, not a replacement. Summing six short rows and comparing
+        against a vector settles the stat targets for a combination in about a
+        microsecond, and only the fraction that clears every one of them — half
+        a percent, typically — needs the real check, which also has to weigh
+        overcapping, the god's own level-20 stats and the passive wishlist and
+        is far too intricate to be worth duplicating in two forms that could
+        drift apart.
+
+        Penetration occupies two columns, flat and percent, because its target
+        is a pair and both halves have to be met.
+        """
+        stat_targets = (
+            stat_targets or self.__archetype_stat_targets[self.__current_archetype]
+        )
+        columns: List[Tuple[ItemAttribute, str]] = []
+        goals: List[float] = []
+        for stat, target in stat_targets.items():
+            if isinstance(target, tuple):
+                columns.append((stat, "flat"))
+                goals.append(float(target[0]))
+                columns.append((stat, "percent"))
+                goals.append(float(target[1]))
+            else:
+                columns.append((stat, "flat"))
+                goals.append(float(target))
+
+        rows: Dict[int, List[float]] = {}
+        for item in pool:
+            stats = self.__item_stats(item)
+            row = []
+            for stat, kind in columns:
+                if stat not in stats.stats:
+                    row.append(0.0)
+                    continue
+                value = stats.get_stat(stat)
+                if isinstance(value, _Penetration):
+                    row.append(float(value.flat if kind == "flat" else value.percent))
+                else:
+                    row.append(float(value) if kind == "flat" else 0.0)
+            rows[item.id] = row
+        return rows, goals
+
     def __check_build_on_target(
         self, build: List[Item], stat_targets: Dict[ItemAttribute, float] = None
     ) -> bool:
-        stats = BuildStatCalculator(
-            GodBuild(self.god, build, 20)
-        ).calculate_build_stats()
+        stats = self.__build_stats(build)
         stat_targets = (
             stat_targets or self.__archetype_stat_targets[self.__current_archetype]
         )
@@ -1194,55 +1298,97 @@ class BuildOptimizer:
         all_non_glyph_items = self.filter_glyph_parent(items)
 
         viable_builds: List[List[Item]] = []
+        # Best-effort runners-up: how many targets each build did meet, so a
+        # search that satisfies nothing still has something to answer with.
+        near_misses: List[Tuple[int, List[Item]]] = []
+        best_met = -1
+
+        iterations = 0
+
+        pool = list({item.id: item for item in rated_items + starters}.values())
+        rows, goals = self.__target_vectors(pool, stat_targets)
+        width = len(goals)
 
         async def check_combinations(
             existing_build: FrozenSet[Item], combo_items: List[Item], size: int
         ) -> int:
-            build_n = 1
-            combinations = itertools.combinations(combo_items, size)
-            for combo in combinations:
-                await asyncio.sleep(0)
-                next_items = frozenset(combo)
-                item_build = existing_build.union(next_items)
+            nonlocal best_met
+            build_n = 0
+            base = [0.0] * width
+            for item in existing_build:
+                row = rows[item.id]
+                base = [a + b for a, b in zip(base, row)]
+
+            for combo in itertools.combinations(combo_items, size):
                 build_n += 1
-                if self.__check_build_on_target(item_build, stat_targets):
-                    viable_builds.append(list(item_build))
+                # Yielding once per combination cost more than the work between
+                # yields — an await on a ready coroutine still round-trips the
+                # event loop, and there are hundreds of thousands of them. A
+                # batch is often enough to keep the bot answering.
+                if build_n % _YIELD_EVERY == 0:
+                    await asyncio.sleep(0)
+
+                totals = list(base)
+                for item in combo:
+                    row = rows[item.id]
+                    for index in range(width):
+                        totals[index] += row[index]
+
+                met = 0
+                for index in range(width):
+                    if totals[index] >= goals[index]:
+                        met += 1
+
+                if met == width:
+                    item_build = existing_build.union(frozenset(combo))
+                    if self.__check_build_on_target(item_build, stat_targets):
+                        viable_builds.append(list(item_build))
+                        continue
+                elif viable_builds:
+                    continue
+
+                if not viable_builds and met >= best_met:
+                    if met > best_met:
+                        best_met = met
+                        near_misses.clear()
+                    if len(near_misses) < _NEAR_MISS_LIMIT:
+                        near_misses.append(
+                            (met, list(existing_build.union(frozenset(combo))))
+                        )
             return build_n
 
-        build_size = 5
-        iterations = 0
+        # Five items and a starter.
         for starter in starters:
             starter_build: FrozenSet[Item] = frozenset([starter])
             for glyph in glyphs:
-                glyph_build = starter_build.union(frozenset([glyph]))
-                non_glyph_items = self.filter_glyph_parent(items, glyph)
-                build_n = await check_combinations(
-                    glyph_build, non_glyph_items, build_size - 1
+                iterations += await check_combinations(
+                    starter_build.union(frozenset([glyph])),
+                    self.filter_glyph_parent(items, glyph),
+                    4,
                 )
-                iterations += build_n
-                print(f"Iterated {iterations} times...")
-            build_n = await check_combinations(
-                starter_build, all_non_glyph_items, build_size
+            iterations += await check_combinations(
+                starter_build, all_non_glyph_items, 5
             )
-            iterations += build_n
-            print(f"Iterated {iterations} times...")
 
-        build_size = 6
+        # Six items and no starter. The glyph-free case used to be enumerated
+        # as "every item, plus five of the others", which produces each
+        # six-item set once per member of it — six times over, six times the
+        # work, and six copies of every viable build in the result.
         for glyph in glyphs:
-            non_glyph_items = self.filter_glyph_parent(items, glyph)
-            build_n = await check_combinations(
-                frozenset([glyph]), non_glyph_items, build_size - 1
+            iterations += await check_combinations(
+                frozenset([glyph]), self.filter_glyph_parent(items, glyph), 5
             )
-            iterations += build_n
-            print(f"Iterated {iterations} times...")
-        for idx, item in enumerate(all_non_glyph_items):
-            non_self_items = all_non_glyph_items.copy()
-            non_self_items.pop(idx)
-            build_n = await check_combinations(
-                frozenset([item]), non_self_items, build_size - 1
-            )
-            iterations += build_n
-            print(f"Iterated {iterations} times...")
+        iterations += await check_combinations(frozenset(), all_non_glyph_items, 6)
+
+        if not viable_builds and near_misses:
+            # Nothing met every target. That is the normal outcome for several
+            # archetypes rather than a rare one — the targets were written per
+            # archetype and never checked against a build that could hold them
+            # all at once — so the closest builds are the answer instead of
+            # failing outright after two minutes of searching.
+            viable_builds = [build for _, build in near_misses]
+
+        print(f"Iterated {iterations} times...")
 
         for build in viable_builds:
             starter_idx = 0
@@ -1275,6 +1421,37 @@ class BuildOptimizer:
             for evo in reversed(evos):
                 build.insert(1, evo)
         return (viable_builds, iterations)
+
+    def score_build(self, build: List[Item]) -> float:
+        """How well a build serves this god's archetype.
+
+        The same weighted stat scoring that ranks individual items, summed. It
+        is what separates two builds that both clear the archetype's targets:
+        for a support that means the one with more protections and health, for
+        a mid mage the one with more power and penetration, because that is
+        what those archetypes weight.
+
+        Cheap, deterministic, and defined for every role — which matters
+        because time-to-kill is not. That simulation swings basic attacks until
+        the defender dies, so it says something real about a hunter and very
+        little about a guardian who is not trying to auto-attack anyone.
+        """
+        weights = self.__get_weights()
+        total = 0.0
+        for item in build:
+            score = self.__item_scores.get(item.id)
+            if score is None:
+                # Not every item in a build was in `valid_items` — a starter
+                # often is not — so an unscored one is scored now rather than
+                # silently counting for nothing.
+                score = self.__compute_item_score(item, weights)
+                self.__item_scores[item.id] = score
+            total += score
+        return total
+
+    def rank_builds(self, builds: List[List[Item]]) -> List[List[Item]]:
+        """Viable builds, best for this archetype first."""
+        return sorted(builds, key=self.score_build, reverse=True)
 
     def compute_build_stats(
         self, items: List[Item]

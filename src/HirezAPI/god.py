@@ -268,6 +268,21 @@ class God(object):
     positions: List = []
     specs: List[str] = []
 
+    # Which damage stat the god's kit is built around: "str", "int" or "hybrid",
+    # from the `Keyword.Scaling.X` character tag. This is emphatically *not*
+    # `type`, which is the damage its attacks deal — Smite 2 states outright
+    # that a Strength god need not deal physical damage, and the corpus agrees:
+    # Neith and Danzaburou both have physical basic attacks and both are built
+    # with Intelligence in the lanes they are played in.
+    scaling: str = None
+
+    # Which stat the god builds *per lane*, from the `ItemStore.Filter.Role.X.Y`
+    # tags the game uses to filter its own item store. A hybrid god is genuinely
+    # two different builds depending on where it is played — Danzaburou is
+    # Strength in the carry lane and Intelligence in mid — and this is the only
+    # published statement of which is which.
+    role_scaling: dict = {}
+
     # Smite 2's resource is a characterTag rather than a hardcoded exception
     # list. "mana" for almost everyone; rage, spirit, omi and health for the
     # handful that differ.

@@ -43,6 +43,7 @@ from god_builder import (
     BuildFailedError,
     BuildPrioritization,
     BuildOptions,
+    GeneratedBuild,
     GodBuilder,
     InvalidOptionError,
 )
@@ -701,7 +702,7 @@ class Smitele(commands.Cog):
                         title="Finding you a build with those settings.",
                     )
                 )
-                build, relics, desc = god_builder.ml(build_options)
+                generated = god_builder.ml(build_options)
             except BuildFailedError:
                 await self.__send_invalid(
                     ctx,
@@ -710,11 +711,9 @@ class Smitele(commands.Cog):
                 return
 
             await self.__send_generated_build(
-                build,
+                generated,
                 ctx,
-                desc,
                 provider.gods[build_options.god_id],
-                relics,
                 provider=provider,
                 no_god_specified=build_options.was_random_god(),
                 no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
@@ -778,7 +777,7 @@ class Smitele(commands.Cog):
                 )
             )
 
-            build, relics, desc = god_builder.random(build_options)
+            generated = god_builder.random(build_options)
         except BuildFailedError:
             await self.__send_invalid(
                 ctx,
@@ -788,15 +787,102 @@ class Smitele(commands.Cog):
             return
 
         await self.__send_generated_build(
-            build,
+            generated,
             ctx,
-            desc,
             provider.gods[build_options.god_id],
-            relics,
             provider=provider,
             no_god_specified=build_options.was_random_god(),
         )
         return
+
+    @commands.slash_command(
+        name="optimize",
+        description="Build a god from the stat model, rather than from match data",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="god_name",
+        type=str,
+        description="The god to build",
+        required=True,
+        autocomplete=god_autocomplete,
+    )
+    @discord.option(
+        name="role",
+        type=str,
+        description="The lane to build for, defaults to where the god is usually played",
+        choices=[p.value.title() for p in list(PlayerRole)],
+        default="",
+    )
+    @discord.option(
+        name="prioritize",
+        type=str,
+        description="Bias the build toward offence or defence",
+        choices=[p.value.lower() for p in list(BuildPrioritization)],
+        default="",
+    )
+    @game_option
+    async def optimize(
+        self,
+        ctx: discord.ApplicationContext,
+        god_name: str,
+        role: str,
+        prioritize: str,
+        game: str,
+    ):
+        """A build computed from what the items do, not from what people played.
+
+        The counterpart to `/build`: that one answers "what wins", out of the
+        corpus, and needs a corpus to answer at all. This one answers "what
+        should work", so it has something to say about a god nobody has played
+        recently, a lane nobody plays them in, or a game whose corpus is still
+        thin.
+        """
+        provider = self.provider(ctx, game)
+        build_options = BuildOptions(
+            build_type=BuildCommandType.OPTIMIZE, provider=provider
+        )
+
+        try:
+            build_options.set_option("-g", god_name)
+        except InvalidOptionError:
+            await self.__send_invalid(ctx, f"{god_name} is not a God.")
+            return
+
+        if role:
+            build_options.set_option("-r", role)
+        if prioritize:
+            build_options.set_option("-p", prioritize)
+
+        god_builder = GodBuilder(provider.gods, provider.items, provider)
+
+        # Smite 1's optimizer searches combinations and simulates time-to-kill
+        # against five gods, which is seconds of work rather than milliseconds.
+        # Typing plus a deferred response is what keeps Discord's three-second
+        # acknowledgement window from expiring underneath it.
+        async with ctx.channel.typing():
+            try:
+                await ctx.respond(
+                    embed=discord.Embed(
+                        color=discord.Color.yellow(),
+                        title=f"Crunching the numbers on {provider.gods[build_options.god_id].name}.",
+                    )
+                )
+                generated = await god_builder.optimize(build_options)
+            except BuildFailedError:
+                await self.__send_invalid(
+                    ctx,
+                    "Couldn't put a build together with those options. "
+                    "Try dropping the prioritize filter?",
+                )
+                return
+
+        await self.__send_generated_build(
+            generated,
+            ctx,
+            provider.gods[build_options.god_id],
+            provider=provider,
+        )
 
     @commands.slash_command(
         name="set_game",
@@ -1607,18 +1693,16 @@ class Smitele(commands.Cog):
 
     async def __send_generated_build(
         self,
-        build: List[Item],
+        generated: GeneratedBuild,
         ctx: discord.ApplicationContext,
-        extended_desc: str,
         god: God,
-        relics: List[Item] = None,
         provider: GameProvider = None,
         no_god_specified: bool = False,
         no_god_specified_override: str = None,
     ):
-        cache_parts = paths.game_cache_parts(
-            provider.game if provider is not None else Game.SMITE
-        )
+        build, relics, extended_desc, aspect = generated
+        game = provider.game if provider is not None else Game.SMITE
+        cache_parts = paths.game_cache_parts(game)
         with await self.__make_build_image(build) as build_bytes:
             desc = f"Hey {ctx.user.mention}, {extended_desc}"
             file_bytes = build_bytes
@@ -1652,15 +1736,28 @@ class Smitele(commands.Cog):
             files = [discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)]
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
             await self.__attach_thumbnail(
-                embed, files, god.icon_url, *cache_parts, "gods", "icons"
+                embed,
+                files,
+                god.icon_url,
+                *cache_parts,
+                "gods",
+                "icons",
+                badge_url=aspect.icon_url if aspect is not None else None,
+                badge_parts=(*cache_parts, "gods", "aspects"),
             )
             embed.add_field(
                 name="Items", value=", ".join([item.name for item in build])
             )
             if relics is not None and any(relics):
+                # In Smite 2 this strip is the starter and the relic. They are
+                # different kinds of thing but they share a row, and calling it
+                # "Relics" there would name the starter wrongly.
                 embed.add_field(
-                    name="Relics", value=", ".join([item.name for item in relics])
+                    name="Relics" if game is Game.SMITE else "Starter & Relic",
+                    value=", ".join([item.name for item in relics]),
                 )
+            if aspect is not None:
+                embed.add_field(name="Aspect", value=aspect.name)
             if no_god_specified:
                 embed.set_footer(
                     text=no_god_specified_override
@@ -1674,6 +1771,8 @@ class Smitele(commands.Cog):
         files: List[discord.File],
         url: str,
         *cache_parts: str,
+        badge_url: str = None,
+        badge_parts: Tuple[str, ...] = (),
     ) -> None:
         """Upload an icon and point the embed's thumbnail at the attachment.
 
@@ -1699,8 +1798,13 @@ class Smitele(commands.Cog):
 
         try:
             with Image.open(icon) as image:
+                composed = image.convert("RGBA")
+                if badge_url:
+                    composed = await self.__badge_icon(
+                        composed, badge_url, *badge_parts
+                    )
                 normalised = io.BytesIO()
-                image.convert("RGBA").save(normalised, format="PNG")
+                composed.save(normalised, format="PNG")
                 normalised.seek(0)
         except Exception as ex:  # pylint: disable=broad-except
             print(f"Could not re-encode thumbnail {url}: {ex}")
@@ -1711,6 +1815,62 @@ class Smitele(commands.Cog):
         name = f"thumb{len(files)}.png"
         files.append(discord.File(normalised, filename=name))
         embed.set_thumbnail(url=f"attachment://{name}")
+
+    # How much of the god's icon the Aspect badge takes up, and how thick its
+    # outline is as a fraction of the badge.
+    ASPECT_BADGE_SCALE: float = 0.42
+    ASPECT_BADGE_BORDER: float = 0.08
+
+    async def __badge_icon(
+        self, icon: Image.Image, badge_url: str, *cache_parts: str
+    ) -> Image.Image:
+        """The god's icon with an Aspect's icon set into its corner.
+
+        One picture rather than two, because the thumbnail is the only image
+        slot an embed has and the Aspect is part of which god this is: an
+        Anubis with one is not the same character as an Anubis without. The
+        badge is outlined so it reads as deliberate at thumbnail size, where
+        two art styles butting against each other otherwise looks like a
+        rendering fault.
+
+        Failure is not fatal. A missing or undecodable Aspect icon returns the
+        god's icon untouched, because a build embed without a badge is a small
+        loss and no embed at all is a large one.
+        """
+        try:
+            badge_bytes = await art_cache.fetch(
+                badge_url, *cache_parts, art_cache.cache_key(badge_url)
+            )
+            if not art_cache.looks_like_image(badge_bytes.getvalue()):
+                return icon
+            with Image.open(badge_bytes) as raw:
+                badge = raw.convert("RGBA")
+        except Exception as ex:  # pylint: disable=broad-except
+            print(f"Could not load Aspect icon {badge_url}: {ex}")
+            return icon
+
+        size = max(16, int(min(icon.size) * self.ASPECT_BADGE_SCALE))
+        badge = badge.resize((size, size), Image.LANCZOS)
+
+        # A circular mask, so the badge does not need to be square art, plus a
+        # ring in the same shape to separate it from whatever it sits on.
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+
+        border = max(1, int(size * self.ASPECT_BADGE_BORDER))
+        ring = Image.new("RGBA", (size + border * 2, size + border * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(ring).ellipse(
+            (0, 0, ring.width - 1, ring.height - 1), fill=(18, 18, 22, 235)
+        )
+
+        out = icon.copy()
+        position = (
+            out.width - ring.width,
+            out.height - ring.height,
+        )
+        out.alpha_composite(ring, position)
+        out.paste(badge, (position[0] + border, position[1] + border), mask)
+        return out
 
     async def __stop(self, message: discord.Message, *args: tuple) -> None:
         game_session_id = hash(SmiteleGameContext(message.author, message.channel))
