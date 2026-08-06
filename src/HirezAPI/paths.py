@@ -76,3 +76,79 @@ def cache_file(*parts: str) -> str:
     path = os.path.join(CACHE_DIR, *parts)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return path
+
+
+# --- Per-game layout -------------------------------------------------------
+#
+# Smite 1 keeps every path it already had, exactly. That is not tidiness; the
+# corpus is 250 days deep on a network share and the aggregate is built from
+# whatever `corpus_paths` finds, so moving Smite 1 under a `smite/` subtree
+# would mean relocating the lot to gain symmetry and risking the bot reading a
+# half-moved directory. Smite 2 gets its own subtree instead, which also means
+# `corpus_paths(MATCH_DATA_DIR, MATCH_ARCHIVE_DIR)` can never see a Smite 2 file
+# and the two aggregates cannot contaminate each other.
+
+
+def _game_subdir(base: str, game) -> str:
+    """`base` for Smite 1, `base/smite2` for Smite 2."""
+    from game import Game  # noqa: PLC0415  (circular at module scope)
+
+    if game is Game.SMITE:
+        return base
+    path = os.path.join(base, game.value)
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        pass
+    return path
+
+
+def game_data_file(game, name: str) -> str:
+    """A small state file for one game — session, version marker, caches."""
+    return os.path.join(_game_subdir(DATA_DIR, game), name)
+
+
+def game_match_data_dir(game) -> str:
+    """Where that game's corpus is written and read.
+
+    Smite 2 is overridable separately because the two collectors may not want
+    the same storage: the Hi-Rez corpus is ~6MB a day, and tracker.gg's is a
+    different shape entirely.
+    """
+    from game import Game  # noqa: PLC0415
+
+    if game is Game.SMITE:
+        return MATCH_DATA_DIR
+    return _resolve(
+        "SMITELE_S2_MATCH_DATA_DIR",
+        os.path.join(os.path.dirname(MATCH_DATA_DIR.rstrip(os.sep)) or ".",
+                     game.value, "output"),
+    )
+
+
+def game_match_archive_dir(game) -> str:
+    from game import Game  # noqa: PLC0415
+
+    if game is Game.SMITE:
+        return MATCH_ARCHIVE_DIR
+    return _resolve(
+        "SMITELE_S2_MATCH_ARCHIVE_DIR",
+        os.path.join(os.path.dirname(MATCH_DATA_DIR.rstrip(os.sep)) or ".",
+                     game.value, "archive"),
+    )
+
+
+def game_model_dir(game) -> str:
+    """Where the aggregate tables and the trained model live for one game."""
+    return _game_subdir(MODEL_DIR, game)
+
+
+def game_cache_parts(game) -> tuple:
+    """Prefix for `art_cache.fetch`, so the two games' art cannot collide.
+
+    Both games have an Anubis, and both name his icon after the last segment of
+    its URL. Without a prefix the second one fetched wins.
+    """
+    from game import Game  # noqa: PLC0415
+
+    return () if game is Game.SMITE else (game.value,)
