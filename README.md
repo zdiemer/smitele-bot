@@ -390,6 +390,16 @@ modes: `assault`, `arena`, `joust`, `conquest`, `conquest-ranked`, `duel`,
 `ign`. Regions: `nae`, `eu`, `las`, `unk`. Roles come back as `middle`, `carry`,
 `support`, `jungle`, `solo`, plus a little dirt — 32 nulls and 6 `ENone`.
 
+**A clearance cookie lasts hours, not half an hour.** Pinned and polled, one
+cookie served requests continuously for **6.7 hours** and was still working when
+the probe was stopped; the mint log shows no re-issue in that window. The 30
+minutes usually quoted is a Cloudflare default rather than this site's setting.
+A whole nightly crawl therefore fits inside a single clearance, so nothing needs
+pre-warming and the only sensible refresh trigger is an observed 403. (Measuring
+this needs a *pinned* cookie: the client's job is to make a 403 invisible by
+re-minting, which would have reported success indefinitely while replacing the
+thing under measurement.)
+
 **Coverage is measurable but the sample is not the game.** Capture–recapture
 (Chapman-corrected, splitting the queried roster in half by hash) over the two
 best-sampled days:

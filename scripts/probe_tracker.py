@@ -510,24 +510,47 @@ def report_rank(findings: Findings) -> None:
 
 
 async def measure_lifetime(manager: ClearanceManager, interval: int) -> None:
-    """Poll a cheap endpoint until the cookie stops working.
+    """Poll a cheap endpoint with one pinned cookie until it stops working.
 
     The ~30 minute figure everyone quotes is a Cloudflare default, not an
-    observation of this site. Whether any pre-warming is worth doing depends
-    entirely on the real number.
+    observation of this site, and it decides whether the clearance policy needs
+    to pre-warm or can simply react to a 403.
+
+    Deliberately *not* through TrackerClient. Its whole job is to make a 403
+    invisible by discarding the cookie and minting another, which is right for
+    a crawl and useless here — it would report "ok" forever while quietly
+    replacing the thing being measured. So this pins one clearance and sends it
+    itself.
     """
-    async with TrackerClient(manager, interval=1.5) as client:
-        clearance = await manager.get()
-        minted = clearance.issued_at
-        print(f"cookie minted, polling every {interval}s until it 403s")
+    from curl_cffi import requests as curl_requests  # noqa: PLC0415
+
+    from smite2.tracker_client import API_HOST, GAME_SLUG, IMPERSONATE  # noqa: PLC0415
+
+    clearance = await manager.get()
+    minted = clearance.issued_at
+    url = (
+        f"{API_HOST}/api/v1/{GAME_SLUG}/standard/leaderboards"
+        "?type=stats&board=Wins&platform=steam&skip=0&take=1"
+    )
+    print(
+        f"pinned a cookie {clearance.age_seconds / 60:.0f} min old; "
+        f"polling every {interval}s until it stops working"
+    )
+
+    async with curl_requests.AsyncSession(impersonate=IMPERSONATE) as session:
         while True:
             age = (time.time() - minted) / 60
-            try:
-                await client.leaderboard("Wins", take=1)
-                print(f"  {age:6.1f} min  ok", flush=True)
-            except TrackerBlocked as error:
-                print(f"  {age:6.1f} min  DEAD — {error}")
-                print(f"\ncf_clearance lifetime: ~{age:.0f} minutes")
+            response = await session.get(
+                url, headers=clearance.headers(), timeout=60
+            )
+            if response.status_code == 200:
+                print(f"  {age:7.1f} min  ok", flush=True)
+            else:
+                print(f"  {age:7.1f} min  HTTP {response.status_code} — dead")
+                print(
+                    f"\ncf_clearance lifetime: ~{age:.0f} minutes "
+                    f"({age / 60:.1f} hours)"
+                )
                 return
             await asyncio.sleep(interval)
 

@@ -11,7 +11,15 @@ The policy here is deliberately the opposite of the obvious one. Refreshing on a
 timer — every fifteen minutes, say — means ~96 challenge solves a day from one
 address, which is a solver-farm signature and a worse signal to Cloudflare than
 holding a single session. Cloudflare rewards a consistent cookie, user agent and
-IP with occasional traffic. So:
+IP with occasional traffic.
+
+Measurement settles it. One cookie, pinned and polled, served requests
+continuously for **6.7 hours** and was still working when the probe was stopped
+— the 30 minutes everyone quotes is a Cloudflare default, not this site's
+setting. A whole nightly crawl fits inside one clearance with hours to spare, so
+there is nothing to pre-warm and the only sane trigger is an observed failure.
+
+So:
 
   * one clearance is shared by every process, through a file on the shared
     volume, so the nightly crawl and the bot do not each solve their own;
@@ -45,9 +53,10 @@ COOKIE_NAME = "cf_clearance"
 # observed time is ~10s; this is slack for a slow challenge, not a target.
 MINT_TIMEOUT_SECONDS = 120
 
-# Solves per rolling day across every process sharing the store. Well above
-# what the no-timer policy should ever need, so tripping it means something is
-# wrong — an expired-cookie loop, or Cloudflare refusing to issue.
+# Solves per rolling day across every process sharing the store. A measured
+# cookie lifetime of 6.7+ hours means a healthy day needs one or two, so this is
+# an order of magnitude of headroom and tripping it means something is wrong —
+# an expired-cookie loop, or Cloudflare refusing to issue.
 MAX_MINTS_PER_DAY = 12
 
 # How long to stand down after the breaker trips or a mint fails outright.
