@@ -65,6 +65,8 @@ spec:
                 - {{ .Values.smite2.collector.wallClockHours | quote }}
                 - --interval
                 - {{ .Values.smite2.collector.requestIntervalSeconds | quote }}
+                - --jitter
+                - {{ .Values.smite2.collector.requestIntervalJitter | quote }}
                 {{- with .Values.smite2.collector.pages }}
                 - --pages
                 - {{ . | quote }}
@@ -84,6 +86,9 @@ spec:
                   drop: ["ALL"]
               env:
                 {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                {{- with .Values.credentials.egressProxy }}
+                {{- include "smitele-bot.egressEnv" $ | nindent 16 }}
+                {{- end }}
                 {{/*
                   Camoufox needs somewhere writable for its profile, which the
                   emptyDir provides.

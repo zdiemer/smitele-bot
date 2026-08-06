@@ -10,6 +10,11 @@ The three secrets and the variables that carry them:
     discordToken  SMITELE_DISCORD_TOKEN
     hirezDevId    SMITELE_HIREZ_DEV_ID
     hirezAuthKey  SMITELE_HIREZ_AUTH_KEY
+    egressProxy   SMITELE_EGRESS_PROXY
+
+`egressProxy` is never required — empty means tracker.gg traffic leaves from the
+host's own address — but it lives here because it carries a password and belongs
+wherever the other secrets do.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ ENV_BY_KEY: Dict[str, str] = {
     "discordToken": "SMITELE_DISCORD_TOKEN",
     "hirezDevId": "SMITELE_HIREZ_DEV_ID",
     "hirezAuthKey": "SMITELE_HIREZ_AUTH_KEY",
+    "egressProxy": "SMITELE_EGRESS_PROXY",
 }
 
 

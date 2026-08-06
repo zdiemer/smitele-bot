@@ -131,6 +131,12 @@ Or locally, which writes nothing:
 python src/smite2_collector/collect.py --dry-run
 ```
 
+To route that traffic somewhere other than the cluster's own address, see
+[docs/proxy-setup.md](docs/proxy-setup.md). Note that a rotating proxy pool
+cannot work — the clearance cookie is bound to the address that solved the
+challenge — and that the crawl moves ~2.6 MB per request, which rules out
+per-gigabyte providers on cost alone.
+
 ### Backfilling a missed day
 
 The collector defaults to *yesterday* — Hi-Rez only publishes match IDs for
@@ -153,6 +159,14 @@ local checkout keeps working from a file while the cluster gets a Secret:
 | `SMITELE_DISCORD_TOKEN` | `discordToken` |
 | `SMITELE_HIREZ_DEV_ID` | `hirezDevId` |
 | `SMITELE_HIREZ_AUTH_KEY` | `hirezAuthKey` |
+| `SMITELE_EGRESS_PROXY` | `egressProxy` |
+
+`SMITELE_EGRESS_PROXY` is optional and empty by default, in which case tracker.gg
+traffic leaves from the host's own address. It reaches only the bot and the
+s2collector — the aggregates and the trainer never talk to tracker.gg. Setting it
+is not a one-line change: the clearance cookie is bound to the address that
+solved the challenge, so see [docs/proxy-setup.md](docs/proxy-setup.md) before
+picking a provider.
 
 Paths are all overridable, which is what lets the container split small state
 from the big corpus:

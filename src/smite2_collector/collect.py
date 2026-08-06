@@ -49,8 +49,10 @@ from smite2.clearance import (  # noqa: E402
     ClearanceStore,
     ClearanceUnavailable,
 )
+from smite2 import egress as egress_module  # noqa: E402
 from smite2.provider import CLEARANCE_FILE, Smite2Provider  # noqa: E402
 from smite2.tracker_client import (  # noqa: E402
+    DEFAULT_JITTER,
     LEADERBOARDS,
     TrackerBlocked,
     TrackerClient,
@@ -66,6 +68,60 @@ import store as store_module  # noqa: E402
 
 def _today() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+
+async def check_egress(state_dir: str) -> int:
+    """Prove an egress works before anything depends on it.
+
+    Resolves the address, mints one cookie through it, and issues a single
+    request — printing what each stage saw. They must agree: the cookie is bound
+    to the address that solved the challenge, so a mint and a crawl leaving from
+    different places 403s everything.
+
+    Exists so that evaluating a proxy is one command rather than a nightly that
+    fails at 02:40. A pre-flagged address fails here, where it costs nothing,
+    instead of costing a solve out of a budget of twelve.
+    """
+    configured = egress_module.proxy_url()
+    identity = egress_module.identity(configured)
+    print(f"Egress check · {identity}")
+
+    address = await egress_module.observed_ip(configured)
+    if address is None:
+        print("  FAILED — no route to the internet through this egress.")
+        return 1
+    print(f"  address      {address}")
+
+    manager = ClearanceManager(
+        ClearanceStore(os.path.join(state_dir, CLEARANCE_FILE), egress=identity)
+    )
+    try:
+        clearance = await manager.get()
+    except ClearanceUnavailable as error:
+        print(f"  FAILED — no clearance: {error}")
+        return 1
+    print(f"  minted at    {clearance.observed_ip or 'unknown'}")
+    print(f"  user agent   {clearance.user_agent}")
+
+    async with TrackerClient(manager, silent=True, proxy=configured) as client:
+        try:
+            await client.leaderboard(LEADERBOARDS[0], take=1)
+        except Exception as error:  # noqa: BLE001
+            print(f"  FAILED — the API refused us: {error}")
+            return 1
+    print("  request      served")
+
+    if clearance.observed_ip and clearance.observed_ip != address:
+        print(
+            f"\n  MISMATCH — minted at {clearance.observed_ip} but leaving from "
+            f"{address}. Something is proxying one and not the other; check "
+            "that HTTPS_PROXY is unset and that only SMITELE_EGRESS_PROXY is "
+            "configuring this."
+        )
+        return 1
+
+    print("\nUsable. Re-run in a few hours to confirm the exit is sticky.")
+    return 0
 
 
 async def seed(client: TrackerClient, frontier, today: str, silent: bool) -> int:
@@ -138,12 +194,21 @@ async def crawl(args) -> int:
     if args.reset_clearance:
         manager.reset()
 
+    # Sampled once here and once at the end. Two requests across a run of
+    # thousands, and the only way a rotating exit announces itself on a run that
+    # happened to survive — where it would otherwise show up as a mystery.
+    egress_at_start = await egress_module.observed_ip()
+    if egress_at_start:
+        print(f"  leaving from {egress_at_start} ({egress_module.identity()})")
+
     new_matches = 0
     unknown_items = 0
     item_slots = 0
     blocked = False
 
-    async with TrackerClient(manager, interval=args.interval) as client:
+    async with TrackerClient(
+        manager, interval=args.interval, jitter=args.jitter
+    ) as client:
         try:
             added = await seed(client, frontier, today, args.quiet)
             print(f"  seeded {added:,} new players from the leaderboards")
@@ -248,6 +313,22 @@ async def crawl(args) -> int:
     print(f"\n=== {client.requests:,} requests · {client.bytes / 1e6:,.0f} MB · "
           f"{elapsed / 60:.0f} min ===")
     print(f"  {new_matches:,} new matches · {buffer.written:,} rows written")
+    egress_at_end = await egress_module.observed_ip() if egress_at_start else None
+    if egress_at_end and egress_at_end != egress_at_start:
+        print(
+            f"  ADDRESS CHANGED — started at {egress_at_start}, finished at "
+            f"{egress_at_end}. A clearance cookie is bound to the address that "
+            "solved it, so a rotating exit cannot work here; use a sticky or "
+            "static one."
+        )
+    if client.rate_limited:
+        # Without this a run that was rate limited and recovered reads exactly
+        # like a clean one, and the pace it ended on is the number that decides
+        # what to configure next time.
+        print(
+            f"  {client.rate_limited} rate limit(s) · finished pacing at "
+            f"{client.interval:.2f}s"
+        )
     if item_slots:
         share = 100.0 * unknown_items / item_slots
         print(
@@ -392,6 +473,14 @@ def main() -> int:
         "safe, lowering it is how one gets blocked.",
     )
     parser.add_argument(
+        "--jitter",
+        type=float,
+        default=DEFAULT_JITTER,
+        help="fraction of the interval to add back at random, so requests do "
+        "not arrive on a metronome. Only ever widens the gap — the interval "
+        "stays a floor.",
+    )
+    parser.add_argument(
         "--coverage-target",
         type=float,
         default=0.0,
@@ -427,12 +516,22 @@ def main() -> int:
     )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument(
+        "--check-egress",
+        action="store_true",
+        help="resolve the outbound address, mint one cookie and issue one "
+        "request through it, then exit. For validating a proxy before anything "
+        "depends on it. Writes nothing and does not crawl.",
+    )
+    parser.add_argument(
         "--reset-clearance",
         action="store_true",
         help="clear a tripped backoff before crawling, for when whatever "
         "caused it has since been fixed",
     )
     args = parser.parse_args()
+
+    if args.check_egress:
+        return asyncio.run(check_egress(paths.game_model_dir(Game.SMITE_2)))
 
     args.pages = max(1, args.pages)
     args.horizon = (

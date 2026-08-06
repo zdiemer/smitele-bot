@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.7.11"
+  tag: "1.7.12"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -14,11 +14,32 @@ credentials:
   discordToken: ""
   hirezDevId: ""
   hirezAuthKey: ""
+  # Where tracker.gg traffic leaves from. Empty means the host's own address,
+  # which is what every deployment did before this existed. Contains a password,
+  # so it belongs in values.local.yaml with the rest.
+  #
+  #   http://user:password@host:port
+  #
+  # It MUST be a sticky exit — one address held for hours. A rotating pool
+  # breaks this outright: the Cloudflare cookie is bound to the address that
+  # solved the challenge, so a cookie minted on one exit and replayed from
+  # another is refused, and each refusal costs a solve out of a budget of
+  # twelve a day. See docs/proxy-setup.md, which also has the bandwidth maths
+  # that rules out per-gigabyte providers.
+  egressProxy: ""
 
 bot:
   # One replica, always. The Discord gateway allows a single connection per
   # token, and a second pod would fight the first for it.
   replicaCount: 1
+  # Whether the bot shares the collector's egress. On by default, and that is
+  # the recommended posture: the two share one clearance file so the bot reuses
+  # the collector's solve rather than minting its own, and splitting them across
+  # two addresses halves that sharing and doubles the daily solves. Turn it off
+  # only to keep the bot's handful of per-command requests off metered proxy
+  # bandwidth — the per-egress keying is what makes that safe rather than a
+  # silent 403 storm.
+  useEgressProxy: true
   # Serves /healthz: readiness, plus the in-progress game counts that
   # upgrade.sh refuses to roll over. Cluster-internal only.
   statusPort: 8080
@@ -244,6 +265,11 @@ smite2:
     # the real limit means being blocked by it. Raising this number is safe;
     # lowering it is the one change here that could get the address banned.
     requestIntervalSeconds: 1.5
+    # Fraction of the interval added back at random, so the request train does
+    # not arrive on a metronome. This only ever *widens* a gap — the interval
+    # above stays a floor — so it costs a slightly shorter night and cannot
+    # move the pace in the dangerous direction.
+    requestIntervalJitter: 0.4
     # A hard stop, so a slow night cannot overrun into the day.
     wallClockHours: 3
     # Pages of history per player, 25 matches each — about three days. One is

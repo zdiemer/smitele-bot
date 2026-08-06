@@ -69,3 +69,27 @@ and the collector CronJob so the two can never drift apart.
       name: {{ include "smitele-bot.fullname" . }}
       key: hirezAuthKey
 {{- end -}}
+
+{{/*
+The egress proxy, for the two workloads that talk to tracker.gg.
+
+Kept out of credentialEnv deliberately. That helper exists so the three Hi-Rez
+and Discord credentials can never drift apart, and it is included by six
+workloads — but only the bot and the s2collector reach tracker.gg. Folding this
+in would hand a metered proxy to the trainer and both aggregates for nothing,
+and would make running the bot direct while the collector is proxied require a
+duplicate-env override.
+
+Emits nothing when unset, so a deployment that does not use a proxy renders
+byte-for-byte as it did before this existed.
+*/}}
+{{- define "smitele-bot.egressEnv" -}}
+{{- if .Values.credentials.egressProxy }}
+- name: SMITELE_EGRESS_PROXY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "smitele-bot.fullname" . }}
+      key: egressProxy
+      optional: true
+{{- end }}
+{{- end -}}

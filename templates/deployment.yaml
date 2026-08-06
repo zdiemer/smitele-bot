@@ -50,6 +50,9 @@ spec:
               drop: ["ALL"]
           env:
             {{- include "smitele-bot.credentialEnv" . | nindent 12 }}
+            {{- if and .Values.bot.useEgressProxy .Values.credentials.egressProxy }}
+            {{- include "smitele-bot.egressEnv" . | nindent 12 }}
+            {{- end }}
             # ffmpeg and PIL both want a writable HOME for scratch and font
             # caching, and the root filesystem is read-only.
             - name: HOME
