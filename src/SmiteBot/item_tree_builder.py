@@ -8,6 +8,38 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from item import Item, ItemType, ItemTreeNode
 
+# Fonts that actually exist somewhere, most-preferred first. This asked for
+# arial.ttf, which resolves on Windows — where this code ran before it was
+# containerised — and does not exist in a python-slim image. Every trivia
+# question that drew an item tree therefore raised OSError and killed the
+# round, for both games, since the move to Linux.
+_FONT_CANDIDATES = (
+    "DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "LiberationSans-Regular.ttf",
+    "arial.ttf",
+)
+
+_font_cache: Dict[int, ImageFont.ImageFont] = {}
+
+
+def _placeholder_font(size: int) -> ImageFont.ImageFont:
+    """A font for the "?" tile, whatever the host happens to have.
+
+    Falls back to PIL's built-in rather than raising: a tree drawn with an ugly
+    glyph is a worse image, where an exception is no answer at all.
+    """
+    if size in _font_cache:
+        return _font_cache[size]
+    for name in _FONT_CANDIDATES:
+        try:
+            _font_cache[size] = ImageFont.truetype(name, size)
+            return _font_cache[size]
+        except OSError:
+            continue
+    _font_cache[size] = ImageFont.load_default()
+    return _font_cache[size]
+
 
 class ItemTreeBuilder:
     __items: Dict[int, Item]
@@ -113,7 +145,7 @@ class ItemTreeBuilder:
                             ImageDraw.Draw(image).text(
                                 (thumb_size // 3, thumb_size // 5),
                                 "?",
-                                font=ImageFont.truetype("arial.ttf", 64),
+                                font=_placeholder_font(64),
                             )
                             image = ImageOps.expand(
                                 image, border=border_width, fill="white"

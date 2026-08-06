@@ -32,7 +32,7 @@ import datetime
 import os
 import sys
 import time
-from typing import Dict, Set
+from typing import Dict, List, Set, Tuple
 
 sys.path.insert(
     0,
@@ -139,18 +139,28 @@ async def crawl(args) -> int:
             added = await seed(client, frontier, today, args.quiet)
             print(f"  seeded {added:,} new players from the leaderboards")
 
-            roster = frontier.select(args.budget, today)
-            print(f"  querying {len(roster):,} players\n")
+            pending = frontier.select(args.budget, today)
+            print(f"  {len(pending):,} players to start with\n")
 
-            for index, player in enumerate(roster, start=1):
+            visited: Set[str] = set()
+            index = 0
+            discovered_total = 0
+
+            while pending:
                 if time.time() > deadline:
-                    print(f"\nWall clock cap reached after {index - 1} players.")
+                    print(f"\nWall clock cap reached after {index} players.")
                     break
                 if client.requests >= args.budget:
-                    print(f"\nRequest budget spent after {index - 1} players.")
+                    print(f"\nRequest budget spent after {index} players.")
                     break
 
-                found, fresh, counts, parties = await _visit(
+                player = pending.pop(0)
+                if player.key in visited:
+                    continue
+                visited.add(player.key)
+                index += 1
+
+                found, fresh, counts, parties, discovered = await _visit(
                     client, player, god_ids, seen, tracker, buffer, args
                 )
                 frontier.record_visit(player, today, found, fresh)
@@ -159,11 +169,21 @@ async def crawl(args) -> int:
                 unknown_items += counts[0]
                 item_slots += counts[1]
 
+                # This is the snowball. Everyone in the matches just read
+                # becomes queryable, which is the only way the frontier grows
+                # beyond the few hundred players the leaderboards name.
+                before = len(frontier.players)
+                for platform, handle in discovered:
+                    frontier.add(platform, handle, today)
+                discovered_total += len(frontier.players) - before
+
                 if not args.dry_run:
                     buffer.maybe_flush()
 
                 if index % 25 == 0:
-                    _progress(index, roster, client, new_matches, tracker, started)
+                    _progress(
+                        index, len(pending), client, new_matches, tracker, started
+                    )
 
                 if args.coverage_target:
                     estimate = tracker.best_estimate()
@@ -173,6 +193,26 @@ async def crawl(args) -> int:
                             f"(estimated {estimate:.0%}); stopping early."
                         )
                         break
+
+                # Refill from what this run has discovered, so a night is
+                # bounded by its budget rather than by however many players the
+                # leaderboards happened to name.
+                if not pending:
+                    remaining = args.budget - client.requests
+                    if remaining > 0:
+                        pending = [
+                            p
+                            for p in frontier.select(remaining, today)
+                            if p.key not in visited
+                        ]
+                        if pending:
+                            print(
+                                f"  refilled with {len(pending):,} newly "
+                                f"discovered players",
+                                flush=True,
+                            )
+
+            print(f"\n  {discovered_total:,} players discovered this run")
 
         except ClearanceUnavailable as error:
             print(f"\nSTOPPED — no clearance: {error}")
@@ -207,12 +247,13 @@ async def crawl(args) -> int:
 async def _visit(client, player, god_ids, seen, tracker, buffer, args):
     """Read one player's most recent page and absorb what is new.
 
-    Returns matches seen, matches new, (unnameable items, item slots) and the
-    parties observed — the last of which is how premade suppression learns who
-    queues together.
+    Returns matches seen, matches new, (unnameable items, item slots), the
+    parties observed — which is how premade suppression learns who queues
+    together — and every player named in those matches, which is the snowball.
     """
     found = fresh = unknown = slots = 0
     parties: Dict[str, Set[str]] = {}
+    discovered: Set[Tuple[str, str]] = set()
 
     try:
         async for match in client.iter_matches(player.platform, player.handle, 0):
@@ -225,6 +266,9 @@ async def _visit(client, player, god_ids, seen, tracker, buffer, args):
             tracker.observe(date, str(match_id), player.key)
             for party, members in frontier_module.parties_in(match).items():
                 parties.setdefault(party, set()).update(members)
+            # Collected from every match, not only new ones: a match we already
+            # have can still name a player we have never queried.
+            discovered.update(frontier_module.players_in(match))
 
             if str(match_id) in seen:
                 continue
@@ -242,17 +286,17 @@ async def _visit(client, player, god_ids, seen, tracker, buffer, args):
         # One unreadable player must not end the night.
         if not args.quiet:
             print(f"  {player.key}: {type(error).__name__}: {error}", flush=True)
-        return found, fresh, (unknown, slots), parties
+        return found, fresh, (unknown, slots), parties, discovered
 
-    return found, fresh, (unknown, slots), parties
+    return found, fresh, (unknown, slots), parties, discovered
 
 
-def _progress(index, roster, client, new_matches, tracker, started) -> None:
+def _progress(index, remaining, client, new_matches, tracker, started) -> None:
     elapsed = (time.time() - started) / 60
     estimate = tracker.best_estimate()
     coverage = f" · ~{estimate:.0%} of recent days" if estimate else ""
     print(
-        f"  {index:,}/{len(roster):,} players · {new_matches:,} new matches · "
+        f"  {index:,} done, {remaining:,} queued · {new_matches:,} new matches · "
         f"{client.bytes / 1e6:,.0f} MB · {elapsed:.0f} min{coverage}",
         flush=True,
     )
