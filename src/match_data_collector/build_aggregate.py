@@ -283,9 +283,76 @@ def consolidate(
     )
 
 
+MANIFEST_NAME: str = "aggregate_manifest.parquet"
+BUILD_PLAYS_NAME: str = "build_plays.parquet"
+OUTPUT_NAMES = ("build_stats", "build_items", "relic_stats", "god_stats")
+
+
+def load_previous(directory: str):
+    """The last run's output plus the list of files it covered.
+
+    Returns None unless everything needed is present: a partial set cannot be
+    folded into safely, since a missing manifest would mean re-adding days that
+    are already counted.
+    """
+    manifest_path = os.path.join(directory, MANIFEST_NAME)
+    plays_path = os.path.join(directory, BUILD_PLAYS_NAME)
+    outputs = {
+        name: os.path.join(directory, f"{name}{match_storage.SUFFIX}")
+        for name in OUTPUT_NAMES
+    }
+    if not os.path.isfile(manifest_path) or not os.path.isfile(plays_path):
+        return None
+    if not all(os.path.isfile(path) for path in outputs.values()):
+        return None
+
+    manifest = pd.read_parquet(manifest_path)
+    newest = None
+    if manifest.shape[0] and manifest["newest"].iloc[0]:
+        newest = datetime.datetime.strptime(
+            str(manifest["newest"].iloc[0]), "%Y-%m-%d"
+        ).date()
+    built = datetime.date.today()
+    if "built" in manifest.columns and manifest.shape[0] and manifest["built"].iloc[0]:
+        built = datetime.datetime.strptime(
+            str(manifest["built"].iloc[0]), "%Y-%m-%d"
+        ).date()
+
+    previous = {
+        "built": built,
+        "covered": set(manifest["path"]),
+        "newest": newest,
+        "build_plays": pd.read_parquet(plays_path),
+    }
+    for name, path in outputs.items():
+        previous[name] = pd.read_parquet(path)
+    return previous
+
+
+def decay_totals(frame: pd.DataFrame, factor: float) -> pd.DataFrame:
+    """Age a stored total forward to a newer reference day.
+
+    Weights are relative to the newest day in the corpus, so when a newer day
+    arrives everything already counted is worth proportionally less. Because
+    the decay is exponential, that is one multiplication over the whole table
+    rather than a revisit of the days it came from — which is what makes
+    folding in new days possible instead of rebuilding.
+    """
+    if factor == 1.0 or not frame.shape[0]:
+        return frame
+    for column in ("wplays", "wwins"):
+        if column in frame.columns:
+            frame[column] = (frame[column] * factor).astype("float32")
+    return frame
+
+
 def count_build_plays(
-    corpus: List[str], items: Dict[int, object], min_plays: int, every: int
-) -> set:
+    corpus: List[str],
+    items: Dict[int, object],
+    min_plays: int,
+    every: int,
+    previous: pd.DataFrame = None,
+):
     """First pass: which builds are played often enough to be worth keeping.
 
     The full grouping is keyed on god, queue, role, MMR *and* build, which on
@@ -301,7 +368,7 @@ def count_build_plays(
     print(f"Pass 1/2: counting plays per build across {len(corpus)} file(s)", flush=True)
     columns = ["GodId"] + build_features.ITEM_COLUMNS + build_features.RELIC_COLUMNS
     parts: List[pd.DataFrame] = []
-    total = pd.DataFrame()
+    total = previous if previous is not None else pd.DataFrame()
     start = time.time()
 
     def fold(parts, total):
@@ -342,7 +409,10 @@ def count_build_plays(
         f">= {min_plays} plays ({time.time() - start:.0f}s)",
         flush=True,
     )
-    return keep
+    # The unfiltered counts are kept, not just the surviving set: a build below
+    # the threshold today can cross it next week, and without its history that
+    # crossing would be invisible.
+    return keep, total
 
 
 def main() -> int:
@@ -358,6 +428,17 @@ def main() -> int:
     # Reducing after every file would rewrite the running total constantly;
     # every N keeps the intermediate list small without that churn.
     parser.add_argument("--consolidate-every", type=int, default=10)
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="ignore any stored aggregate and recompute from the whole corpus",
+    )
+    parser.add_argument(
+        "--rebuild-after-days",
+        type=int,
+        default=7,
+        help="force a full rebuild when the stored aggregate is older than this",
+    )
     parser.add_argument(
         "--half-life-days",
         type=int,
@@ -387,8 +468,48 @@ def main() -> int:
         flush=True,
     )
 
-    keep_builds = count_build_plays(
-        corpus, provider.items, args.min_plays, args.consolidate_every
+    # Fold new days into the stored total rather than re-reading the corpus.
+    # A full pass is ~3.5 hours over 3,300 files; a day's worth of new files is
+    # seconds. The stored total is aged forward first — weights are relative to
+    # the newest day, and exponential decay means that is one multiplication.
+    previous = None if args.rebuild else load_previous(args.out)
+
+    # Incremental runs drift, in one direction and for one reason: a build only
+    # starts accumulating per-matchup rows once it crosses min-plays, so a
+    # build that crosses later is missing the history from before it did.
+    # Measured on a 19-day base plus 2 days, that was 633 groups and 0.95% of
+    # plays — small, one-directional, and cumulative, so it is corrected by
+    # rebuilding on a schedule rather than by pretending it isn't there.
+    if previous is not None and args.rebuild_after_days > 0:
+        age = (datetime.date.today() - previous["built"]).days
+        if age >= args.rebuild_after_days:
+            print(
+                f"Stored aggregate is {age} day(s) old; rebuilding from the "
+                "whole corpus to clear incremental drift.",
+                flush=True,
+            )
+            previous = None
+    pending = corpus
+    decay = 1.0
+
+    if previous is not None:
+        pending = [path for path in corpus if path not in previous["covered"]]
+        decay = recency_weight(previous["newest"], newest, args.half_life_days)
+        print(
+            f"Incremental: {len(previous['covered']):,} file(s) already counted, "
+            f"{len(pending):,} new; ageing stored totals by {decay:.4f}",
+            flush=True,
+        )
+        if not pending:
+            print("Nothing new to aggregate.")
+            return 0
+
+    keep_builds, build_plays = count_build_plays(
+        pending,
+        provider.items,
+        args.min_plays,
+        args.consolidate_every,
+        previous=previous["build_plays"] if previous is not None else None,
     )
 
     build_parts: List[pd.DataFrame] = []
@@ -399,7 +520,7 @@ def main() -> int:
     rows_seen = 0
     start = time.time()
 
-    for index, path in enumerate(corpus, start=1):
+    for index, path in enumerate(pending, start=1):
         frame = prepare(
             match_storage.read_frame_columns(path, NEEDED_COLUMNS), provider.items
         )
@@ -436,7 +557,7 @@ def main() -> int:
                 )
             ]
             print(
-                f"  {index}/{len(corpus)} files, {rows_seen:,} rows, "
+                f"  {index}/{len(pending)} files, {rows_seen:,} rows, "
                 f"{builds_total.shape[0]:,} build groups, "
                 f"{time.time() - start:.0f}s",
                 flush=True,
@@ -451,11 +572,49 @@ def main() -> int:
         subset=["BuildHash"]
     )
 
+    if previous is not None:
+        # Age the stored totals to the new reference day, then add the new days
+        # to them. Raw plays/wins are counts and carry over untouched; only the
+        # weighted columns move.
+        builds = consolidate(
+            [decay_totals(previous["build_stats"], decay), builds],
+            GROUP_KEYS + ["BuildHash"],
+            SUM_COLUMNS,
+        )
+        relics = consolidate(
+            [decay_totals(previous["relic_stats"], decay), relics],
+            GROUP_KEYS + ["Relics"],
+        )
+        gods = consolidate(
+            [decay_totals(previous["god_stats"], decay), gods], GROUP_KEYS
+        )
+        items = pd.concat(
+            [previous["build_items"], items], ignore_index=True
+        ).drop_duplicates(subset=["BuildHash"])
+
     # No min-plays filter here: pass 1 already excluded everything below the
     # threshold, before it could cost anything.
     items = items[items["BuildHash"].isin(set(builds["BuildHash"]))]
 
     os.makedirs(args.out, exist_ok=True)
+
+    # The manifest is what makes the next run incremental: it records exactly
+    # which files are already counted, and the day the weights are relative to.
+    covered = sorted(set(corpus))
+    # "built" is the date of the last *full* rebuild, carried forward across
+    # incremental runs, so age measures accumulated drift rather than time
+    # since the last touch.
+    built = (previous["built"] if previous is not None else datetime.date.today())
+    pd.DataFrame(
+        {
+            "path": covered,
+            "newest": [newest.strftime("%Y-%m-%d") if newest else ""] * len(covered),
+            "built": [built.strftime("%Y-%m-%d")] * len(covered),
+        }
+    ).to_parquet(os.path.join(args.out, MANIFEST_NAME), compression="zstd", index=False)
+    build_plays.to_parquet(
+        os.path.join(args.out, BUILD_PLAYS_NAME), compression="zstd", index=False
+    )
     written = []
     for name, frame in (
         ("build_stats", builds),
