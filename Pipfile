@@ -40,6 +40,7 @@ curl-cffi = "~=0.16"
 # places where being wrong is silent — a build hashed into the wrong bucket, a
 # corpus path that lets two games' matches mix — rather than everything.
 pytest = "~=8.0"
+pytest-asyncio = "~=0.24"
 # The clearance minter. Only the collector and the bot's Smite 2 player lookups
 # need a browser, and only to solve a Cloudflare challenge — never to fetch
 # data. Kept out of [packages] because the image installs it explicitly in the

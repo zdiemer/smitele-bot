@@ -36,7 +36,7 @@ from unidecode import unidecode
 
 import credentials
 import paths
-from build_optimizer import BuildOptimizer
+from build_optimizer import BuildOptimizer, compute_item_price
 from god import God
 from god_builder import (
     BuildCommandType,
@@ -44,31 +44,82 @@ from god_builder import (
     BuildPrioritization,
     BuildOptions,
     GodBuilder,
+    InvalidOptionError,
 )
 from god_types import GodId, GodRole, GodType
+from guild_settings import GuildSettings
 from item import Item, ItemAttribute, ItemType
 from player_stats import PlayerStats
+from providers import GameProvider, Providers
+from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from skin import Skin
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 import art_cache
+from game import Game
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
 from recommend import BuildRecommender
 
-# Guilds the slash commands are registered to. Guild-scoped rather than global
-# because guild commands appear the moment the bot connects, where global ones
-# take up to an hour to propagate.
-SLASH_COMMAND_GUILD_IDS = [
-    845718807509991445,
-    396874836250722316,
-    480512578779611146,
-]
+
+# The `game:` option, on every command whose answer depends on which game is
+# being asked about. Declared through a helper so the description and the
+# choice list cannot drift apart across a dozen commands.
+#
+# The choices are filled in at class-definition time from the registry, which
+# does not exist yet, so they are the full set here and resolution degrades to
+# the default when a game has no provider. See providers.Providers.resolve.
+GAME_OPTION_DESCRIPTION = "Which game to answer for; defaults to this server's"
 
 
-class InvalidOptionError(Exception):
-    pass
+def game_option(command):
+    """Attach the `game:` option.
+
+    Declared *first* on every command, because Discord sends options in
+    declaration order and the god-name autocomplete needs to see the chosen
+    game in `ctx.options` while the user is still typing the god.
+    """
+    return discord.option(
+        name="game",
+        type=str,
+        description=GAME_OPTION_DESCRIPTION,
+        choices=[g.display_name for g in Game],
+        default="",
+    )(command)
+
+
+async def god_autocomplete(ctx: discord.AutocompleteContext):
+    """God names for whichever game the interaction is about.
+
+    `ctx.options` holds only what the user has actually filled in — Discord does
+    not send an option's default — so an absent `game` means "they have not
+    said", which is exactly what `Providers.resolve` treats as "fall through to
+    the guild default".
+    """
+    cog = ctx.bot.get_cog("Smitele")
+    if cog is None:
+        return []
+    provider = cog.providers.for_ctx(ctx.interaction, ctx.options.get("game"))
+    typed = unidecode(ctx.value or "").lower().replace("'", "")
+    names = sorted(god.name for god in provider.gods.values())
+    if not typed:
+        return names[:25]
+    matches = [n for n in names if unidecode(n).lower().replace("'", "").startswith(typed)]
+    if len(matches) < 25:
+        matches += [
+            n
+            for n in names
+            if n not in matches and typed in unidecode(n).lower().replace("'", "")
+        ]
+    return matches[:25]
+
+
+# InvalidOptionError used to be declared here as well as in god_builder, two
+# unrelated classes with one name. `/build` caught this one while
+# BuildOptions.set_option raised the other, so an unrecognised god name escaped
+# as an unhandled exception instead of "X is not a God." Both parsers now raise
+# and catch the same type.
 
 
 class GodOptions:
@@ -78,18 +129,26 @@ class GodOptions:
     include_abilities: bool
     __items: Dict[int, Item]
 
-    def __init__(self, items: Dict[int, Item]):
+    def __init__(self, items: Dict[int, Item], provider=None):
         self.god_id = None
         self.build = []
         self.level = 20
         self.include_abilities = False
         self.__items = items
+        self.__provider = provider
 
     def set_option(self, option: str, value: str):
         if option in ("-g", "--god"):
-            self.god_id = GodId[
-                value.upper().replace(" ", "_").replace("'", "")
-            ]  # handles Chang'e case
+            if self.__provider is not None:
+                god_id = self.__provider.god_id_from_name(value)
+                if god_id is None:
+                    raise InvalidOptionError
+                self.god_id = god_id
+            else:
+                # handles Chang'e case
+                self.god_id = GodId[
+                    value.strip().upper().replace(" ", "_").replace("'", "")
+                ]
         elif option in ("-b", "--build"):
             split_build = value.split(",")
             build_ids = []
@@ -240,10 +299,17 @@ class SmiteleGame:
     skin: Skin
     __tasks: Set[asyncio.Task]
 
-    def __init__(self, answer: God, context: SmiteleGameContext) -> None:
+    def __init__(
+        self, answer: God, context: SmiteleGameContext, provider=None
+    ) -> None:
         """Inits SmiteleGame given an answer God and context"""
         self.god = answer
         self.context = context
+        # The game runs for minutes across six rounds, each of which needs the
+        # catalogue the answer came from. Captured here rather than resolved
+        # per round, so a guild changing its default game mid-game cannot swap
+        # the answer's roster out from under a running session.
+        self.provider = provider
         self.__tasks = set()
 
     def generate_easy_mode_choices(self, gods: List[God]) -> None:
@@ -356,20 +422,45 @@ class Smitele(commands.Cog):
         lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
     )
 
-    def __init__(self, _bot: commands.Bot, _provider: SmiteProvider) -> None:
+    def __init__(
+        self,
+        _bot: commands.Bot,
+        _providers: Providers,
+        _settings: GuildSettings = None,
+    ) -> None:
         # Setting our intents so that Discord knows what our bot is going to do
         self.__bot = _bot
-        self.__smite_client = _provider
-        self.__gods = _provider.gods
-        self.__items = _provider.items
+        self.providers = _providers
+        self.settings = _settings or GuildSettings()
         self.__running_sessions = {}
-        self.__tree_builder = ItemTreeBuilder(self.__items)
         self.__dataframe_refresher_running = False
         self.__status_server = None
-        self.__recommender = None
+        self.__recommender = {}
 
         if self.__config is None:
             self.__config = credentials.load("discordToken")
+
+    def provider(self, ctx, game: str = "") -> GameProvider:
+        """The provider one interaction is about.
+
+        Resolved per interaction rather than bound at construction: two gods
+        called Anubis exist, and which one a command means depends on the
+        `game:` option and the guild's default, neither of which is known when
+        the cog is built.
+        """
+        return self.providers.for_ctx(ctx, game)
+
+    @property
+    def __smite(self) -> SmiteProvider:
+        """The Smite 1 provider specifically.
+
+        For the owner commands that report on Hi-Rez itself — quota used,
+        corpus shape — which are about that API rather than about a game.
+        """
+        return self.providers[Game.SMITE]
+
+    def tree_builder(self, provider: GameProvider) -> ItemTreeBuilder:
+        return ItemTreeBuilder(provider.items)
 
     @property
     def active_sessions(self) -> int:
@@ -378,8 +469,15 @@ class Smitele(commands.Cog):
 
     @property
     def is_ready(self) -> bool:
-        """Whether the god/item caches are populated, i.e. games can start."""
-        return any(self.__gods) and any(self.__items)
+        """Whether the god/item caches are populated, i.e. games can start.
+
+        Every registered provider has to be loaded, not just one: a half-ready
+        bot would answer for one game and fail for the other, and the deploy
+        guard reads this to decide whether the new pod can take over.
+        """
+        return all(
+            any(provider.gods) and any(provider.items) for provider in self.providers
+        )
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -389,7 +487,8 @@ class Smitele(commands.Cog):
         )
 
         if not self.__dataframe_refresher_running:
-            self.__bot.loop.create_task(self.__smite_client.load_dataframe())
+            for provider in self.providers:
+                self.__bot.loop.create_task(provider.load_dataframe())
             self.__dataframe_refresher_running = True
 
         # on_ready fires again on every gateway reconnect, so the port is only
@@ -411,7 +510,7 @@ class Smitele(commands.Cog):
     @commands.slash_command(
         name="top_fun",
         description="Figure out who's having top fun",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def top_fun(self, ctx: discord.ApplicationContext):
         if ctx.user.voice is None:
@@ -436,13 +535,15 @@ class Smitele(commands.Cog):
     @commands.slash_command(
         name="build",
         description="Get a Smite build based on winning builds",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
+    @game_option
     @discord.option(
         name="god_name",
         type=str,
         description="The god to return a build for",
         required=True,
+        autocomplete=god_autocomplete,
     )
     @discord.option(
         name="match_queue",
@@ -493,6 +594,7 @@ class Smitele(commands.Cog):
     async def build(
         self,
         ctx: discord.ApplicationContext,
+        game: str,
         god_name: str,
         match_queue: str,
         role: str,
@@ -500,7 +602,10 @@ class Smitele(commands.Cog):
         # allies: str,
         high_mmr: bool,
     ):
-        build_options = BuildOptions(build_type=BuildCommandType.ML)
+        provider = self.provider(ctx, game)
+        build_options = BuildOptions(
+            build_type=BuildCommandType.ML, provider=provider
+        )
 
         try:
             if god_name is not None and god_name != "":
@@ -550,7 +655,7 @@ class Smitele(commands.Cog):
             await self.__send_invalid(ctx, error_msg)
             return
 
-        god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
+        god_builder = GodBuilder(provider.gods, provider.items, provider)
 
         async with ctx.channel.typing():
             try:
@@ -572,8 +677,9 @@ class Smitele(commands.Cog):
                 build,
                 ctx,
                 desc,
-                self.__gods[build_options.god_id],
+                provider.gods[build_options.god_id],
                 relics,
+                provider=provider,
                 no_god_specified=build_options.was_random_god(),
                 no_god_specified_override="(You didn't input a god, so I found the best choice given your other inputs)",
             )
@@ -581,13 +687,15 @@ class Smitele(commands.Cog):
     @commands.slash_command(
         name="random_build",
         description="Get a random Smite build!",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
+    @game_option
     @discord.option(
         name="god_name",
         type=str,
         description="The god to return a build for. If not specified, it'll be random",
         default="",
+        autocomplete=god_autocomplete,
     )
     @discord.option(
         name="prioritize",
@@ -597,12 +705,23 @@ class Smitele(commands.Cog):
         default="",
     )
     async def random_build(
-        self, ctx: discord.ApplicationContext, god_name: str, prioritize: str
+        self,
+        ctx: discord.ApplicationContext,
+        game: str,
+        god_name: str,
+        prioritize: str,
     ):
-        build_options = BuildOptions(build_type=BuildCommandType.RANDOM)
+        provider = self.provider(ctx, game)
+        build_options = BuildOptions(
+            build_type=BuildCommandType.RANDOM, provider=provider
+        )
 
-        if god_name is not None and god_name != "":
-            build_options.set_option("-g", god_name)
+        try:
+            if god_name is not None and god_name != "":
+                build_options.set_option("-g", god_name)
+        except InvalidOptionError:
+            await self.__send_invalid(ctx, f"{god_name} is not a God.")
+            return
 
         if prioritize is not None and prioritize != "":
             build_options.set_option("-p", prioritize)
@@ -613,7 +732,7 @@ class Smitele(commands.Cog):
             await self.__send_invalid(ctx, error_msg)
             return
 
-        god_builder = GodBuilder(self.__gods, self.__items, self.__smite_client)
+        god_builder = GodBuilder(provider.gods, provider.items, provider)
 
         try:
             await ctx.respond(
@@ -627,7 +746,8 @@ class Smitele(commands.Cog):
         except BuildFailedError:
             await self.__send_invalid(
                 ctx,
-                f"Failed to randomize a build for {self.__gods[build_options.god_id].name}.",
+                f"Failed to randomize a build for "
+                f"{provider.gods[build_options.god_id].name}.",
             )
             return
 
@@ -635,17 +755,66 @@ class Smitele(commands.Cog):
             build,
             ctx,
             desc,
-            self.__gods[build_options.god_id],
+            provider.gods[build_options.god_id],
             relics,
+            provider=provider,
             no_god_specified=build_options.was_random_god(),
         )
         return
+
+    @commands.slash_command(
+        name="set_game",
+        description="Choose which Smite this server's commands default to",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="game",
+        type=str,
+        description="The game to default to",
+        choices=[g.display_name for g in Game],
+        required=True,
+    )
+    @commands.has_permissions(manage_guild=True)
+    async def set_game(self, ctx: discord.ApplicationContext, game: str) -> None:
+        """Set the guild default, so nobody has to pass `game:` every time."""
+        if ctx.guild_id is None:
+            await self.__send_invalid(
+                ctx, "There's no server here to set a default for."
+            )
+            return
+
+        try:
+            chosen = Game.from_display_name(game)
+        except ValueError:
+            await self.__send_invalid(ctx, f"{game} is not a game I know about.")
+            return
+
+        if chosen not in self.providers:
+            await self.__send_invalid(
+                ctx,
+                f"{chosen.display_name} isn't available on this bot yet.",
+            )
+            return
+
+        self.settings.set_game(ctx.guild_id, chosen)
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.blue(),
+                title=f"Now defaulting to {chosen.display_name}",
+                description=(
+                    "Commands in this server will answer for "
+                    f"**{chosen.display_name}** unless they're given a "
+                    "`game:` of their own."
+                ),
+            )
+        )
 
     @commands.slash_command(
         name="smitele",
         description="Start a game of Smite-le, guessing a god from clues over six rounds",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
+    @game_option
     @discord.option(
         name="easy",
         type=bool,
@@ -657,16 +826,19 @@ class Smitele(commands.Cog):
         type=str,
         description="Force a specific god (bot owner only)",
         default="",
+        autocomplete=god_autocomplete,
     )
     async def smitele(
-        self, ctx: discord.ApplicationContext, easy: bool, god: str
+        self, ctx: discord.ApplicationContext, game: str, easy: bool, god: str
     ) -> None:
         # The game itself runs for minutes and posts to the channel rather than
         # to the interaction, so the interaction is acknowledged privately up
         # front. Without this Discord reports the command as having failed
         # three seconds in, while the game is still going.
         await ctx.respond("Starting Smite-le!", ephemeral=True)
-        await self.__smitele(ctx, *self.__smitele_args(easy, god))
+        await self.__smitele(
+            ctx, *self.__smitele_args(easy, god), game_option=game
+        )
 
     @staticmethod
     def __smitele_args(easy: bool, god: str) -> Tuple[str, ...]:
@@ -684,38 +856,53 @@ class Smitele(commands.Cog):
         description="Highest win-rate builds for a god in a specific matchup",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    @discord.option(name="god", type=str, description="The god you're playing")
+    @game_option
+    @discord.option(
+        name="god",
+        type=str,
+        description="The god you're playing",
+        autocomplete=god_autocomplete,
+    )
     @discord.option(
         name="against",
         type=str,
         description="The god you're laned against",
         default="",
+        autocomplete=god_autocomplete,
     )
     @discord.option(
         name="role",
         type=str,
+        # The five positions, which is PlayerRole. This was a hardcoded list
+        # that had to be kept in step with the enum by hand.
         description="Your role",
-        choices=["Solo", "Jungle", "Mid", "Support", "Carry"],
+        choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
     async def edge(
-        self, ctx: discord.ApplicationContext, god: str, against: str, role: str
+        self,
+        ctx: discord.ApplicationContext,
+        game: str,
+        god: str,
+        against: str,
+        role: str,
     ) -> None:
-        recommender = self.__load_recommender()
+        provider = self.provider(ctx, game)
+        recommender = self.__load_recommender(provider)
         if recommender is None:
             await self.__send_invalid(
                 ctx,
-                "No build model has been trained yet. It is built weekly from "
-                "collected match data.",
+                f"No {provider.game.display_name} build model has been trained "
+                "yet. It is built weekly from collected match data.",
             )
             return
 
-        own = self.__god_by_name(god)
+        own = provider.god_by_name(god)
         if own is None:
             await self.__send_invalid(ctx, f"**{god}** is not a known god name!")
             return
 
-        opponent = self.__god_by_name(against) if against else None
+        opponent = provider.god_by_name(against) if against else None
         if against and opponent is None:
             await self.__send_invalid(ctx, f"**{against}** is not a known god name!")
             return
@@ -732,7 +919,8 @@ class Smitele(commands.Cog):
             top_n=3,
         )
         resolved = [
-            (self.__resolve_items(item_ids), score) for item_ids, score in builds
+            (self.__resolve_items(provider, item_ids), score)
+            for item_ids, score in builds
         ]
         resolved = [(items, score) for items, score in resolved if any(items)]
 
@@ -762,7 +950,14 @@ class Smitele(commands.Cog):
             )
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
 
-            await self.__attach_thumbnail(embed, files, own.icon_url, "gods", "icons")
+            await self.__attach_thumbnail(
+                embed,
+                files,
+                own.icon_url,
+                *paths.game_cache_parts(provider.game),
+                "gods",
+                "icons",
+            )
             embed.add_field(
                 name="Items", value=", ".join(item.name for item in best), inline=False
             )
@@ -788,32 +983,35 @@ class Smitele(commands.Cog):
             )
             await ctx.respond(files=files, embed=embed)
 
-    def __resolve_items(self, item_ids: List[int]) -> List[Item]:
+    @staticmethod
+    def __resolve_items(
+        provider: GameProvider, item_ids: List[int]
+    ) -> List[Item]:
         """Item objects for the model's ids, skipping any it no longer knows.
 
         The corpus spans patches, so it can name items that have since been
         removed from the game and are absent from the current item list.
         """
         return [
-            self.__items[item_id] for item_id in item_ids if item_id in self.__items
+            provider.items[item_id]
+            for item_id in item_ids
+            if item_id in provider.items
         ]
 
-    def __load_recommender(self):
+    def __load_recommender(self, provider: GameProvider):
         """Load the trained model once, and notice when one first appears.
 
         The bot starts before any model exists and the trainer only runs
         weekly, so a miss is retried rather than cached as a permanent absence.
-        """
-        if self.__recommender is None:
-            self.__recommender = BuildRecommender.load(paths.MODEL_DIR)
-        return self.__recommender
 
-    def __god_by_name(self, name: str) -> God:
-        wanted = unidecode(str(name)).strip().lower().replace("'", "")
-        for god in self.__gods.values():
-            if unidecode(god.name).lower().replace("'", "") == wanted:
-                return god
-        return None
+        Keyed by game: the two have disjoint god and item vocabularies, so one
+        game's model cannot score the other's builds.
+        """
+        if self.__recommender.get(provider.game) is None:
+            self.__recommender[provider.game] = BuildRecommender.load(
+                paths.game_model_dir(provider.game)
+            )
+        return self.__recommender[provider.game]
 
     @commands.slash_command(
         name="stop",
@@ -887,7 +1085,7 @@ class Smitele(commands.Cog):
     )
     @commands.is_owner()
     async def usage(self, context: commands.Context):
-        data_used = await self.__smite_client.get_data_used()
+        data_used = await self.__smite.get_data_used()
         if any(data_used):
             data_used = data_used[0]
         else:
@@ -922,11 +1120,11 @@ class Smitele(commands.Cog):
     async def data_info(self, context: commands.Context):
         desc = ""
 
-        if self.__smite_client.player_matches is None:
+        if self.__smite.player_matches is None:
             desc = "player_matches is not yet initialized."
         else:
             buffer = io.StringIO()
-            self.__smite_client.player_matches.info(buf=buffer)
+            self.__smite.player_matches.info(buf=buffer)
             desc = buffer.getvalue()
         await context.channel.send(
             embed=discord.Embed(
@@ -1054,8 +1252,8 @@ class Smitele(commands.Cog):
                 yield (option, value)
             idx += 1
 
-    def __parse_god_opts(self, args: List[str]) -> GodOptions:
-        god_options = GodOptions(self.__items)
+    def __parse_god_opts(self, args: List[str], provider) -> GodOptions:
+        god_options = GodOptions(provider.items, provider)
         for option, value in self.__parse_opts(args):
             god_options.set_option(option, value)
         return god_options
@@ -1084,10 +1282,11 @@ class Smitele(commands.Cog):
             await send_invalid("No item name provided!")
             return
 
+        provider = self.provider(message)
         item_name = " ".join(flatten_args).lower()
         item: Item | None = None
 
-        for i in self.__items.values():
+        for i in provider.items.values():
             if i.name.lower() == item_name:
                 item = i
         if item is None:
@@ -1138,15 +1337,15 @@ class Smitele(commands.Cog):
                 name=f"{item.type.name.title()} Properties:", value=stats
             )
 
-            optimizer = BuildOptimizer(self.__gods[GodId.AGNI], [], self.__items)
-            total_cost = optimizer.compute_item_price(item)
+            total_cost = compute_item_price(item, provider.items)
             item_embed.add_field(
                 name="Cost:",
                 value=f"**Total Cost**: {total_cost:,}\n**Upgrade Cost**: {item.price:,}",
             )
 
             if item.type == ItemType.ITEM and item.active:
-                with await self.__tree_builder.generate_build_tree(item) as tree_image:
+                tree_builder = self.tree_builder(provider)
+                with await tree_builder.generate_build_tree(item) as tree_image:
                     file = discord.File(tree_image, filename="tree.png")
                     item_embed.set_image(url="attachment://tree.png")
                     await message.channel.send(file=file, embed=item_embed)
@@ -1184,8 +1383,8 @@ class Smitele(commands.Cog):
             await send_invalid()
             return
 
-        god_options = self.__parse_god_opts(flatten_args)
-        god = self.__gods[god_options.god_id]
+        god_options = self.__parse_god_opts(flatten_args, provider)
+        god = provider.gods[god_options.god_id]
 
         def check_invalid_item(item: Item) -> bool:
             if all(
@@ -1292,7 +1491,7 @@ class Smitele(commands.Cog):
         god_embed.add_field(name="Additional Info:", value=additional_info)
 
         if any(god_options.build):
-            optimizer = BuildOptimizer(god, [], self.__items)
+            optimizer = BuildOptimizer(god, [], provider.items)
             god_embed.add_field(
                 name="Build Attributes:",
                 value=optimizer.get_build_stats_string(
@@ -1357,9 +1556,13 @@ class Smitele(commands.Cog):
         extended_desc: str,
         god: God,
         relics: List[Item] = None,
+        provider: GameProvider = None,
         no_god_specified: bool = False,
         no_god_specified_override: str = None,
     ):
+        cache_parts = paths.game_cache_parts(
+            provider.game if provider is not None else Game.SMITE
+        )
         with await self.__make_build_image(build) as build_bytes:
             desc = f"Hey {ctx.user.mention}, {extended_desc}"
             file_bytes = build_bytes
@@ -1392,7 +1595,9 @@ class Smitele(commands.Cog):
 
             files = [discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)]
             embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
-            await self.__attach_thumbnail(embed, files, god.icon_url, "gods", "icons")
+            await self.__attach_thumbnail(
+                embed, files, god.icon_url, *cache_parts, "gods", "icons"
+            )
             embed.add_field(
                 name="Items", value=", ".join([item.name for item in build])
             )
@@ -1509,11 +1714,14 @@ class Smitele(commands.Cog):
                 game.choices[idx] = (choice[0], True)
 
     # Primary command for starting a round of Smite-le!
-    async def __smitele(self, message: discord.Message, *args: tuple) -> None:
+    async def __smitele(
+        self, message: discord.Message, *args: tuple, game_option: str = ""
+    ) -> None:
         if message.author == self.__bot.user:
             return
 
-        if len(self.__gods) == 0:
+        provider = self.provider(message, game_option)
+        if len(provider.gods) == 0:
             desc = f"{self.__bot.user.mention} has not finished initializing."
             await message.channel.send(
                 embed=discord.Embed(color=discord.Color.red(), description=desc)
@@ -1546,16 +1754,7 @@ class Smitele(commands.Cog):
                     embed=discord.Embed(color=discord.Color.red(), description=desc)
                 )
 
-            try:
-                god_arg = self.__gods[
-                    GodId[
-                        "_".join(["".join(arg) for arg in args])
-                        .upper()
-                        .replace("'", "")
-                    ]
-                ]  # handles Chang'e case
-            except KeyError:
-                pass
+            god_arg = provider.god_by_name(" ".join("".join(arg) for arg in args))
             if god_arg is None and len(args) > 1:
                 await send_invalid()
                 return
@@ -1567,10 +1766,12 @@ class Smitele(commands.Cog):
 
         # Fetching a random god from our list of cached gods
         game = SmiteleGame(
-            god_arg or random.choice(list(self.__gods.values())), context
+            god_arg or random.choice(list(provider.gods.values())),
+            context,
+            provider=provider,
         )
         if easy_mode:
-            game.generate_easy_mode_choices(list(self.__gods.values()))
+            game.generate_easy_mode_choices(list(provider.gods.values()))
         self.__running_sessions[game_session_id] = game
         try:
             await game.add_task(
@@ -1592,7 +1793,7 @@ class Smitele(commands.Cog):
         # Fetching skins for this god, used in multiple rounds
         skins = [
             Skin.from_json(skin)
-            for skin in await self.__smite_client.get_god_skins(session.god.id)
+            for skin in await session.provider.get_god_skins(session.god.id)
         ]
 
         build_task = session.add_task(
@@ -1708,7 +1909,7 @@ class Smitele(commands.Cog):
 
         # Hirez's route for getting recommended items is highly out of date, so we'll get a
         # top Ranked Conquest player's build
-        god_leaderboard = await self.__smite_client.get_god_leaderboard(
+        god_leaderboard = await session.provider.get_god_leaderboard(
             session.god.id, QueueId.RANKED_CONQUEST
         )
 
@@ -1718,7 +1919,7 @@ class Smitele(commands.Cog):
             god_leaderboard.remove(random_player)
 
             # Scraping their recent match history to try and find a current build
-            match_history = await self.__smite_client.get_match_history(
+            match_history = await session.provider.get_match_history(
                 int(random_player["player_id"])
             )
             for match in match_history:
@@ -1731,7 +1932,7 @@ class Smitele(commands.Cog):
                 ):
                     for item_id in items:
                         # Luckily `getmatchhistory` includes build info!
-                        build.append(self.__items[item_id])
+                        build.append(session.provider.items[item_id])
 
         return await self.__make_build_image(build)
 
@@ -2046,7 +2247,7 @@ class Smitele(commands.Cog):
     ) -> bool:
         if any(
             self.__check_answer_message(guess.content, god.name)
-            for god in list(self.__gods.values())
+            for god in list(game.provider.gods.values())
         ):
             return True
         await guess.add_reaction("❓")
@@ -2076,11 +2277,19 @@ if __name__ == "__main__":
     # pylint: disable=assigning-non-slot
     intents.message_content = True
     bot = commands.Bot(command_prefix="$", intents=intents)
+
+    # One provider per game, built up front. A game with no provider simply is
+    # not offered — Providers derives the `game:` choices from what is
+    # registered — so adding Smite 2 is a matter of appending to this list.
     provider = SmiteProvider()
     asyncio.run(provider.create())
-    player_stats = PlayerStats(provider)
-    smitele = Smitele(bot, provider)
-    smite_triva = SmiteTrivia(bot, provider)
+
+    settings = GuildSettings()
+    providers = Providers(provider, settings=settings)
+
+    player_stats = PlayerStats(providers)
+    smitele = Smitele(bot, providers, settings)
+    smite_triva = SmiteTrivia(bot, providers)
     bot.add_cog(smitele)
     bot.add_cog(smite_triva)
     bot.add_cog(player_stats)

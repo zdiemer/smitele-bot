@@ -8,6 +8,7 @@ import time
 import uuid
 from enum import Enum
 from json.decoder import JSONDecodeError
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import discord
@@ -16,6 +17,9 @@ from discord.ext import commands
 from unidecode import unidecode
 
 import paths
+from game import Game
+from providers import Providers
+from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from player import Player, PlayerId
 from player_stats import QueueStats
 from SmiteProvider import SmiteProvider
@@ -753,6 +757,15 @@ class FriendQuestionGenerator(QuestionGenerator):
         return (embed, question, None)
 
 
+@dataclass(frozen=True)
+class _Catalogue:
+    """One game's askable items, split by type."""
+
+    consumables: List[Item] = field(default_factory=list)
+    items: List[Item] = field(default_factory=list)
+    relics: List[Item] = field(default_factory=list)
+
+
 class TriviaCategory(Enum):
     CONSUMABLES = 1
     GODS = 2
@@ -790,32 +803,54 @@ class SmiteTrivia(commands.Cog):
         475838616770314240: "Guenhywvar",
     }
 
-    def __init__(self, bot: commands.Bot, provider: SmiteProvider):
+    # How often each category comes up when the user does not pick one. Was an
+    # unlabelled [1, 5, 5, 2, 5] positionally aligned to the enum, which broke
+    # silently as soon as a category could be withheld for a game.
+    __CATEGORY_WEIGHTS = {
+        TriviaCategory.CONSUMABLES: 1,
+        TriviaCategory.GODS: 5,
+        TriviaCategory.ITEMS: 5,
+        TriviaCategory.RELICS: 2,
+        TriviaCategory.FRIENDS: 5,
+    }
+
+    def __init__(self, bot: commands.Bot, providers: Providers):
         self.__bot = bot
-        self.__gods = provider.gods
-        self.__all_items = provider.items
-        self.__provider = provider
+        self.providers = providers
         # A trivia round lives entirely inside its coroutine, so there was
         # nothing to ask about whether one was in progress. The deploy guard
         # needs exactly that, since restarting mid-round drops the questions.
         self.__active_rounds = 0
+        self.__catalogues: Dict[Game, _Catalogue] = {}
 
-        active_item_list = list(
-            filter(lambda i: i.active, list(self.__all_items.values()))
-        )
+    def catalogue(self, provider) -> "_Catalogue":
+        """The askable items for one game, split by type.
 
-        self.__consumables = list(
-            filter(lambda i: i.type == ItemType.CONSUMABLE, active_item_list)
-        )
-        self.__items = list(filter(lambda i: i.type == ItemType.ITEM, active_item_list))
-        self.__relics = list(
-            filter(lambda i: i.type == ItemType.RELIC, active_item_list)
-        )
+        Computed once per game rather than per question — it is a few filters
+        over a few hundred items, but it used to happen in the constructor
+        against the one provider that existed, which cannot work when the
+        question's game is not known until the interaction arrives.
+        """
+        if provider.game not in self.__catalogues:
+            active = [i for i in provider.items.values() if i.active]
+            self.__catalogues[provider.game] = _Catalogue(
+                consumables=[i for i in active if i.type == ItemType.CONSUMABLE],
+                items=[i for i in active if i.type == ItemType.ITEM],
+                relics=[i for i in active if i.type == ItemType.RELIC],
+            )
+        return self.__catalogues[provider.game]
 
     @commands.slash_command(
         name="trivia",
         description="Start a game of Smite trivia",
-        guild_ids=[845718807509991445, 396874836250722316, 480512578779611146],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to ask about; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
     )
     @discord.option(
         name="question_count",
@@ -831,14 +866,18 @@ class SmiteTrivia(commands.Cog):
         default="",
     )
     async def smitetrivia(
-        self, ctx: discord.ApplicationContext, question_count: int, category: str
+        self,
+        ctx: discord.ApplicationContext,
+        game: str,
+        question_count: int,
+        category: str,
     ):
-        await self.__smitetrivia(ctx, question_count, category)
+        await self.__smitetrivia(ctx, question_count, category, game)
 
     @commands.slash_command(
         name="scores",
         description="Show the Smite trivia scoreboard",
-        guild_ids=[845718807509991445, 396874836250722316, 480512578779611146],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def scores(self, ctx: discord.ApplicationContext):
         await self.__scores(ctx)
@@ -938,36 +977,53 @@ class SmiteTrivia(commands.Cog):
                 continue
             await message.edit(embed=embed)
 
+    def categories_for(self, provider) -> List[TriviaCategory]:
+        """Which categories can be asked about for one game.
+
+        FRIENDS asks about specific players' god mastery through the Hi-Rez
+        player API, which has no Smite 2 counterpart, so the category is
+        withheld rather than offered and then failed.
+        """
+        return [
+            category
+            for category in TriviaCategory
+            if category != TriviaCategory.FRIENDS or provider.game is Game.SMITE
+        ]
+
     async def __get_next_question(
-        self, category: TriviaCategory = None
+        self, provider, category: TriviaCategory = None
     ) -> Tuple[discord.Embed, TriviaQuestion, discord.File]:
+        catalogue = self.catalogue(provider)
         if category is None:
+            allowed = self.categories_for(provider)
             category = random.choices(
-                list(TriviaCategory), weights=[1, 5, 5, 2, 5], k=1
+                allowed,
+                weights=[self.__CATEGORY_WEIGHTS[c] for c in allowed],
+                k=1,
             )[0]
         if category == TriviaCategory.CONSUMABLES:
             return ItemQuestionGenerator(
-                random.choice(self.__consumables), self.__all_items
+                random.choice(catalogue.consumables), provider.items
             ).question
         if category == TriviaCategory.GODS:
             generator = GodQuestionGenerator(
-                random.choice(list(self.__gods.values())), self.__provider
+                random.choice(list(provider.gods.values())), provider
             )
             await generator.generate_skin_question()
             return generator.question
         if category == TriviaCategory.ITEMS:
             generator = ItemQuestionGenerator(
-                random.choice(self.__items), self.__all_items
+                random.choice(catalogue.items), provider.items
             )
             await generator.generate_tree_question()
             return generator.question
         if category == TriviaCategory.RELICS:
             return ItemQuestionGenerator(
-                random.choice(self.__relics), self.__all_items
+                random.choice(catalogue.relics), provider.items
             ).question
         if category == TriviaCategory.FRIENDS:
             generator = FriendQuestionGenerator(
-                self.__FRIENDS, self.__provider, self.__gods
+                self.__FRIENDS, provider, provider.gods
             )
             await generator.init_question_bank()
             return generator.question
@@ -979,19 +1035,29 @@ class SmiteTrivia(commands.Cog):
         return self.__active_rounds
 
     async def __smitetrivia(
-        self, ctx: discord.ApplicationContext, question_count: int, input_category: str
+        self,
+        ctx: discord.ApplicationContext,
+        question_count: int,
+        input_category: str,
+        game: str = "",
     ):
         if ctx.author == self.__bot.user:
             return
 
         self.__active_rounds += 1
         try:
-            await self.__run_trivia_round(ctx, question_count, input_category)
+            await self.__run_trivia_round(
+                ctx, question_count, input_category, self.providers.for_ctx(ctx, game)
+            )
         finally:
             self.__active_rounds -= 1
 
     async def __run_trivia_round(
-        self, ctx: discord.ApplicationContext, question_count: int, input_category: str
+        self,
+        ctx: discord.ApplicationContext,
+        question_count: int,
+        input_category: str,
+        provider,
     ):
 
         correct_answers = {}
@@ -1018,6 +1084,17 @@ class SmiteTrivia(commands.Cog):
                     )
                 )
                 return
+            if input_category not in self.categories_for(provider):
+                await ctx.respond(
+                    embed=discord.Embed(
+                        color=discord.Color.red(),
+                        description=(
+                            f"There are no **{input_category.name.title()}** "
+                            f"questions for {provider.game.display_name}."
+                        ),
+                    )
+                )
+                return
         else:
             input_category = None
 
@@ -1030,7 +1107,9 @@ class SmiteTrivia(commands.Cog):
             file: discord.File = None
 
             while question is None or question.id in asked_questions:
-                embed, question, file = await self.__get_next_question(category)
+                embed, question, file = await self.__get_next_question(
+                    provider, category
+                )
 
             asked_questions.add(question.id)
 

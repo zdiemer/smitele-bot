@@ -11,10 +11,13 @@ import pandas as pd
 import ujson as json
 from aiohttp import ClientConnectionError, ContentTypeError
 
+from unidecode import unidecode
+
 import build_features
 import credentials
 import match_storage
 import paths
+from game import Game
 from god import God
 from god_types import GodId
 from item import Item
@@ -34,6 +37,10 @@ class SmiteProvider(Smite):
     GODS_FILE: str = paths.data_file("gods.json")
     ITEMS_FILE: str = paths.data_file("items.json")
     SMITE_PATCH_VERSION_FILE: str = paths.data_file("version")
+
+    # Which game this provider answers for. The cogs hold one per game and
+    # resolve per interaction; see providers.Providers.
+    game: Game = Game.SMITE
 
     gods: Dict[GodId, God]
     items: Dict[int, Item]
@@ -314,6 +321,44 @@ class SmiteProvider(Smite):
         if should_refresh:
             with open(self.SMITE_PATCH_VERSION_FILE, "w", encoding="utf-8") as file:
                 file.write(str(current_patch))
+
+    def god_by_name(self, name: str) -> God:
+        """A god from however a user typed their name, or None.
+
+        Three copies of this existed — in `Smitele.__god_by_name`, and inside
+        both `GodOptions.set_option` and `BuildOptions.set_option`, where it was
+        spelled `GodId[value.upper().replace(" ", "_").replace("'", "")]` with a
+        comment about Chang'e. Each had to be edited in step, and none of them
+        could work for a game whose gods are not `GodId` members. It lives on
+        the provider now because the answer depends on which game is in play.
+
+        Accents are folded and apostrophes dropped, so "Chang'e", "change" and
+        "Chang'E" all resolve, as do "Ah Muzen Cab" and "ah muzen cab".
+        """
+        wanted = unidecode(str(name)).strip().lower().replace("'", "")
+        if not wanted:
+            return None
+        for god in self.gods.values():
+            if unidecode(god.name).lower().replace("'", "") == wanted:
+                return god
+        return None
+
+    def god_id_from_name(self, name: str):
+        """The id key for a god name, or None. See `god_by_name`."""
+        god = self.god_by_name(name)
+        return None if god is None else god.id
+
+    def random_god_id(self):
+        """A god id drawn from this game's roster.
+
+        `BuildOptions` used `random.choice(list(GodId))`, which is not merely
+        Smite-1-specific: it can return a god that is not in the loaded roster
+        at all, since `GodId` is a checked-in enum and `gods` is what the API
+        served.
+        """
+        import random  # noqa: PLC0415
+
+        return random.choice(list(self.gods.keys())) if self.gods else None
 
     def load_build_stats(self) -> bool:
         """Load the aggregate, if one has been written.

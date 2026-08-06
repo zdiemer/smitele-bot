@@ -12,6 +12,29 @@ from stat_calculator import BuildStatCalculator, GodBuild, _Penetration
 from HirezAPI import QueueId
 
 
+def compute_item_price(item: Item, all_items: Dict[int, Item]) -> int:
+    """What an item costs including everything it was built out of.
+
+    A free function because it needs nothing else an optimizer has. `$item`
+    used to reach it by constructing `BuildOptimizer(gods[GodId.AGNI], [],
+    items)` — a whole archetype-scoring optimizer, and a hardcoded Smite 1 god,
+    to walk a parent chain.
+    """
+    total_price = item.price
+    parent_id = item.parent_item_id
+    seen = set()
+    while parent_id is not None and parent_id not in seen:
+        # Guard the walk. A cycle in the tree would otherwise hang the command,
+        # and the tree is parsed from an external source in Smite 2's case.
+        seen.add(parent_id)
+        parent = all_items.get(parent_id)
+        if parent is None:
+            break
+        total_price += parent.price
+        parent_id = parent.parent_item_id
+    return total_price
+
+
 class BuildArchetype(Enum):
     # Assassin Archetypes
     ABILITY_BASED_ASSASSIN = 1
@@ -1301,13 +1324,7 @@ class BuildOptimizer:
         return attributes
 
     def compute_item_price(self, item: Item) -> int:
-        total_price = item.price
-        parent_id = item.parent_item_id
-        while parent_id is not None:
-            parent = self.__all_items[parent_id]
-            total_price += parent.price
-            parent_id = parent.parent_item_id
-        return total_price
+        return compute_item_price(item, self.__all_items)
 
     def compute_price(self, items: List[Item]) -> int:
         total_price = 0

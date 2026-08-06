@@ -62,11 +62,21 @@ class BuildOptions:
         enemies: List[GodId] = None,
         allies: List[GodId] = None,
         high_mmr: bool = False,
+        provider=None,
     ):
+        # Which game's roster names resolve against. Optional so the Smite 1
+        # call sites that predate multi-game support keep working, but every
+        # command passes one — without it a Smite 2 god name cannot be looked
+        # up, and the random god is drawn from Smite 1's enum.
+        self.__provider = provider
         if god_id is not None:
             self.god_id = god_id
         else:
-            self.god_id = random.choice(list(GodId))
+            self.god_id = (
+                provider.random_god_id()
+                if provider is not None
+                else random.choice(list(GodId))
+            )
             self.__random_god = True
         self.build_type = build_type
         self.prioritization = prioritization
@@ -77,12 +87,24 @@ class BuildOptions:
         self.allies = allies
         self.high_mmr = high_mmr
 
+    def __god_id(self, value: str) -> GodId:
+        """Resolve one god name, through the provider when there is one.
+
+        The fallback is the old enum-key mangling, kept so call sites without a
+        provider behave exactly as they did.
+        """
+        if self.__provider is not None:
+            god_id = self.__provider.god_id_from_name(value)
+            if god_id is None:
+                raise InvalidOptionError
+            return god_id
+        # handles Chang'e case
+        return GodId[value.strip().upper().replace(" ", "_").replace("'", "")]
+
     def set_option(self, option: str, value: str):
         try:
             if option in ("-g", "--god"):
-                self.god_id = GodId[
-                    value.upper().replace(" ", "_").replace("'", "")
-                ]  # handles Chang'e case
+                self.god_id = self.__god_id(value)
                 self.__random_god = False
             elif option in ("-p", "--prioritize"):
                 self.prioritization = BuildPrioritization(value.lower())
@@ -97,15 +119,9 @@ class BuildOptions:
             elif option in ("-t", "--type"):
                 self.build_type = BuildCommandType(value.lower())
             elif option in ("-e", "--enemies"):
-                self.enemies = [
-                    GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
-                    for g in value.split(",")
-                ]
+                self.enemies = [self.__god_id(g) for g in value.split(",")]
             elif option in ("-a", "--allies"):
-                self.allies = [
-                    GodId[g.strip().upper().replace(" ", "_").replace("'", "")]
-                    for g in value.split(",")
-                ]
+                self.allies = [self.__god_id(g) for g in value.split(",")]
             elif option in ("-mmr", "--high_mmr"):
                 if value is not None:
                     raise InvalidOptionError

@@ -10,6 +10,8 @@ from discord.ext import commands
 from god import GodId, GodRole
 from match import PlayerMatch
 from player import Player, PlayerId, StatusId
+from game import Game
+from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from SmiteProvider import SmiteProvider
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
 
@@ -127,8 +129,16 @@ class PlayerStats(commands.Cog):
         475838616770314240: "Guenhywvar",
     }
 
-    def __init__(self, provider: SmiteProvider):
-        self.__provider = provider
+    def __init__(self, providers):
+        self.providers = providers
+        # Every command in this cog goes through the Hi-Rez player API — live
+        # matches, queue stats, worshippers, match history — and Smite 2 has no
+        # counterpart to any of it on this source. tracker.gg does, per player
+        # and exactly, which is what makes these worth adding separately rather
+        # than trying to serve them from the sampled corpus. Until that lands
+        # these are Smite 1 only, and pinning here says so in one place instead
+        # of resolving a game per command and then ignoring the answer.
+        self.__provider = providers[Game.SMITE]
 
     async def __send_invalid(
         self,
@@ -329,7 +339,7 @@ class PlayerStats(commands.Cog):
 
     @commands.user_command(
         name="Smite Live Match",
-        guild_ids=[396874836250722316, 845718807509991445],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def livematch_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
@@ -351,7 +361,7 @@ class PlayerStats(commands.Cog):
 
     @commands.user_command(
         name="Smite Queue Stats",
-        guild_ids=[396874836250722316, 845718807509991445],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def queue_stats_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
@@ -381,7 +391,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="live_match",
         description="Look up a Smite player's live match details",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name",
@@ -403,7 +413,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="queue_stats",
         description="Look up a Smite player's stats for a given queue type",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name",
@@ -680,7 +690,7 @@ class PlayerStats(commands.Cog):
 
     @commands.user_command(
         name="Smite Rank Stats",
-        guild_ids=[396874836250722316, 845718807509991445],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def rank_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
@@ -700,7 +710,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="rank",
         description="Look up a Smite player's ranked stats",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name",
@@ -718,7 +728,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="worshippers",
         description="Look up a Smite player's god stats",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name",
@@ -880,7 +890,7 @@ class PlayerStats(commands.Cog):
 
     @commands.user_command(
         name="Smite Total Worshipper Stats",
-        guild_ids=[396874836250722316, 845718807509991445],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def worshipper_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
@@ -955,7 +965,7 @@ class PlayerStats(commands.Cog):
 
     @commands.user_command(
         name="Smite Match History",
-        guild_ids=[396874836250722316, 845718807509991445],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     async def match_history_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
@@ -976,7 +986,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="match_history",
         description="Look up a Smite player's match history",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name",
@@ -1083,7 +1093,7 @@ class PlayerStats(commands.Cog):
     @commands.slash_command(
         name="first_match",
         description="Look up two Smite players' first match together.",
-        guild_ids=[845718807509991445, 396874836250722316],
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
         name="player_name_1",

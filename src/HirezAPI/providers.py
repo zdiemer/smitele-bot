@@ -98,9 +98,23 @@ class Providers:
         # after it was removed — should degrade rather than raise.
         return game if game in self.__by_game else self.__default()
 
+    @staticmethod
+    def guild_id_of(source: Any) -> Optional[int]:
+        """The guild behind whatever a command handler was handed.
+
+        Slash commands get an ApplicationContext with `guild_id`; the legacy
+        `$` commands get a Message, whose guild is an object; an Interaction has
+        both. A DM has neither, and None is the right answer there.
+        """
+        guild_id = getattr(source, "guild_id", None)
+        if guild_id is not None:
+            return guild_id
+        guild = getattr(source, "guild", None)
+        return getattr(guild, "id", None)
+
     def for_ctx(self, ctx: Any, option: Optional[str] = None) -> GameProvider:
         """The provider one interaction is about."""
-        return self[self.resolve(option, getattr(ctx, "guild_id", None))]
+        return self[self.resolve(option, self.guild_id_of(ctx))]
 
     def __fallback(self, option: Optional[str]) -> Game:
         if option:
