@@ -37,6 +37,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HirezAPI"))
 import build_features  # noqa: E402  pylint: disable=wrong-import-position
 import match_storage  # noqa: E402  pylint: disable=wrong-import-position
 import paths  # noqa: E402  pylint: disable=wrong-import-position
+
+import manifest  # noqa: E402  pylint: disable=wrong-import-position
 from game import Game  # noqa: E402  pylint: disable=wrong-import-position
 from HirezAPI import QueueId  # noqa: E402  pylint: disable=wrong-import-position
 from SmiteProvider import (  # noqa: E402  pylint: disable=wrong-import-position
@@ -348,45 +350,35 @@ def consolidate(
     )
 
 
-MANIFEST_NAME: str = "aggregate_manifest.parquet"
 BUILD_PLAYS_NAME: str = "build_plays.parquet"
 OUTPUT_NAMES = ("build_stats", "build_items", "relic_stats", "god_stats")
 
 
 def load_previous(directory: str):
-    """The last run's output plus the list of files it covered.
+    """The last run's output plus the manifest describing what is in it.
 
     Returns None unless everything needed is present: a partial set cannot be
     folded into safely, since a missing manifest would mean re-adding days that
     are already counted.
     """
-    manifest_path = os.path.join(directory, MANIFEST_NAME)
     plays_path = os.path.join(directory, BUILD_PLAYS_NAME)
     outputs = {
         name: os.path.join(directory, f"{name}{match_storage.SUFFIX}")
         for name in OUTPUT_NAMES
     }
-    if not os.path.isfile(manifest_path) or not os.path.isfile(plays_path):
+    if not os.path.isfile(plays_path):
         return None
     if not all(os.path.isfile(path) for path in outputs.values()):
         return None
 
-    manifest = pd.read_parquet(manifest_path)
-    newest = None
-    if manifest.shape[0] and manifest["newest"].iloc[0]:
-        newest = datetime.datetime.strptime(
-            str(manifest["newest"].iloc[0]), "%Y-%m-%d"
-        ).date()
-    built = datetime.date.today()
-    if "built" in manifest.columns and manifest.shape[0] and manifest["built"].iloc[0]:
-        built = datetime.datetime.strptime(
-            str(manifest["built"].iloc[0]), "%Y-%m-%d"
-        ).date()
+    stored = manifest.read(directory)
+    if stored is None:
+        return None
 
     previous = {
-        "built": built,
-        "covered": set(manifest["path"]),
-        "newest": newest,
+        "built": stored.built,
+        "manifest": stored,
+        "newest": stored.newest,
         "build_plays": pd.read_parquet(plays_path),
     }
     for name, path in outputs.items():
@@ -571,14 +563,41 @@ def main() -> int:
                 flush=True,
             )
             previous = None
+
+    # A corpus file that was rewritten since it was counted cannot be folded in
+    # again: its earlier rows are already inside the stored totals and there is
+    # no way to subtract them. Detection therefore decides whether the fast path
+    # is available at all, rather than widening what it covers.
+    #
+    # Smite 2 hits this every night, because its crawl merges into the day it is
+    # collecting; Smite 1 does not, because it writes each day once. See
+    # `manifest` for why identity is the basename rather than the path.
+    plan = manifest.classify(corpus, previous["manifest"]) if previous else None
+    if plan is not None and plan.must_rebuild:
+        print(
+            f"{len(plan.changed):,} counted file(s) changed and "
+            f"{len(plan.missing):,} vanished; their contribution cannot be "
+            "subtracted, so rebuilding from the whole corpus.",
+            flush=True,
+        )
+        for entry in plan.changed[:5]:
+            current = manifest.fingerprint(entry.path)
+            print(
+                f"    {entry.name}: counted at {entry.size:,}B"
+                + (f"/{entry.rows:,} rows" if entry.rows >= 0 else "")
+                + (f", now {current[0]:,}B" if current else ", now gone"),
+                flush=True,
+            )
+        previous, plan = None, None
+
     pending = corpus
     decay = 1.0
 
     if previous is not None:
-        pending = [path for path in corpus if path not in previous["covered"]]
+        pending = plan.pending
         decay = recency_weight(previous["newest"], newest, args.half_life_days)
         print(
-            f"Incremental: {len(previous['covered']):,} file(s) already counted, "
+            f"Incremental: {len(plan.carried):,} file(s) already counted, "
             f"{len(pending):,} new; ageing stored totals by {decay:.4f}",
             flush=True,
         )
@@ -683,23 +702,6 @@ def main() -> int:
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # The manifest is what makes the next run incremental: it records exactly
-    # which files are already counted, and the day the weights are relative to.
-    covered = sorted(set(corpus))
-    # "built" is the date of the last *full* rebuild, carried forward across
-    # incremental runs, so age measures accumulated drift rather than time
-    # since the last touch.
-    built = (previous["built"] if previous is not None else datetime.date.today())
-    pd.DataFrame(
-        {
-            "path": covered,
-            "newest": [newest.strftime("%Y-%m-%d") if newest else ""] * len(covered),
-            "built": [built.strftime("%Y-%m-%d")] * len(covered),
-        }
-    ).to_parquet(os.path.join(out_dir, MANIFEST_NAME), compression="zstd", index=False)
-    build_plays.to_parquet(
-        os.path.join(out_dir, BUILD_PLAYS_NAME), compression="zstd", index=False
-    )
     written = []
     for name, frame in (
         ("build_stats", builds),
@@ -712,6 +714,33 @@ def main() -> int:
         frame.to_parquet(partial, compression="zstd", index=False)
         os.replace(partial, destination)
         written.append((destination, frame.shape[0], os.path.getsize(destination)))
+
+    plays_path = os.path.join(out_dir, BUILD_PLAYS_NAME)
+    build_plays.to_parquet(f"{plays_path}.partial", compression="zstd", index=False)
+    os.replace(f"{plays_path}.partial", plays_path)
+
+    # The manifest is what makes the next run incremental: it records exactly
+    # which files are already counted, and the day the weights are relative to.
+    # Written last, after everything it describes, so that it is the commit
+    # point — `load_previous` checks that all six files exist, but it cannot
+    # catch a fresh manifest sitting beside stale totals.
+    #
+    # Carried entries are kept even when `--days` hid them from this run: they
+    # are still inside the totals, and forgetting them would let the same day be
+    # folded in a second time the next time the window widened.
+    # "built" is the date of the last *full* rebuild, carried forward across
+    # incremental runs, so age measures accumulated drift rather than time
+    # since the last touch.
+    built = (previous["built"] if previous is not None else datetime.date.today())
+    manifest.write(
+        out_dir,
+        manifest.Manifest(
+            entries=(plan.carried if plan is not None else [])
+            + [manifest.entry_for(path) for path in pending],
+            newest=newest,
+            built=built,
+        ),
+    )
 
     print(f"Aggregated {rows_seen:,} player rows in {time.time() - start:.0f}s")
     for destination, rows, size in written:
