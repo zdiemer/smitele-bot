@@ -27,7 +27,7 @@ import os
 import re
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,12 @@ QUEUE_ALIASES: Dict[int, int] = {
     QueueId.UNDER_30_JOUST.value: QueueId.JOUST.value,
 }
 
+# Per-build performance shown in /build's description. Summed over winning rows
+# only, matching what the raw-frame version reported, and divided by the win
+# count on read. Means rather than medians: a median cannot be combined across
+# files without keeping every value, which is the thing this exists to avoid.
+STAT_COLUMNS: List[str] = ["Kills_Player", "Deaths", "Assists", "Damage_Player"]
+
 NEEDED_COLUMNS: List[str] = (
     [
         "GodId",
@@ -65,28 +71,41 @@ NEEDED_COLUMNS: List[str] = (
         "Rank_Stat_Conquest",
         "Rank_Stat_Duel",
         "Rank_Stat_Joust",
+        "Conquest_Tier",
+        "Duel_Tier",
+        "Joust_Tier",
     ]
+    + STAT_COLUMNS
     + build_features.ITEM_COLUMNS
     + build_features.RELIC_COLUMNS
 )
 
+SUM_COLUMNS: List[str] = [f"sum_{name}" for name in STAT_COLUMNS] + [
+    "sum_rating",
+    "sum_tier",
+    "rated_wins",
+]
 
-def high_mmr_flag(frame: pd.DataFrame) -> pd.Series:
-    """Whether each row is a high-MMR player, by the stat its queue ranks on.
 
-    /build only ever set this for ranked queues — and indexed the frame with
-    None for every other queue, which raised. Conquest's rating is the sensible
-    default, so the flag is defined for every row here.
-    """
+def queue_rating(frame: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+    """The rating and tier appropriate to each row's queue."""
     queue = pd.to_numeric(frame["match_queue_id"], errors="coerce").fillna(-1)
 
-    rating = pd.to_numeric(frame["Rank_Stat_Conquest"], errors="coerce").fillna(0.0)
-    duel = pd.to_numeric(frame["Rank_Stat_Duel"], errors="coerce").fillna(0.0)
-    joust = pd.to_numeric(frame["Rank_Stat_Joust"], errors="coerce").fillna(0.0)
+    def pick(conquest: str, duel: str, joust: str) -> pd.Series:
+        value = pd.to_numeric(frame[conquest], errors="coerce").fillna(0.0)
+        value = value.where(
+            queue != QueueId.RANKED_DUEL.value,
+            pd.to_numeric(frame[duel], errors="coerce").fillna(0.0),
+        )
+        return value.where(
+            queue != QueueId.RANKED_JOUST.value,
+            pd.to_numeric(frame[joust], errors="coerce").fillna(0.0),
+        )
 
-    rating = rating.where(queue != QueueId.RANKED_DUEL.value, duel)
-    rating = rating.where(queue != QueueId.RANKED_JOUST.value, joust)
-    return rating >= HIGH_MMR
+    return (
+        pick("Rank_Stat_Conquest", "Rank_Stat_Duel", "Rank_Stat_Joust"),
+        pick("Conquest_Tier", "Duel_Tier", "Joust_Tier"),
+    )
 
 
 def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
@@ -105,10 +124,30 @@ def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
         np.int64
     )
     frame["Role"] = frame["Role"].astype(str).fillna("Unknown")
-    frame["HighMmr"] = high_mmr_flag(frame)
+
+    rating, tier = queue_rating(frame)
+    frame["HighMmr"] = rating >= HIGH_MMR
+    frame["_rating"] = rating
+    frame["_tier"] = tier
+    for column in STAT_COLUMNS:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
 
     build_features.annotate(frame, items)
     return frame
+
+
+def stat_sums(frame: pd.DataFrame, keys: List[str]) -> pd.DataFrame:
+    """Per-group sums of the winners' performance stats."""
+    winners = frame.loc[frame["Win_Status"]].copy()
+    for column in STAT_COLUMNS:
+        winners[f"sum_{column}"] = winners[column]
+    # Unranked rows report a rating of zero, which would drag the average down
+    # rather than being absent; they are counted separately and excluded.
+    rated = winners["_rating"] > 0
+    winners["sum_rating"] = winners["_rating"].where(rated, 0.0)
+    winners["sum_tier"] = winners["_tier"].where(rated, 0.0)
+    winners["rated_wins"] = rated.astype(int)
+    return winners.groupby(keys, dropna=False, observed=True)[SUM_COLUMNS].sum().reset_index()
 
 
 def corpus_date(path: str) -> "datetime.date":
@@ -150,6 +189,13 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
     )
     build_counts["wplays"] = build_counts["plays"] * weight
     build_counts["wwins"] = build_counts["wins"] * weight
+    build_counts = build_counts.merge(
+        stat_sums(builds, GROUP_KEYS + ["BuildHash"]),
+        on=GROUP_KEYS + ["BuildHash"],
+        how="left",
+    )
+    for column in SUM_COLUMNS:
+        build_counts[column] = build_counts[column].fillna(0.0)
 
     # One representative item set per hash. The hash is order-independent, so
     # any row carrying it describes the same six items.
@@ -166,21 +212,31 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
     relic_counts["wplays"] = relic_counts["plays"] * weight
     relic_counts["wwins"] = relic_counts["wins"] * weight
 
-    return build_counts, items, relic_counts
+    god_counts = (
+        frame.groupby(GROUP_KEYS, dropna=False, observed=True)
+        .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
+        .reset_index()
+    )
+    god_counts["wplays"] = god_counts["plays"] * weight
+    god_counts["wwins"] = god_counts["wins"] * weight
+
+    return build_counts, items, relic_counts, god_counts
 
 
-def consolidate(frames: List[pd.DataFrame], keys: List[str]) -> pd.DataFrame:
+COUNT_COLUMNS: List[str] = ["plays", "wins", "wplays", "wwins"]
+
+
+def consolidate(
+    frames: List[pd.DataFrame], keys: List[str], extra: List[str] = ()
+) -> pd.DataFrame:
+    """Sum counts across per-file partials, collapsing to one row per key."""
+    columns = COUNT_COLUMNS + list(extra)
     if not frames:
-        return pd.DataFrame(columns=keys + ["plays", "wins", "wplays", "wwins"])
+        return pd.DataFrame(columns=keys + columns)
     return (
         pd.concat(frames, ignore_index=True)
-        .groupby(keys, dropna=False, observed=True)
-        .agg(
-            plays=("plays", "sum"),
-            wins=("wins", "sum"),
-            wplays=("wplays", "sum"),
-            wwins=("wwins", "sum"),
-        )
+        .groupby(keys, dropna=False, observed=True)[columns]
+        .sum()
         .reset_index()
     )
 
@@ -229,8 +285,9 @@ def main() -> int:
 
     build_parts: List[pd.DataFrame] = []
     relic_parts: List[pd.DataFrame] = []
+    god_parts: List[pd.DataFrame] = []
     item_parts: List[pd.DataFrame] = []
-    builds_total = relics_total = pd.DataFrame()
+    builds_total = relics_total = gods_total = pd.DataFrame()
     rows_seen = 0
     start = time.time()
 
@@ -242,23 +299,26 @@ def main() -> int:
             continue
 
         rows_seen += frame.shape[0]
-        build_counts, items, relic_counts = reduce_file(
+        build_counts, items, relic_counts, god_counts = reduce_file(
             frame, recency_weight(dates.get(path), newest, args.half_life_days)
         )
         build_parts.append(build_counts)
         relic_parts.append(relic_counts)
+        god_parts.append(god_counts)
         item_parts.append(items)
         del frame
 
         if index % args.consolidate_every == 0:
-            build_parts = [
-                consolidate(build_parts + [builds_total], GROUP_KEYS + ["BuildHash"])
-            ]
-            builds_total = build_parts.pop()
-            relic_parts = [
-                consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
-            ]
-            relics_total = relic_parts.pop()
+            builds_total = consolidate(
+                build_parts + [builds_total], GROUP_KEYS + ["BuildHash"], SUM_COLUMNS
+            )
+            build_parts = []
+            relics_total = consolidate(
+                relic_parts + [relics_total], GROUP_KEYS + ["Relics"]
+            )
+            relic_parts = []
+            gods_total = consolidate(god_parts + [gods_total], GROUP_KEYS)
+            god_parts = []
             item_parts = [
                 pd.concat(item_parts, ignore_index=True).drop_duplicates(
                     subset=["BuildHash"]
@@ -271,8 +331,11 @@ def main() -> int:
                 flush=True,
             )
 
-    builds = consolidate(build_parts + [builds_total], GROUP_KEYS + ["BuildHash"])
+    builds = consolidate(
+        build_parts + [builds_total], GROUP_KEYS + ["BuildHash"], SUM_COLUMNS
+    )
     relics = consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
+    gods = consolidate(god_parts + [gods_total], GROUP_KEYS)
     items = pd.concat(item_parts, ignore_index=True).drop_duplicates(
         subset=["BuildHash"]
     )
@@ -296,6 +359,7 @@ def main() -> int:
         ("build_stats", builds),
         ("build_items", items),
         ("relic_stats", relics),
+        ("god_stats", gods),
     ):
         destination = os.path.join(args.out, f"{name}{match_storage.SUFFIX}")
         partial = f"{destination}.partial"
