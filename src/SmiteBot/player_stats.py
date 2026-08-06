@@ -444,20 +444,20 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    @discord.option(
         name="game",
         type=str,
         description="Which game to answer for; defaults to this server's",
         choices=[g.display_name for g in Game],
         default="",
     )
-    @discord.option(
-        name="player_name",
-        type=str,
-        description="The player name of the person to look up",
-        required=True,
-    )
     async def livematch(
-        self, ctx: discord.ApplicationContext, game: str, player_name: str
+        self, ctx: discord.ApplicationContext, player_name: str, game: str
     ):
         if self.__smite2(ctx, game) is not None:
             # tracker.gg's sessions route returns "not implemented", and the
@@ -488,13 +488,6 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
-        name="game",
-        type=str,
-        description="Which game to answer for; defaults to this server's",
-        choices=[g.display_name for g in Game],
-        default="",
-    )
-    @discord.option(
         name="player_name",
         type=str,
         description="The player name of the person to look up",
@@ -515,12 +508,19 @@ class PlayerStats(commands.Cog):
         ],
         default="",
     )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
     async def queuestats(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         player_name: str,
         queue: str,
+        game: str,
     ):
         found = await self.__smite2_lookup(ctx, game, player_name, "gamemode")
         if found is not None:
@@ -805,20 +805,20 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    @discord.option(
         name="game",
         type=str,
         description="Which game to answer for; defaults to this server's",
         choices=[g.display_name for g in Game],
         default="",
     )
-    @discord.option(
-        name="player_name",
-        type=str,
-        description="The player name of the person to look up",
-        required=True,
-    )
     async def rank(
-        self, ctx: discord.ApplicationContext, game: str, player_name: str
+        self, ctx: discord.ApplicationContext, player_name: str, game: str
     ) -> None:
         found = await self.__smite2_lookup(ctx, game, player_name, "gamemode")
         if found is not None:
@@ -841,13 +841,6 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
-        name="game",
-        type=str,
-        description="Which game to answer for; defaults to this server's",
-        choices=[g.display_name for g in Game],
-        default="",
-    )
-    @discord.option(
         name="player_name",
         type=str,
         description="The player name of the person to look up",
@@ -866,13 +859,20 @@ class PlayerStats(commands.Cog):
         choices=[r.name.title() for r in list(GodRole)],
         default="",
     )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
     async def worshippers(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         player_name: str,
         god_name: str,
         role_name: str,
+        game: str,
     ):
         if self.__smite2(ctx, game) is not None:
             if role_name:
@@ -1128,20 +1128,20 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="player_name",
+        type=str,
+        description="The player name of the person to look up",
+        required=True,
+    )
+    @discord.option(
         name="game",
         type=str,
         description="Which game to answer for; defaults to this server's",
         choices=[g.display_name for g in Game],
         default="",
     )
-    @discord.option(
-        name="player_name",
-        type=str,
-        description="The player name of the person to look up",
-        required=True,
-    )
     async def match_history(
-        self, ctx: discord.ApplicationContext, game: str, player_name: str
+        self, ctx: discord.ApplicationContext, player_name: str, game: str
     ):
         provider = self.__smite2(ctx, game)
         if provider is not None:
@@ -1332,13 +1332,6 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
-        name="game",
-        type=str,
-        description="Which game to answer for; defaults to this server's",
-        choices=[g.display_name for g in Game],
-        default="",
-    )
-    @discord.option(
         name="player_name_1",
         type=str,
         description="The player name of the first player",
@@ -1350,12 +1343,19 @@ class PlayerStats(commands.Cog):
         description="The player name of the second player",
         required=True,
     )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
     async def first_match(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         player_name_1: str,
         player_name_2: str,
+        game: str,
     ):
         provider = self.__smite2(ctx, game)
         if provider is not None:

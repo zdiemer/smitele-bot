@@ -575,7 +575,6 @@ class Smitele(commands.Cog):
         description="Get a Smite build based on winning builds",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    @game_option
     @discord.option(
         name="god_name",
         type=str,
@@ -615,16 +614,17 @@ class Smitele(commands.Cog):
         description="Whether to limit build search results to high MMR players (2000+)",
         default=False,
     )
+    @game_option
     async def build(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         god_name: str,
         match_queue: str,
         role: str,
         # enemies: str,
         # allies: str,
         high_mmr: bool,
+        game: str,
     ):
         provider = self.provider(ctx, game)
         build_options = BuildOptions(
@@ -725,7 +725,6 @@ class Smitele(commands.Cog):
         description="Get a random Smite build!",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    @game_option
     @discord.option(
         name="god_name",
         type=str,
@@ -740,12 +739,13 @@ class Smitele(commands.Cog):
         choices=[p.value.lower() for p in list(BuildPrioritization)],
         default="",
     )
+    @game_option
     async def random_build(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         god_name: str,
         prioritize: str,
+        game: str,
     ):
         provider = self.provider(ctx, game)
         build_options = BuildOptions(
@@ -803,6 +803,7 @@ class Smitele(commands.Cog):
         description="Choose which Smite this server's commands default to",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
+    @commands.has_permissions(manage_guild=True)
     @discord.option(
         name="game",
         type=str,
@@ -810,7 +811,6 @@ class Smitele(commands.Cog):
         choices=[g.display_name for g in Game],
         required=True,
     )
-    @commands.has_permissions(manage_guild=True)
     async def set_game(self, ctx: discord.ApplicationContext, game: str) -> None:
         """Set the guild default, so nobody has to pass `game:` every time."""
         if ctx.guild_id is None:
@@ -850,7 +850,6 @@ class Smitele(commands.Cog):
         description="Start a game of Smite-le, guessing a god from clues over six rounds",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    @game_option
     @discord.option(
         name="easy",
         type=bool,
@@ -864,8 +863,9 @@ class Smitele(commands.Cog):
         default="",
         autocomplete=god_autocomplete,
     )
+    @game_option
     async def smitele(
-        self, ctx: discord.ApplicationContext, game: str, easy: bool, god: str
+        self, ctx: discord.ApplicationContext, easy: bool, god: str, game: str
     ) -> None:
         # The game itself runs for minutes and posts to the channel rather than
         # to the interaction, so the interaction is acknowledged privately up
@@ -892,7 +892,6 @@ class Smitele(commands.Cog):
         description="Highest win-rate builds for a god in a specific matchup",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
-    @game_option
     @discord.option(
         name="god",
         type=str,
@@ -915,13 +914,14 @@ class Smitele(commands.Cog):
         choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
+    @game_option
     async def edge(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         god: str,
         against: str,
         role: str,
+        game: str,
     ) -> None:
         provider = self.provider(ctx, game)
         recommender = self.__load_recommender(provider)

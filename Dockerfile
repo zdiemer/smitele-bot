@@ -40,8 +40,16 @@ WORKDIR /home/smitele
 # of which is in the repo — .gitignore excludes both — so the build could not
 # succeed from a clean checkout.
 COPY src/HirezAPI/*.py src/HirezAPI/
+# A separate line because the glob above matches files, not directories — the
+# Smite 2 package was silently absent from the image while every import of it
+# passed locally, and the bot crash-looped on ModuleNotFoundError.
+COPY src/HirezAPI/smite2/*.py src/HirezAPI/smite2/
 COPY src/SmiteBot/*.py src/SmiteBot/
 COPY src/match_data_collector/*.py src/match_data_collector/
+# The tracker.gg crawl. Its entrypoint lives in Dockerfile.s2collector, which
+# layers a browser on top of this image, but the source belongs here so the two
+# cannot drift apart.
+COPY src/smite2_collector/*.py src/smite2_collector/
 # The bot scores candidate builds with a numpy copy of the trained model, so it
 # needs this package but not torch. Training runs from Dockerfile.train, which
 # layers torch on top of this image.
@@ -49,6 +57,14 @@ COPY src/ml/*.py src/ml/
 
 # Adding HirezAPI and ml to PYTHONPATH
 ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
+
+# Fail the build, not the deployment, when a module is missing from the image.
+# The bot's imports all resolve from the source tree whether or not the
+# Dockerfile copies them, so nothing before this caught a missed COPY.
+RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/ml', 'src/SmiteBot']; \
+import smite2.players, smite2.provider, smite2.tracker_client, smite2.wikitext; \
+import providers, game, guild_settings; \
+print('image imports ok')"
 
 # Two volumes, with very different shapes. /data is small and private to one
 # replica — session token, patch marker, gods/items caches, downloaded art.

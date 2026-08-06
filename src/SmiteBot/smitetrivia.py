@@ -846,13 +846,6 @@ class SmiteTrivia(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
-        name="game",
-        type=str,
-        description="Which game to ask about; defaults to this server's",
-        choices=[g.display_name for g in Game],
-        default="",
-    )
-    @discord.option(
         name="question_count",
         type=int,
         description="The number of trivia questions to ask",
@@ -865,12 +858,19 @@ class SmiteTrivia(commands.Cog):
         choices=[c.name.title() for c in list(TriviaCategory)],
         default="",
     )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to ask about; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
     async def smitetrivia(
         self,
         ctx: discord.ApplicationContext,
-        game: str,
         question_count: int,
         category: str,
+        game: str,
     ):
         await self.__smitetrivia(ctx, question_count, category, game)
 

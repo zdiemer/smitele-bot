@@ -157,24 +157,39 @@ def test_every_guild_scoped_command_gets_all_three_guilds(cogs):
         )
 
 
+def test_required_options_come_before_optional_ones(cogs):
+    """Discord rejects the whole command sync otherwise, with
+
+        400 Bad Request (error code: 50035): Invalid Form Body
+        In 1.options.1: Required options must be placed before non-required options
+
+    and since it is a bulk registration, one bad command leaves *every*
+    command stale — the bot starts fine and simply keeps serving whatever was
+    registered last time, which is a confusing way to find out.
+
+    `game:` is optional by design (the point of a guild default is not having
+    to pass it), so it goes last on every command that has required options.
+    """
+    for command in cogs.bot.pending_application_commands:
+        options = getattr(command, "options", [])
+        seen_optional = None
+        for option in options:
+            if not option.required:
+                seen_optional = option.name
+            elif seen_optional is not None:
+                raise AssertionError(
+                    f"/{command.name}: required '{option.name}' follows "
+                    f"optional '{seen_optional}' "
+                    f"({[o.name for o in options]})"
+                )
+
+
 @pytest.mark.parametrize(
-    "command,expected",
-    [
-        ("build", "god_name"),
-        ("random_build", "god_name"),
-        ("smitele", "god"),
-        ("edge", "god"),
-        ("trivia", None),
-    ],
+    "command", ["build", "random_build", "smitele", "edge", "trivia"]
 )
-def test_game_option_comes_first(cogs, command, expected):
-    """Discord sends options in declaration order, and the god autocomplete
-    reads the chosen game out of `ctx.options` while the user is still typing —
-    so `game` has to be sent before the god field, not after."""
+def test_the_game_option_is_present(cogs, command):
     options = [o.name for o in commands_by_name(cogs.bot)[command].options]
-    assert options[0] == "game", f"{command} declares {options}"
-    if expected is not None:
-        assert options.index("game") < options.index(expected)
+    assert "game" in options, f"{command} declares {options}"
 
 
 @pytest.mark.parametrize("command,option", [
