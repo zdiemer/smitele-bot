@@ -10,8 +10,12 @@ from discord.ext import commands
 from god import GodId, GodRole
 from match import PlayerMatch
 from player import Player, PlayerId, StatusId
+import smite2_player_embeds as smite2_embeds
 from game import Game
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
+from smite2.clearance import ClearanceUnavailable
+from smite2.players import parse_player
+from smite2.tracker_client import TrackerBlocked
 from SmiteProvider import SmiteProvider
 from HirezAPI import HIREZ_DATE_FORMAT, PortalId, QueueId, TierId
 
@@ -131,14 +135,60 @@ class PlayerStats(commands.Cog):
 
     def __init__(self, providers):
         self.providers = providers
-        # Every command in this cog goes through the Hi-Rez player API — live
-        # matches, queue stats, worshippers, match history — and Smite 2 has no
-        # counterpart to any of it on this source. tracker.gg does, per player
-        # and exactly, which is what makes these worth adding separately rather
-        # than trying to serve them from the sampled corpus. Until that lands
-        # these are Smite 1 only, and pinning here says so in one place instead
-        # of resolving a game per command and then ignoring the answer.
+        # The Smite 1 half of this cog talks to the Hi-Rez player API. Smite 2
+        # has no counterpart there and is answered from tracker.gg per player —
+        # which is exact and complete, unlike the sampled corpus, and is why
+        # these commands do not read it.
         self.__provider = providers[Game.SMITE]
+
+    def __smite2(self, ctx, game: str):
+        """The Smite 2 provider if this interaction wants it, else None."""
+        provider = self.providers.for_ctx(ctx, game)
+        return provider if provider.game is Game.SMITE_2 else None
+
+    async def __smite2_lookup(self, ctx, game: str, player_name: str, kind: str):
+        """Shared front half of every Smite 2 player command.
+
+        Returns `(provider, platform, handle, segments)` or None having already
+        told the user why. Deferred first: a segments call is a live request to
+        a third party and can outrun Discord's three-second window.
+        """
+        provider = self.__smite2(ctx, game)
+        if provider is None:
+            return None
+
+        platform, handle = parse_player(player_name)
+        if not handle:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable("Player name cannot be empty.")
+            )
+            return None
+
+        await ctx.defer()
+        try:
+            segments = await provider.players.segments(platform, handle, kind)
+        except ClearanceUnavailable as error:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    "Smite 2 player lookups are temporarily unavailable "
+                    f"({error})."
+                )
+            )
+            return None
+        except TrackerBlocked as error:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(f"tracker.gg refused us: {error}")
+            )
+            return None
+        except Exception as error:  # noqa: BLE001
+            await ctx.respond(embed=smite2_embeds.not_found(platform, handle))
+            print(f"smite2 lookup failed for {platform}:{handle}: {error}", flush=True)
+            return None
+
+        if not segments:
+            await ctx.respond(embed=smite2_embeds.not_found(platform, handle))
+            return None
+        return provider, platform, handle, segments
 
     async def __send_invalid(
         self,
@@ -394,12 +444,34 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
+    @discord.option(
         name="player_name",
         type=str,
         description="The player name of the person to look up",
         required=True,
     )
-    async def livematch(self, ctx: discord.ApplicationContext, player_name: str):
+    async def livematch(
+        self, ctx: discord.ApplicationContext, game: str, player_name: str
+    ):
+        if self.__smite2(ctx, game) is not None:
+            # tracker.gg's sessions route returns "not implemented", and the
+            # profile carries only a liveMatch boolean — enough to say whether
+            # someone is playing, not what they are playing. Better to say so
+            # than to answer half the question.
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    "Live match details aren't available for Smite 2 — "
+                    "tracker.gg doesn't expose the lobby."
+                )
+            )
+            return
+
         if not any(player_name):
             await self.__send_invalid(
                 ctx,
@@ -414,6 +486,13 @@ class PlayerStats(commands.Cog):
         name="queue_stats",
         description="Look up a Smite player's stats for a given queue type",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
     )
     @discord.option(
         name="player_name",
@@ -437,8 +516,21 @@ class PlayerStats(commands.Cog):
         default="",
     )
     async def queuestats(
-        self, ctx: discord.ApplicationContext, player_name: str, queue: str
+        self,
+        ctx: discord.ApplicationContext,
+        game: str,
+        player_name: str,
+        queue: str,
     ):
+        found = await self.__smite2_lookup(ctx, game, player_name, "gamemode")
+        if found is not None:
+            _, platform, handle, modes = found
+            await ctx.respond(
+                embed=smite2_embeds.queue_stats(platform, handle, modes)
+            )
+            return
+        if self.__smite2(ctx, game) is not None:
+            return
         if not any(player_name):
             await self.__send_invalid(ctx, error_info="Player name cannot be empty")
             return
@@ -713,12 +805,30 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
+    @discord.option(
         name="player_name",
         type=str,
         description="The player name of the person to look up",
         required=True,
     )
-    async def rank(self, ctx: discord.ApplicationContext, player_name: str) -> None:
+    async def rank(
+        self, ctx: discord.ApplicationContext, game: str, player_name: str
+    ) -> None:
+        found = await self.__smite2_lookup(ctx, game, player_name, "gamemode")
+        if found is not None:
+            _, platform, handle, modes = found
+            await ctx.respond(
+                embed=smite2_embeds.rank(platform, handle, modes)
+            )
+            return
+        if self.__smite2(ctx, game) is not None:
+            return
         if not any(player_name):
             await self.__send_invalid(ctx, error_info="Player name cannot be empty")
             return
@@ -729,6 +839,13 @@ class PlayerStats(commands.Cog):
         name="worshippers",
         description="Look up a Smite player's god stats",
         guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
     )
     @discord.option(
         name="player_name",
@@ -752,10 +869,32 @@ class PlayerStats(commands.Cog):
     async def worshippers(
         self,
         ctx: discord.ApplicationContext,
+        game: str,
         player_name: str,
         god_name: str,
         role_name: str,
     ):
+        if self.__smite2(ctx, game) is not None:
+            if role_name:
+                # Smite 2 has no god classes to filter by; roles there are
+                # positions, which segments/role answers separately.
+                await ctx.respond(
+                    embed=smite2_embeds.unavailable(
+                        "Smite 2 has no god classes, so `role_name` doesn't "
+                        "apply. Try without it, or name a god."
+                    )
+                )
+                return
+            found = await self.__smite2_lookup(ctx, game, player_name, "god")
+            if found is not None:
+                _, platform, handle, gods = found
+                await ctx.respond(
+                    embed=smite2_embeds.worshippers(
+                        platform, handle, gods, god_name or None
+                    )
+                )
+            return
+
         if not any(player_name):
             await self.__send_invalid(ctx, error_info="Player name cannot be empty")
             return
@@ -989,15 +1128,112 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
+    @discord.option(
         name="player_name",
         type=str,
         description="The player name of the person to look up",
         required=True,
     )
-    async def match_history(self, ctx: discord.ApplicationContext, player_name: str):
+    async def match_history(
+        self, ctx: discord.ApplicationContext, game: str, player_name: str
+    ):
+        provider = self.__smite2(ctx, game)
+        if provider is not None:
+            await self.__smite2_match_history(ctx, provider, player_name)
+            return
+
         player = await self.__get_player_or_return_invalid(player_name, ctx)
 
         await self.__match_history_lookup(ctx, player)
+
+    # How many pages back from the oldest to search for a shared match. Two
+    # people who have played together for a while first did so near the start
+    # of the shorter history, so a small window finds most pairs; the bound
+    # exists so one interaction cannot read a hundred pages.
+    __FIRST_MATCH_PAGES = 40
+
+    async def __smite2_first_match(
+        self, ctx, provider, player_name_1: str, player_name_2: str
+    ):
+        """The earliest match two players share.
+
+        Affordable because history is ordered and bounded: page N is strictly
+        older than page N-1 with no overlap, and a page past the end is empty,
+        so the oldest page is found by doubling then bisecting rather than by
+        walking. The answer never changes once found, so it is cached forever
+        and a repeat is free.
+        """
+        one = parse_player(player_name_1)
+        two = parse_player(player_name_2)
+        if not one[1] or not two[1]:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable("Both player names are required.")
+            )
+            return
+
+        cached = provider.players.cached_first_match(one, two)
+        if cached is None:
+            await ctx.defer()
+        try:
+            found = await provider.players.first_shared_match(
+                one, two, budget=self.__FIRST_MATCH_PAGES
+            )
+        except (ClearanceUnavailable, TrackerBlocked) as error:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    f"Smite 2 lookups are temporarily unavailable ({error})."
+                )
+            )
+            return
+        except Exception as error:  # noqa: BLE001
+            print(f"smite2 first_match failed: {error}", flush=True)
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    "Couldn't search those two histories — check both names."
+                )
+            )
+            return
+
+        await ctx.respond(
+            embed=smite2_embeds.first_match(
+                one, two, found, self.__FIRST_MATCH_PAGES
+            )
+        )
+
+    async def __smite2_match_history(self, ctx, provider, player_name: str):
+        """Page one only, streamed and abandoned once we have enough.
+
+        A page carries 25 matches in ~2.9MB; taking ten and stopping means the
+        rest is never transferred, which is the difference between a command
+        that answers instantly and one that moves three megabytes.
+        """
+        platform, handle = parse_player(player_name)
+        await ctx.defer()
+        try:
+            matches = await provider.players.recent_matches(platform, handle, limit=10)
+        except (ClearanceUnavailable, TrackerBlocked) as error:
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    f"Smite 2 lookups are temporarily unavailable ({error})."
+                )
+            )
+            return
+        except Exception as error:  # noqa: BLE001
+            print(f"smite2 match history failed for {handle}: {error}", flush=True)
+            await ctx.respond(embed=smite2_embeds.not_found(platform, handle))
+            return
+        if not matches:
+            await ctx.respond(embed=smite2_embeds.not_found(platform, handle))
+            return
+        await ctx.respond(
+            embed=smite2_embeds.match_history(platform, handle, matches)
+        )
 
     async def __match_history_lookup(
         self, ctx: discord.ApplicationContext, player: Player
@@ -1096,6 +1332,13 @@ class PlayerStats(commands.Cog):
         guild_ids=SLASH_COMMAND_GUILD_IDS,
     )
     @discord.option(
+        name="game",
+        type=str,
+        description="Which game to answer for; defaults to this server's",
+        choices=[g.display_name for g in Game],
+        default="",
+    )
+    @discord.option(
         name="player_name_1",
         type=str,
         description="The player name of the first player",
@@ -1108,8 +1351,19 @@ class PlayerStats(commands.Cog):
         required=True,
     )
     async def first_match(
-        self, ctx: discord.ApplicationContext, player_name_1: str, player_name_2: str
+        self,
+        ctx: discord.ApplicationContext,
+        game: str,
+        player_name_1: str,
+        player_name_2: str,
     ):
+        provider = self.__smite2(ctx, game)
+        if provider is not None:
+            await self.__smite2_first_match(
+                ctx, provider, player_name_1, player_name_2
+            )
+            return
+
         await ctx.respond(
             embed=discord.Embed(
                 color=discord.Color.yellow(),

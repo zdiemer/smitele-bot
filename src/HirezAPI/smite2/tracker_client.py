@@ -276,20 +276,24 @@ class TrackerClient:
         )
         return body.get("data") or []
 
-    async def page_count(self, platform: str, handle: str, ceiling: int = 512) -> int:
+    async def page_count(self, platform: str, handle: str, ceiling: int = 4096) -> int:
         """How many pages of history a player has, found by search rather than walk.
 
-        A page past the end comes back empty, which makes the count findable:
-        double until an empty page brackets it, then bisect. That is ~8-14
-        requests against the 80+ a sequential walk would cost, which is what
-        makes `/first_match` viable — it needs the *oldest* match, and the
-        result never changes once found, so it is worth caching forever.
+        Verified before relying on it: pages are dense below the end and empty
+        above — an active player returned 25 matches at `next=256` and nothing
+        at 512 — with timestamps decreasing monotonically and no overlap between
+        pages. So the count is findable: double until an empty page brackets it,
+        then bisect. That is ~18 requests against the 250+ a sequential walk
+        would cost for a player with two years of history.
 
-        Assumes pages are dense below the end, which the probe checks.
+        Each probe abandons its response after the first match, so it costs a
+        fraction of the 2.9 MB a full page transfers.
         """
 
         async def has_matches(page: int) -> bool:
             async for _ in self.iter_matches(platform, handle, page):
+                # Breaking closes the generator, which unwinds the streaming
+                # context manager and aborts the rest of the download.
                 return True
             return False
 

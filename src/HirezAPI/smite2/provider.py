@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import paths
 from game import Game
@@ -28,11 +28,18 @@ from god import God
 from item import Item
 from smite2 import gods as gods_module
 from smite2 import items as items_module
+from smite2.clearance import ClearanceManager, ClearanceStore
 from smite2.ids import NameIndex
+from smite2.players import PlayerLookups
+from smite2.tracker_client import TrackerClient
 from smite2.wiki_client import WikiClient
 
 VERSION_FILE = "version"
 CACHE_FILE = "wiki_cache.json"
+
+# On the shared corpus volume, not the bot's private one, so the collector and
+# the bot use the same cookie.
+CLEARANCE_FILE = "clearance.json"
 
 # How often to re-check the wiki while running. The static data changes on
 # patch days, so this is about noticing one without a restart rather than
@@ -58,6 +65,16 @@ class Smite2Provider:
         self.__god_index = NameIndex()
         self.__item_index = NameIndex()
         self.__refresh_running = False
+        self.__clearance = None
+
+        # Per-player reads go to tracker.gg rather than to the corpus. The
+        # corpus is a snowball sample and cannot answer "how has this player
+        # done on Anubis"; asked per player, the same source answers exactly.
+        self.players = PlayerLookups(
+            self.__tracker_client,
+            cache_dir=os.path.dirname(paths.game_data_file(self.game, "x")),
+            silent=silent,
+        )
 
     def __log(self, message: str) -> None:
         if not self.__silent:
@@ -76,6 +93,24 @@ class Smite2Provider:
         if self.__user_agent:
             kwargs["user_agent"] = self.__user_agent
         return WikiClient(**kwargs)
+
+    def __tracker_client(self) -> TrackerClient:
+        """A tracker.gg client sharing the deployment's one clearance cookie.
+
+        The store lives on the corpus volume so the nightly collector and the
+        bot see each other's cookie: a measured 6.7-hour lifetime means a crawl
+        usually leaves a valid one behind, and the bot then never has to mint.
+        """
+        if self.__clearance is None:
+            self.__clearance = ClearanceManager(
+                ClearanceStore(
+                    os.path.join(
+                        paths.game_model_dir(self.game), CLEARANCE_FILE
+                    )
+                ),
+                silent=self.__silent,
+            )
+        return TrackerClient(self.__clearance, silent=self.__silent)
 
     async def create(self) -> None:
         """Load the catalogue, from cache when the wiki has not moved."""
