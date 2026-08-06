@@ -394,7 +394,7 @@ class GodQuestionGenerator(QuestionGenerator):
             filter(
                 lambda s: s.obtainability not in ("Normal"),
                 [
-                    Skin.from_json(skin)
+                    Skin.coerce(skin)
                     for skin in await self.__provider.get_god_skins(self.__god.id)
                 ],
             )

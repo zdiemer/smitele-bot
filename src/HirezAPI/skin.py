@@ -33,6 +33,15 @@ class Skin(object):
         skin.name = obj["skin_name"]
         return skin
 
+    @staticmethod
+    def coerce(value) -> "Skin":
+        """A Skin, from either a Hi-Rez payload or an already-built one.
+
+        Smite 1's provider returns the API's JSON; Smite 2's returns Skins it
+        parsed from the wiki. Callers should not have to know which.
+        """
+        return value if isinstance(value, Skin) else Skin.from_json(value)
+
     async def get_card_bytes(self) -> io.BytesIO:
         if not self.has_url:
             raise ValueError(f"{self.name} is missing a URL")

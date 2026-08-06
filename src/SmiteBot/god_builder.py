@@ -363,7 +363,66 @@ class GodBuilder:
             )
         )
 
+    def __random_smite2(
+        self, build_options: BuildOptions
+    ) -> Tuple[List[Item], List[Item], str]:
+        """A random Smite 2 build: six core items, a starter and a relic.
+
+        The Smite 1 path cannot be reused. It selects relics by
+        `root_item_id == 23795` and `tier == 4 and price == 500`, excludes two
+        items by literal id, and special-cases Ratatoskr's acorn — every one of
+        those is a Smite 1 fact, and none of them matches anything in Smite 2's
+        catalogue, so it raised on an empty sequence.
+
+        This is deliberately simple. It biases toward the god's damage stat and
+        stops there, because ranking a build properly needs the stat model that
+        `build_optimizer` implements for Smite 1 and nobody has yet written for
+        Smite 2 — see `summarise_item_properties`.
+        """
+        god = self.__gods[build_options.god_id]
+        catalogue = list(self.__items.values())
+
+        wanted = (
+            ItemAttribute.INTELLIGENCE
+            if god.type is GodType.MAGICAL
+            else ItemAttribute.STRENGTH
+        )
+
+        def provides(item: Item, attribute: ItemAttribute) -> bool:
+            return any(p.attribute is attribute for p in item.item_properties or [])
+
+        core = [i for i in catalogue if i.tier >= 3 and i.active]
+        # Prefer items carrying the god's damage stat, but fall back to the
+        # whole tier-3 pool rather than failing if that leaves too few.
+        preferred = [i for i in core if provides(i, wanted)]
+        pool = preferred if len(preferred) >= 6 else core
+        if len(pool) < 6:
+            raise BuildFailedError
+
+        build = random.sample(pool, 6)
+
+        starters = [i for i in catalogue if i.is_starter and i.active]
+        relics = [i for i in catalogue if i.type is ItemType.RELIC and i.active]
+
+        chosen_relics = []
+        if starters:
+            chosen_relics.append(random.choice(starters))
+        if relics:
+            chosen_relics.append(random.choice(relics))
+
+        desc = (
+            "here's your random build!\n\n"
+            f"{summarise_item_properties(build)}\n\n"
+            "_Smite 2 builds are drawn at random from items matching "
+            f"{god.name}'s damage type — there's no build optimizer for "
+            "Smite 2's stat model yet._"
+        )
+        return (build, chosen_relics, desc)
+
     def random(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
+        if self.__provider.game is not Game.SMITE:
+            return self.__random_smite2(build_options)
+
         god = self.__gods[build_options.god_id]
         items_for_god = self.get_valid_items_for_god(god)
         optimizer = BuildOptimizer(god, items_for_god, self.__items)

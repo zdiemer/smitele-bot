@@ -11,10 +11,12 @@ kind of thing that makes a roster driven by it quietly 1% wrong.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ability import Ability, _item, _itemDescription
 from god import Aspect, God, GodStat, GodStats, _basicAttackProperties
+from skin import Skin
 from god_types import GodRange, GodType
 from HirezAPI import PlayerRole
 from item import ItemAttribute
@@ -152,7 +154,87 @@ def _positions(infobox: Optional[wikitext.Template]) -> List[PlayerRole]:
     return out
 
 
-def _ability(template: wikitext.Template) -> Ability:
+_SKIN_KEY = re.compile(r"^(skin\d+(?:_prism\d+)?)$")
+
+
+def _skins(page: str, god, urls: Dict[str, str]) -> List[Skin]:
+    """The god's skins, from the SkinViewer invocation on its article.
+
+    Keys come in families — `skin1`, `skin1_img`, `skin1_icon`, `skin1_price`,
+    plus `skin1_prism1` and friends for the recoloured variants — so a skin is
+    a prefix rather than a template of its own.
+
+    Without these, `/smitele` loses two of its six rounds to an empty list and
+    trivia loses its "which god is this a skin for" question.
+    """
+    section = _sections(page, ("skins",))
+    if section is None:
+        return []
+
+    invocations = [
+        t for t in wikitext.parse_all(section)
+        if t.name.lower().startswith("#invoke:skinviewer")
+    ]
+    if not invocations:
+        return []
+    params = invocations[0].params
+
+    out: List[Skin] = []
+    for key, name in sorted(params.items()):
+        if not _SKIN_KEY.match(key) or not name.strip():
+            continue
+        image = _file_name(params.get(f"{key}_img") or params.get(f"{key}_icon") or "")
+        url = urls.get(_titled(image)) if image else None
+        if not url:
+            continue
+
+        skin = Skin()
+        skin.name = wikitext.strip_markup(name)
+        skin.card_url = url
+        skin.god_id = god.id
+        # The trivia skin question deliberately skips "Normal" skins, so the
+        # default is marked as such and everything else keeps its rarity.
+        rarity = wikitext.strip_markup(params.get(f"{key}_rarity") or "")
+        skin.obtainability = (
+            "Normal" if skin.name.lower() in ("default", "standard") else (rarity or "Skin")
+        )
+        skin.price_favor = 0
+        skin.price_gems = 0
+        skin.id = (0, 0)
+        out.append(skin)
+    return out
+
+
+def _skin_files(page: str) -> List[str]:
+    """Every File: a god's skins reference, for one batched URL lookup."""
+    section = _sections(page, ("skins",))
+    if section is None:
+        return []
+    out = []
+    for template in wikitext.parse_all(section):
+        if not template.name.lower().startswith("#invoke:skinviewer"):
+            continue
+        for key, value in template.params.items():
+            if key.endswith("_img") or key.endswith("_icon"):
+                name = _file_name(value)
+                if name:
+                    out.append(name)
+    return out
+
+
+def _ability_icons(page: str) -> List[str]:
+    section = _sections(page, _ABILITY_SECTIONS)
+    if section is None:
+        return []
+    out = []
+    for template in wikitext.parse_templates(section, "Ability"):
+        name = _file_name(template.get("icon"))
+        if name:
+            out.append(name)
+    return out
+
+
+def _ability(template: wikitext.Template, urls: Dict[str, str] = None) -> Ability:
     """One `{{Ability}}` as an `Ability`.
 
     `Ability` reads its cooldowns and costs out of slash-separated strings
@@ -191,12 +273,12 @@ def _ability(template: wikitext.Template) -> Ability:
         ),
         id=0,
         name=wikitext.strip_markup(template.get("name")),
-        icon_url=None,
+        icon_url=(urls or {}).get(_titled(_file_name(template.get("icon")))),
         is_passive=template.get("slot", "").strip().lower() == "passive",
     )
 
 
-def _abilities(page: str) -> List[Ability]:
+def _abilities(page: str, urls: Dict[str, str] = None) -> List[Ability]:
     """The god's own abilities, and only those.
 
     Scoped to the Abilities section because 70 of 88 articles repeat every
@@ -206,7 +288,7 @@ def _abilities(page: str) -> List[Ability]:
     section = _sections(page, _ABILITY_SECTIONS)
     if section is None:
         return []
-    return [_ability(t) for t in wikitext.parse_templates(section, "Ability")]
+    return [_ability(t, urls) for t in wikitext.parse_templates(section, "Ability")]
 
 
 def _aspect(page: str, urls: Dict[str, str]) -> Optional[Aspect]:
@@ -262,7 +344,7 @@ def _lore(page: str) -> str:
 
 async def load(
     client: WikiClient, silent: bool = False
-) -> Tuple[Dict[int, God], NameIndex]:
+) -> Tuple[Dict[int, God], NameIndex, Dict[int, List[Skin]]]:
     """Every Smite 2 god, keyed by synthetic id, plus the name index.
 
     The index answers to slugs, display names and the `Gods.X` engine tokens
@@ -311,10 +393,13 @@ async def load(
         if aspect_section:
             for template in wikitext.parse_templates(aspect_section, "Achievement"):
                 files.append(_file_name(template.get("image")))
+        files.extend(_ability_icons(page))
+        files.extend(_skin_files(page))
     urls = await client.file_urls([f for f in files if f])
 
     gods: Dict[int, God] = {}
     index = NameIndex()
+    skins: Dict[int, List[Skin]] = {}
 
     for title in titles:
         page = pages.get(title, {}).get("content")
@@ -338,7 +423,7 @@ async def load(
             str(record.get("pantheon") or (infobox.get("pantheon") if infobox else ""))
         )
         god.lore = _lore(page)
-        god.abilities = _abilities(page)
+        god.abilities = _abilities(page, urls)
         god.aspect = _aspect(page, urls)
         god.stats = _god_stats(record)
         god.resource = _resource(record)
@@ -370,12 +455,13 @@ async def load(
         god.latest_god = False
 
         gods[god.id] = god
+        skins[god.id] = _skins(page, god, urls)
         tags = [
             t for t in (record.get("characterTags") or []) if str(t).startswith("Gods.")
         ]
         index.add(god.name, title, slug, *tags)
 
-    return gods, index
+    return gods, index, skins
 
 
 def _completeness(record: Dict[str, Any]) -> int:

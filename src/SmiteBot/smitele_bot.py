@@ -1848,15 +1848,25 @@ class Smitele(commands.Cog):
     async def __run_game_session(self, session: SmiteleGame) -> None:
         # Fetching skins for this god, used in multiple rounds
         skins = [
-            Skin.from_json(skin)
+            Skin.coerce(skin)
             for skin in await session.provider.get_god_skins(session.god.id)
         ]
 
         build_task = session.add_task(
             self.__bot.loop.create_task(self.__prefetch_build_image(session))
         )
+        # The default skin is "Standard <God>" in Smite 1 and "Default" in
+        # Smite 2, and a god may have no skins at all if a source is thin. A
+        # bare next() raised StopIteration here and killed the session before
+        # the first round; the card round degrades on its own if this is None.
         base_skin = next(
-            skin for skin in skins if skin.name == f"Standard {session.god.name}"
+            (
+                skin
+                for skin in skins
+                if skin.name
+                in (f"Standard {session.god.name}", "Default", session.god.name)
+            ),
+            next((skin for skin in skins if skin.has_url), None),
         )
 
         round_methods: Callable[[], Coroutine[Any, Any, bool]] = [
@@ -1968,6 +1978,10 @@ class Smitele(commands.Cog):
         god_leaderboard = await session.provider.get_god_leaderboard(
             session.god.id, QueueId.RANKED_CONQUEST
         )
+        if not god_leaderboard:
+            # No leaderboard route on this source. The round is dropped rather
+            # than the task dying with an unretrieved IndexError.
+            raise IndexError(f"no leaderboard for {session.god.name}")
 
         while len(build) == 0:
             # Fetching a random player from the leaderboard
@@ -2029,6 +2043,15 @@ class Smitele(commands.Cog):
         self, session: SmiteleGame, skins: List[Skin]
     ) -> bool:
         context = session.context
+        if session.provider.game is not Game.SMITE:
+            # This scrapes smite.fandom.com, which is Smite 1's wiki. Many gods
+            # exist in both games, so a Smite 2 round would not merely fail to
+            # find a page — it would serve Smite 1 Anubis's voiceline as a clue
+            # for Smite 2 Anubis. Dropped until wiki.smite2.com's own
+            # "<God> voicelines" pages are wired up; IndexError is how the round
+            # loop is told to renumber and move on.
+            raise IndexError("no Smite 2 voicelines yet")
+
         audio_src = None
         skin_copy = skins.copy()
 
@@ -2103,12 +2126,17 @@ class Smitele(commands.Cog):
 
     async def __send_god_ability_icon(self, session: SmiteleGame) -> bool:
         saved_image = False
+        # Try each ability once rather than spinning. This was `while not
+        # saved_image` around a bare except, so a god whose art was entirely
+        # unreachable — every Smite 2 god, before their icons were wired up —
+        # looped forever printing failures and hung the game.
+        candidates = [a for a in session.god.abilities if a.icon_url]
+        random.shuffle(candidates)
         with io.BytesIO() as ability_bytes:
-            while not saved_image:
+            for ability in candidates:
+                if saved_image:
+                    break
                 try:
-                    # Some gods actually have more than this (e.g. King Arthur, Merlin).
-                    # I may add support for their additional abilities later
-                    ability = random.choice(session.god.abilities)
                     with await ability.get_icon_bytes() as file:
                         image = Image.open(file)
                         # Again, not all images that Hirez sends are a consistent size
@@ -2125,6 +2153,12 @@ class Smitele(commands.Cog):
                         f"Unable to create an image for {session.god.name}'s "
                         f"{ability.name}, {ex}"
                     )
+            if not saved_image:
+                # IndexError is the signal the round loop already understands:
+                # drop this round and renumber the rest.
+                raise IndexError(
+                    f"no usable ability art for {session.god.name}"
+                )
             desc = "Hint: Here's one of the god's abilities"
             session.current_round.file_bytes = ability_bytes
             session.current_round.file_name = self.ABILITY_IMAGE_FILE

@@ -64,6 +64,7 @@ class Smite2Provider:
         self.__user_agent = user_agent
         self.__god_index = NameIndex()
         self.__item_index = NameIndex()
+        self.__skins: Dict[int, list] = {}
         self.__refresh_running = False
         self.__clearance = None
 
@@ -128,7 +129,7 @@ class Smite2Provider:
                 self.__log("wiki has changed since the last load; refetching")
                 client.clear_cache()
 
-            self.gods, self.__god_index = await gods_module.load(
+            self.gods, self.__god_index, self.__skins = await gods_module.load(
                 client, silent=self.__silent
             )
             self.items, self.__item_index = await items_module.load(
@@ -246,8 +247,14 @@ class Smite2Provider:
     # no counterpart on this source, so they answer emptily rather than raising
     # an AttributeError three layers into a command.
 
-    async def get_god_skins(self, _god_id) -> list:
-        return []
+    async def get_god_skins(self, god_id) -> list:
+        """This god's skins, already parsed from the wiki.
+
+        Async and returning raw-ish objects to match the Hi-Rez route the
+        Smite-le rounds call, so neither the game nor trivia has to know which
+        provider it is holding.
+        """
+        return list(self.__skins.get(god_id, []))
 
     async def get_god_leaderboard(self, _god_id, _queue) -> list:
         return []
