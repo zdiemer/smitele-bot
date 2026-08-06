@@ -450,6 +450,8 @@ class Smitele(commands.Cog):
 
     __recommender: object
 
+    __recommender_stamp: float
+
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = (
         lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
@@ -468,6 +470,9 @@ class Smitele(commands.Cog):
         self.__running_sessions = {}
         self.__dataframe_refresher_running = False
         self.__status_server = None
+        # game -> (recommender, model mtime). Per game because the two have
+        # disjoint vocabularies, and stamped because the trainer replaces the
+        # file weekly.
         self.__recommender = {}
 
         if self.__config is None:
@@ -1030,19 +1035,39 @@ class Smitele(commands.Cog):
         ]
 
     def __load_recommender(self, provider: GameProvider):
-        """Load the trained model once, and notice when one first appears.
+        """The trained model for one game, reloaded when the trainer replaces it.
 
-        The bot starts before any model exists and the trainer only runs
-        weekly, so a miss is retried rather than cached as a permanent absence.
+        Stamped with the file's mtime rather than loaded once: the trainer
+        writes a new model weekly, and caching the first one meant the bot
+        served whichever model it happened to start with until something else
+        restarted it — every retrain silently ignored. A miss is retried too,
+        since the bot can start before any model exists.
 
-        Keyed by game: the two have disjoint god and item vocabularies, so one
-        game's model cannot score the other's builds.
+        Kept per game because the two have disjoint god and item vocabularies,
+        so one game's model cannot score the other's builds.
         """
-        if self.__recommender.get(provider.game) is None:
-            self.__recommender[provider.game] = BuildRecommender.load(
-                paths.game_model_dir(provider.game)
-            )
-        return self.__recommender[provider.game]
+        directory = paths.game_model_dir(provider.game)
+        try:
+            stamp = os.path.getmtime(os.path.join(directory, "model.npz"))
+        except OSError:
+            return None
+
+        cached, cached_stamp = self.__recommender.get(provider.game, (None, None))
+        if cached is not None and stamp == cached_stamp:
+            return cached
+
+        loaded = BuildRecommender.load(directory)
+        if loaded is None:
+            # Keep whatever we had: a half-written model during a retrain is
+            # not a reason to stop answering.
+            return cached
+        self.__recommender[provider.game] = (loaded, stamp)
+        print(
+            f"Loaded {provider.game.display_name} build model "
+            f"(AUC {loaded.test_auc:.4f})",
+            flush=True,
+        )
+        return loaded
 
     @commands.slash_command(
         name="stop",

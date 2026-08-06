@@ -30,6 +30,7 @@ where that field is missing or inconsistent.
 from __future__ import annotations
 
 import os
+import re
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -89,10 +90,44 @@ class Vocabulary:
         return vocabulary
 
 
+_DATE_IN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def recent_days(paths: List[str], days: int) -> List[str]:
+    """The files belonging to the most recent `days` distinct days.
+
+    Not the last N files: a day is written as however many Parquet parts its
+    size required, so slicing the file list took ~60 parts — about four days —
+    when asked for sixty. Files with no date in the name are kept, since
+    dropping data because it is unlabelled is worse than including it.
+    """
+    dated = {}
+    undated = []
+    for path in paths:
+        found = _DATE_IN_NAME.search(os.path.basename(path))
+        if found:
+            dated.setdefault(found.group(1), []).append(path)
+        else:
+            undated.append(path)
+
+    keep = sorted(dated)[-days:]
+    return sorted(undated + [p for day in keep for p in dated[day]])
+
+
 def load_corpus(
-    directories: List[str], queue_ids: List[int] = None, limit_files: int = None
+    directories: List[str],
+    queue_ids: List[int] = None,
+    limit_files: int = None,
+    max_files: int = None,
 ) -> pd.DataFrame:
-    """Read corpus files, keeping only the columns the model needs."""
+    """Read corpus files, keeping only the columns the model needs.
+
+    max_files bounds the read itself. Sampling rows after loading cannot help
+    when loading is what runs out of memory: the corpus is 3,300 files and 158M
+    rows, and accumulating even the 8% that is Ranked Conquest exceeded 8GB.
+    Files are sampled uniformly across the whole corpus rather than truncated
+    to the most recent, so the sample still spans its full range.
+    """
     columns = list(
         dict.fromkeys(
             [
@@ -111,7 +146,11 @@ def load_corpus(
 
     paths = match_storage.corpus_paths(*directories)
     if limit_files:
-        paths = paths[-limit_files:]
+        paths = recent_days(paths, limit_files)
+    if max_files and len(paths) > max_files:
+        step = len(paths) / max_files
+        paths = [paths[int(i * step)] for i in range(max_files)]
+        print(f"  sampling {len(paths)} files across the corpus", flush=True)
 
     frames = []
     for path in paths:

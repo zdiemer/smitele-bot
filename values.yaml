@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.6.0"
+  tag: "1.6.4"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -118,9 +118,15 @@ trainer:
   # 04:40 Sunday UTC — after the daily collector, well away from it.
   schedule: "40 4 * * 0"
   timeZone: "Etc/UTC"
-  # Days of corpus to train on. More is better up to the point the meta shifts
-  # underneath it; a patch is roughly a month.
-  days: 60
+  # Days of corpus to train on — days, not files: a day is written as however
+  # many Parquet parts its size needs, and this used to slice the file list, so
+  # "60" was fetching about four days' worth. More is better up to the point
+  # the meta shifts underneath it; a patch is roughly a month.
+  # The whole corpus. Ranked Conquest is only ~8% of collected matches, so a
+  # 30-day window yielded under 300k usable rows where the model wants
+  # millions; the row cap keeps the cost bounded regardless of how many days
+  # that turns out to be.
+  days: 3650
   epochs: 10
   # Ranked Conquest. Builds are queue-specific, so mixing modes would average
   # over strategies that have nothing to do with each other.
@@ -134,7 +140,7 @@ trainer:
       memory: 2Gi
     limits:
       cpu: "2"
-      memory: 8Gi
+      memory: 12Gi
 
 # Rolls the corpus into per-build win counts for /build. This is what makes a
 # 250-day corpus usable: the raw rows are ~132M and ~36GB in pandas, where the
