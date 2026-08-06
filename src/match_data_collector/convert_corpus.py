@@ -85,13 +85,36 @@ def stream_rows(path: str) -> Iterator[dict]:
                     yield row
 
 
+def parts_for(stem: str) -> List[str]:
+    directory, prefix = os.path.split(stem)
+    return sorted(
+        os.path.join(directory, name)
+        for name in os.listdir(directory or ".")
+        if name.startswith(f"{prefix}.part") and name.endswith(match_storage.SUFFIX)
+    )
+
+
 def convert(json_path: str, delete: bool, batch_rows: int) -> bool:
     stem = output_stem(json_path)
-    if os.path.exists(f"{stem}{match_storage.SUFFIX}") or os.path.exists(
-        f"{stem}.part000{match_storage.SUFFIX}"
-    ):
+    marker = f"{stem}.complete"
+
+    # A day is only finished when the marker says so. Parts are written as they
+    # are produced, so a worker killed mid-file leaves some of them behind —
+    # treating those as "already converted" would silently truncate the day to
+    # however far it got, which is worse than not converting it at all.
+    if os.path.exists(f"{stem}{match_storage.SUFFIX}") or os.path.exists(marker):
         print(f"  skip {os.path.basename(json_path)}: already converted", flush=True)
         return False
+
+    stale = parts_for(stem)
+    if stale:
+        print(
+            f"  {os.path.basename(json_path)}: discarding {len(stale)} part(s) "
+            "from an interrupted run",
+            flush=True,
+        )
+        for path in stale:
+            os.remove(path)
 
     start = time.time()
     before = os.path.getsize(json_path)
@@ -129,6 +152,12 @@ def convert(json_path: str, delete: bool, batch_rows: int) -> bool:
         single = f"{stem}{match_storage.SUFFIX}"
         os.replace(written[0], single)
         written = [single]
+    else:
+        # Only now is the day complete. Written after every part, so an
+        # interrupted run leaves no marker and the day is redone rather than
+        # being mistaken for finished.
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write(f"{len(written)}\n")
 
     after = sum(os.path.getsize(path) for path in written)
     if delete:
