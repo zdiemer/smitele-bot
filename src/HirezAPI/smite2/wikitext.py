@@ -47,6 +47,9 @@ class Template(NamedTuple):
     name: str
     params: Dict[str, str]
     depth: int = 0
+    # Offset of the opening `{{`. Only used to restore source order, since the
+    # scanner necessarily finishes an inner template before its parent.
+    start: int = -1
 
     def get(self, key: str, default: str = "") -> str:
         return self.params.get(key, default)
@@ -92,6 +95,7 @@ def _scan(
     likewise tracked at depth zero — otherwise `{{Foo|{{Bar|a=1}}}}` reads its
     anonymous parameter as a named one called `{{Bar|a`.
     """
+    start = index
     index += 2  # past "{{"
     parts: List[Tuple[str, Optional[int]]] = []
     buffer: List[str] = []
@@ -110,23 +114,25 @@ def _scan(
 
         if pair == "}}":
             flush()
-            template = _build(parts, depth)
+            template = _build(parts, depth, start)
             if template is not None:
                 found.append(template)
             return (template.name if template is not None else None), index + 2
 
+        # `nested` rather than reusing `start`, which holds this template's own
+        # opening offset and is what restores source order.
         if pair == "{{":
-            start = index
+            nested = index
             _, index = _scan(text, index, found, depth + 1)
-            raw = text[start:index]
+            raw = text[nested:index]
             buffer.append(raw)
             width += len(raw)
             continue
 
         if pair == "[[":
-            start = index
+            nested = index
             index = _skip_link(text, index)
-            raw = text[start:index]
+            raw = text[nested:index]
             buffer.append(raw)
             width += len(raw)
             continue
@@ -149,7 +155,7 @@ def _scan(
 
 
 def _build(
-    parts: List[Tuple[str, Optional[int]]], depth: int
+    parts: List[Tuple[str, Optional[int]]], depth: int, start: int
 ) -> Optional[Template]:
     if not parts:
         return None
@@ -169,11 +175,18 @@ def _build(
         value = raw[equals_at + 1 :].strip()
         params[key] = value
 
-    return Template(name=name, params=params, depth=depth)
+    return Template(name=name, params=params, depth=depth, start=start)
 
 
 def parse_all(text: str) -> List[Template]:
-    """Every template on the page, at any nesting depth, in source order."""
+    """Every template in the text, at any nesting depth, in source order.
+
+    Sorted, because the scanner cannot append in source order: a template is
+    only finished once its closing braces are reached, so nested ones complete
+    first and would come back before their parent. Left unsorted, "the first
+    Recipe in this parameter" returns the innermost one — which reads an item's
+    recipe as its grandchildren.
+    """
     text = _COMMENT.sub("", text)
     found: List[Template] = []
     index = 0
@@ -185,7 +198,7 @@ def parse_all(text: str) -> List[Template]:
             index = _skip_link(text, index)
             continue
         index += 1
-    return found
+    return sorted(found, key=lambda template: template.start)
 
 
 def parse_templates(

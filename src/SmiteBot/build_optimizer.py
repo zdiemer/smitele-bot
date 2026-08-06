@@ -19,13 +19,22 @@ def compute_item_price(item: Item, all_items: Dict[int, Item]) -> int:
     used to reach it by constructing `BuildOptimizer(gods[GodId.AGNI], [],
     items)` — a whole archetype-scoring optimizer, and a hardcoded Smite 1 god,
     to walk a parent chain.
+
+    A stated total wins over walking. Smite 1 has no choice but to walk, and it
+    is correct there because a recipe is a single chain. Smite 2's recipes fork
+    — Book of Thoth is built from Oracle Staff *and* Mana Tome — so a walk down
+    one branch would report 1,650 for an item that costs 2,300, which is the
+    kind of wrong that looks plausible on a card.
     """
+    if getattr(item, "total_cost", None):
+        return item.total_cost
+
     total_price = item.price
     parent_id = item.parent_item_id
     seen = set()
     while parent_id is not None and parent_id not in seen:
-        # Guard the walk. A cycle in the tree would otherwise hang the command,
-        # and the tree is parsed from an external source in Smite 2's case.
+        # Guard the walk. A cycle would otherwise hang the command, and the
+        # Smite 2 tree is parsed out of an external page rather than an API.
         seen.add(parent_id)
         parent = all_items.get(parent_id)
         if parent is None:

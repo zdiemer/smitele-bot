@@ -14,6 +14,8 @@ than erroring, so the limit is enforced here instead of trusted.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 import aiohttp
@@ -59,11 +61,43 @@ class WikiClient:
         user_agent: str = DEFAULT_USER_AGENT,
         session: Optional[aiohttp.ClientSession] = None,
         silent: bool = False,
+        cache_path: Optional[str] = None,
     ):
         self.__user_agent = user_agent
         self.__session = session
         self.__owns_session = session is None
         self.__silent = silent
+        # A whole-response cache on disk, so a bot restart re-reads the wiki
+        # from a file rather than from the network. Correctness comes from the
+        # caller emptying it when the revision hash moves; nothing here expires
+        # on its own, because a wiki page is either current or it is not.
+        self.__cache_path = cache_path
+        self.__cache: Dict[str, Any] = {}
+        self.__cache_dirty = False
+        if cache_path:
+            try:
+                with open(cache_path, "r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                self.__cache = loaded if isinstance(loaded, dict) else {}
+            except (OSError, ValueError):
+                self.__cache = {}
+
+    def clear_cache(self) -> None:
+        self.__cache = {}
+        self.__cache_dirty = True
+
+    def flush_cache(self) -> None:
+        if not (self.__cache_path and self.__cache_dirty):
+            return
+        partial = f"{self.__cache_path}.partial"
+        try:
+            os.makedirs(os.path.dirname(self.__cache_path) or ".", exist_ok=True)
+            with open(partial, "w", encoding="utf-8") as handle:
+                json.dump(self.__cache, handle)
+            os.replace(partial, self.__cache_path)
+            self.__cache_dirty = False
+        except OSError as error:
+            self.__log(f"could not write cache: {error}")
 
     async def __aenter__(self) -> "WikiClient":
         if self.__session is None:
@@ -73,6 +107,7 @@ class WikiClient:
         return self
 
     async def __aexit__(self, *_) -> None:
+        self.flush_cache()
         if self.__owns_session and self.__session is not None:
             await self.__session.close()
             self.__session = None
@@ -94,6 +129,10 @@ class WikiClient:
         query = {"format": "json", "formatversion": "2", "maxlag": self.MAXLAG_SECONDS}
         query.update({k: v for k, v in params.items() if v is not None})
 
+        key = json.dumps(query, sort_keys=True)
+        if key in self.__cache:
+            return self.__cache[key]
+
         delay = 1.0
         for attempt in range(self.MAX_RETRIES):
             async with self.__session.get(API_URL, params=query) as response:
@@ -114,6 +153,9 @@ class WikiClient:
                     continue
                 raise WikiError(f"{error.get('code')}: {error.get('info')}")
 
+            if self.__cache_path:
+                self.__cache[key] = body
+                self.__cache_dirty = True
             return body
 
         raise WikiError(f"gave up after {self.MAX_RETRIES} attempts: {query}")

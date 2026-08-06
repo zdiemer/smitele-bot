@@ -53,6 +53,7 @@ from player_stats import PlayerStats
 from providers import GameProvider, Providers
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from skin import Skin
+from smite2.provider import Smite2Provider
 from SmiteProvider import SmiteProvider
 from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
@@ -2280,12 +2281,23 @@ if __name__ == "__main__":
 
     # One provider per game, built up front. A game with no provider simply is
     # not offered — Providers derives the `game:` choices from what is
-    # registered — so adding Smite 2 is a matter of appending to this list.
+    # registered — so a wiki outage degrades to a Smite-1-only bot rather than
+    # to a broken one.
     provider = SmiteProvider()
     asyncio.run(provider.create())
 
+    smite2_provider = Smite2Provider()
+    asyncio.run(smite2_provider.create())
+
     settings = GuildSettings()
-    providers = Providers(provider, settings=settings)
+    registered = [provider]
+    if smite2_provider.gods and smite2_provider.items:
+        registered.append(smite2_provider)
+    else:
+        print(
+            "Smite 2 static data unavailable; registering Smite 1 only.", flush=True
+        )
+    providers = Providers(*registered, settings=settings)
 
     player_stats = PlayerStats(providers)
     smitele = Smitele(bot, providers, settings)

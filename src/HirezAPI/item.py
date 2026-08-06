@@ -122,6 +122,9 @@ class ItemProperty:
 
 class Item:
     active: bool
+    # Despite the name, this points *down* the tree at what the item is built
+    # from — Hi-Rez calls it ChildItemId — which is why compute_item_price sums
+    # by walking it. Single-valued because a Smite 1 recipe is a linear chain.
     parent_item_id: int
     root_item_id: int
     name: str
@@ -140,6 +143,17 @@ class Item:
     icon_url: str
     passive_properties: Set[PassiveAttribute]
     recipe: bool
+
+    # Smite 2's recipes are a DAG, not a chain: Book of Thoth is built from two
+    # items at once, and Circlet feeds several unrelated items. `parent_item_id`
+    # cannot express that, so it holds only the first component (enough for the
+    # tree renderer to draw a spine) and this holds all of them.
+    components: List[int] = []
+
+    # What the item costs including everything below it. Smite 1 has to derive
+    # this by walking the chain; Smite 2's wiki states it outright, which is
+    # just as well because the walk cannot see a second branch.
+    total_cost: int = None
 
     def __init__(self):
         pass
