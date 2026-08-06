@@ -41,9 +41,16 @@ import hashlib
 import re
 from typing import Dict, Iterable, Optional, Set
 
-# Every Smite 1 god and item id is below 25,000, so nothing here can collide
-# with one, and a mixed frame fails loudly rather than quietly.
-S2_ID_BASE = 1 << 31
+# Every Smite 1 god and item id is below 25,000, so nothing above this can
+# collide with one and a mixed frame fails loudly rather than quietly.
+#
+# 2^30 rather than 2^31 because the aggregate stores GodId as int32 — it exists
+# to fit a 132-million-row corpus in memory, so widening a column there to suit
+# this would be the tail wagging the dog. With a 30-bit hash the largest id is
+# exactly int32's maximum, and the range is still four orders of magnitude clear
+# of anything Smite 1 issues.
+S2_ID_BASE = 1 << 30
+_HASH_MASK = (1 << 30) - 1
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
@@ -128,7 +135,7 @@ def s2_id(kind: str, slug: str) -> int:
     exact failure this function exists to avoid.
     """
     digest = hashlib.blake2b(f"{kind}:{slug}".encode(), digest_size=4).digest()
-    return S2_ID_BASE | int.from_bytes(digest, "big")
+    return S2_ID_BASE | (int.from_bytes(digest, "big") & _HASH_MASK)
 
 
 def god_id(slug: str) -> int:

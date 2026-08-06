@@ -60,14 +60,27 @@ def _src() -> str:
 
 
 def test_ids_sit_above_every_smite1_id():
-    """Smite 1's largest id is a five-figure number. Keeping Smite 2 above 2^31
-    means a frame that mixes games produces ids belonging to neither, which
+    """Smite 1's largest id is a five-figure number. Keeping Smite 2 far above
+    it means a frame that mixes games produces ids belonging to neither, which
     `build_features.annotate` already discards, instead of a wrong join."""
     from god_types import GodId
 
     assert max(g.value for g in GodId) < S2_ID_BASE
     assert god_id("anubis") >= S2_ID_BASE
     assert item_id("book-of-thoth") >= S2_ID_BASE
+
+
+@pytest.mark.parametrize("slug", ["anubis", "cu-chulainn", "book-of-thoth", "zzz"])
+def test_ids_fit_in_int32(slug):
+    """`build_aggregate.prepare` stores GodId as int32 — it exists to fit a
+    132-million-row corpus in memory. An id above 2^31-1 silently overflows
+    there rather than raising, which would scramble every Smite 2 god into a
+    negative number and aggregate them together."""
+    import numpy as np
+
+    for value in (god_id(slug), item_id(slug)):
+        assert value <= np.iinfo(np.int32).max
+        assert int(np.int32(value)) == value
 
 
 def test_gods_and_items_do_not_share_an_id_space():
