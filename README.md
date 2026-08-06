@@ -316,6 +316,101 @@ And this is an undocumented endpoint behind a WAF with no published rate limit o
 terms allowance for bulk pulls: cache aggressively, pace deliberately, and expect
 it to break without notice.
 
+#### What measuring it actually found
+
+`scripts/probe_tracker.py` crawled 120 match pages — 128 requests, 345 MB, 3.2
+minutes at 1.5 s pacing — seeded from the leaderboards and snowballed. That is
+2,744 distinct matches and 26,444 player-build rows. Several of the assumptions
+above did not survive it.
+
+**The cookie is not portable across TLS fingerprints.** That conclusion came
+from testing exactly one replacement client. Holding one cookie constant:
+
+| client | result |
+|---|---|
+| `urllib` | 200 |
+| `aiohttp` — every header permutation, `Connection: close`, ALPN cleared, matching SSL context | **403** |
+| `curl` (no impersonation) | **403** |
+| `curl_cffi` impersonating **Chrome** | **403** |
+| `curl_cffi` impersonating **Firefox** | 200 |
+
+Cloudflare is checking that the handshake is *consistent with the user agent*.
+Camoufox mints a Firefox UA, so only a Firefox-shaped handshake is honoured —
+Chrome impersonation fails *because* the UA says Firefox. urllib passes because
+its generic handshake is not classified as a mismatched browser, which is luck
+rather than portability. The client therefore uses `curl_cffi` with Firefox
+impersonation, and the impersonation target and the minted UA have to stay in
+agreement: they are two halves of one identity.
+
+**There is a per-match skill rating.** The earlier finding that the
+`SkillRating` *leaderboard* 500s is correct but was over-read. Each player
+segment carries `skillRating`, `prematchSkillRating` and `skillRatingDelta`
+among its 59 stats. So `/rank` is viable, `/build`'s `high_mmr` is viable, and
+`HighMmr` is a real grouping key in the aggregate rather than a constant.
+
+**Position does not identify an item's role, and using it corrupts builds.**
+The layout is only approximately "1 starter, 2 relic, 3-8 core":
+
+| | observed |
+|---|---|
+| talents sitting at positions 3-8 | **2,079** |
+| relics at position 1 | 156 |
+| items at position 2 | 195 |
+| `unknown` (hex-id junk) at positions 3-9 | 1,530 |
+
+Selecting positions 3-8 as the six core slots therefore mis-slots a talent as an
+item for ~8% of players — silently, since the result is a plausible build. Core
+items must be selected by `equipmentType in {item-passive, item-active}` and
+*then* ordered by position. With that rule, 53.2% of players have a full six-item
+build, and the core positions are contiguous from 3 in the large majority of rows.
+
+**The join works, and the god join is exact.** Matching tracker.gg's identifiers
+against the wiki, weighted by occurrence over 189,140 item slots and 26,444 god
+rows:
+
+| | rate | residue |
+|---|---|---|
+| items | **99.60%** | one item, `brawlers-ruin`, which the wiki does not document (0.40%) |
+| gods | **100.00%** | none |
+
+Gods only reach 100% with all four of: stripping the `Gods.` prefix tracker.gg
+sometimes emits, collapsing to alphanumerics (`jingwei` ↔ `jing-wei`), stripping
+a leading article (`morrigan` ↔ `The Morrigan`), and indexing the **god page
+list** rather than `Data:Gods.json` — which is missing Xing Tian entirely while
+carrying Bastet twice. Slug matching alone gets 96.09%.
+
+**Premades are measurable, not estimated.** Segments carry `partyId`, populated
+for 56% of players, with parties of 2-5. That gives distinct query-units per
+match directly: **7.16 of 10**, against the README's estimated ~6 above. It also
+makes premade suppression exact rather than inferred from match overlap.
+
+**The vocabulary is wider than the four platforms recorded above.** Observed
+modes: `assault`, `arena`, `joust`, `conquest`, `conquest-ranked`, `duel`,
+`joust-bots`. Platforms: `steam`, `psn`, `xbl`, `epic`, and also `twitch` and
+`ign`. Regions: `nae`, `eu`, `las`, `unk`. Roles come back as `middle`, `carry`,
+`support`, `jungle`, `solo`, plus a little dirt — 32 nulls and 6 `ENone`.
+
+**Coverage is measurable but the sample is not the game.** Capture–recapture
+(Chapman-corrected, splitting the queried roster in half by hash) over the two
+best-sampled days:
+
+| day | matches seen | est. reachable total | coverage |
+|---|---|---|---|
+| 2026-08-05 | 807 | ~3,300 | 24% |
+| 2026-08-06 | 272 | ~670 | 41% |
+
+Read that carefully. The estimator measures the population *reachable from these
+seeds*, which for a leaderboard-seeded snowball is the high-activity head, not
+the whole player base. It does **not** confirm the ~115k matches/day the tables
+above assume, and it does not refute it either — it is a different quantity.
+What it does establish is that the collector can measure its own coverage as it
+runs, which is what lets a budget be set against a coverage target instead of
+against the estimate the tables rest on.
+
+The day-by-day counts also confirm the three-day span structurally: crawling
+page 1 only, the sample thins sharply going back — 807 matches on the newest
+full day, 480 the day before, 258 the day before that.
+
 #### wiki.smite2.com as the static-data source
 
 tracker.gg carries builds and nothing else. `/smitele` needs lore, titles,
