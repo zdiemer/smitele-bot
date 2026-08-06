@@ -31,10 +31,12 @@ bot:
       cpu: 100m
       memory: 512Mi
     limits:
-      # Measured at 1.14Gi peak loading a 1.06M-row corpus (21 days), of which
-      # the frame itself is 0.29Gi — the rest is transient decode. Raise as the
-      # corpus grows.
-      memory: 2Gi
+      # The aggregate is loaded whole at startup: 18.2M build groups over a
+      # 250-day corpus is ~2.4Gi resident. 2Gi OOM-looped the bot the moment
+      # the full aggregate landed. This scales with the corpus, so it is the
+      # value to watch — loading per-god rather than wholesale would make it
+      # flat, and is the obvious next step if it keeps climbing.
+      memory: 5Gi
 
 # upgrade.sh refuses to roll the Deployment while a Smite-le or trivia round is
 # in progress, since a restart drops them mid-question. Override for a single
