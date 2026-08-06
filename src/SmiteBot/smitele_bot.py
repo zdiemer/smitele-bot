@@ -351,6 +351,8 @@ class Smitele(commands.Cog):
 
     __recommender: object
 
+    __recommender_stamp: float
+
     # A helper lambda for hitting a random Smite wiki voicelines route
     __get_base_smite_wiki: Callable[[commands.Cog, str], str] = (
         lambda self, name: f"https://smite.fandom.com/wiki/{name}_voicelines"
@@ -367,6 +369,7 @@ class Smitele(commands.Cog):
         self.__dataframe_refresher_running = False
         self.__status_server = None
         self.__recommender = None
+        self.__recommender_stamp = None
 
         if self.__config is None:
             self.__config = credentials.load("discordToken")
@@ -799,13 +802,28 @@ class Smitele(commands.Cog):
         ]
 
     def __load_recommender(self):
-        """Load the trained model once, and notice when one first appears.
+        """The trained model, reloaded when the trainer replaces it.
 
-        The bot starts before any model exists and the trainer only runs
-        weekly, so a miss is retried rather than cached as a permanent absence.
+        Keyed on the file's mtime rather than loaded once: the trainer writes a
+        new model weekly, and caching the first one meant the bot served the
+        model it happened to start with until something else restarted it —
+        every retrain silently ignored. A miss is also retried, since the bot
+        can start before any model exists.
         """
-        if self.__recommender is None:
-            self.__recommender = BuildRecommender.load(paths.MODEL_DIR)
+        model = os.path.join(paths.MODEL_DIR, "model.npz")
+        try:
+            stamp = os.path.getmtime(model)
+        except OSError:
+            stamp = None
+
+        if stamp is None:
+            return None
+        if self.__recommender is None or stamp != self.__recommender_stamp:
+            loaded = BuildRecommender.load(paths.MODEL_DIR)
+            if loaded is not None:
+                self.__recommender = loaded
+                self.__recommender_stamp = stamp
+                print(f"Loaded build model (AUC {loaded.test_auc:.4f})", flush=True)
         return self.__recommender
 
     def __god_by_name(self, name: str) -> God:

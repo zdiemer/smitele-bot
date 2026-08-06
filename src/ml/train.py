@@ -66,8 +66,14 @@ def main() -> int:
     parser.add_argument(
         "--max-rows",
         type=int,
-        default=4_000_000,
+        default=2_000_000,
         help="cap on training rows; sampled uniformly when the corpus exceeds it",
+    )
+    parser.add_argument(
+        "--max-files",
+        type=int,
+        default=900,
+        help="cap on corpus files read; sampled evenly across the whole range",
     )
     parser.add_argument("--queue", type=int, action="append", default=None)
     parser.add_argument(
@@ -82,6 +88,7 @@ def main() -> int:
         [paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR],
         queue_ids=args.queue,
         limit_files=args.days,
+        max_files=args.max_files,
     )
     if not raw.shape[0]:
         print("No corpus data found; nothing to train on.", file=sys.stderr)

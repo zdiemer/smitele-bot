@@ -115,9 +115,19 @@ def recent_days(paths: List[str], days: int) -> List[str]:
 
 
 def load_corpus(
-    directories: List[str], queue_ids: List[int] = None, limit_files: int = None
+    directories: List[str],
+    queue_ids: List[int] = None,
+    limit_files: int = None,
+    max_files: int = None,
 ) -> pd.DataFrame:
-    """Read corpus files, keeping only the columns the model needs."""
+    """Read corpus files, keeping only the columns the model needs.
+
+    max_files bounds the read itself. Sampling rows after loading cannot help
+    when loading is what runs out of memory: the corpus is 3,300 files and 158M
+    rows, and accumulating even the 8% that is Ranked Conquest exceeded 8GB.
+    Files are sampled uniformly across the whole corpus rather than truncated
+    to the most recent, so the sample still spans its full range.
+    """
     columns = list(
         dict.fromkeys(
             [
@@ -137,6 +147,10 @@ def load_corpus(
     paths = match_storage.corpus_paths(*directories)
     if limit_files:
         paths = recent_days(paths, limit_files)
+    if max_files and len(paths) > max_files:
+        step = len(paths) / max_files
+        paths = [paths[int(i * step)] for i in range(max_files)]
+        print(f"  sampling {len(paths)} files across the corpus", flush=True)
 
     frames = []
     for path in paths:

@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.6.2"
+  tag: "1.6.4"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -140,7 +140,7 @@ trainer:
       memory: 2Gi
     limits:
       cpu: "2"
-      memory: 8Gi
+      memory: 12Gi
 
 # Rolls the corpus into per-build win counts for /build. This is what makes a
 # 250-day corpus usable: the raw rows are ~132M and ~36GB in pandas, where the
