@@ -147,7 +147,7 @@ browser (Camoufox) to get past them. Confirmed endpoints:
 
 | Endpoint | Notes |
 |---|---|
-| `/api/v2/smite2/standard/matches/{platform}/{handle}` | 25 matches, ~2.9 MB, pages with `?next=N` |
+| `/api/v2/smite2/standard/matches/{platform}/{handle}` | 25 matches, ~2.9 MB, pages with `?next=N` (≥80 pages deep, ~1 year) |
 | `/api/v2/smite2/standard/matches/{matchId}` | adds nothing the list above lacks |
 | `/api/v2/smite2/standard/profile/{platform}/{handle}` | ~1.3 MB |
 | `/api/v2/smite2/standard/profile/{platform}/{handle}/segments/{god,gamemode,role}` | 87 god segments for an active player |
@@ -157,6 +157,19 @@ Platforms are `steam` (steamid64), `epic`, `psn` and `xbl` (handles).
 `segments/overview`, `segments/item`, `sessions` and every `/api/v1/…/profile/…`
 route return "not implemented". The ranked `SkillRating` board 500s on every
 parameter set tried; it appears to be reachable server-side only.
+
+Two things a crawler depends on were checked rather than assumed. **Arbitrary
+players are queryable**: four players taken only from inside another player's
+match segments — never on a leaderboard, possibly never having visited the site
+— all returned 200 with `requestingPlayerAttributes` echoing the queried id, so
+a snowball can keep expanding. And **history is deep**: `?next=80` still returned
+25 matches and a live cursor, reaching back about a year with no page overlap.
+
+No date or time-range parameter was found on any route. That is the single most
+consequential gap, for the reason the daily-job section below sets out, and it
+was not established by exhaustive fuzzing — only by the absence of any such
+parameter in the site's own requests. If one exists, much of what follows gets
+cheaper.
 
 The match-list endpoint is the one worth having. Each response carries all ten
 players of all 25 matches, and every player row includes the god, assigned and
@@ -209,18 +222,90 @@ without drawing errors, and 2.9 MB per response:
 
 Bandwidth binds long before time does: a census of any serious player base moves
 hundreds of gigabytes to extract a corpus the Smite 1 collector produces in ~6 MB
-a day. The right-hand column is the honest target — it treats each request as 250
-build samples rather than one player's history — but its coupon-collector maths
-assumes players mix uniformly, and matchmaking clusters by skill and region, so
-the tail to full coverage will be materially worse than shown.
+a day. The right-hand column treats each request as 250 build samples rather than
+one player's history, which is the right way to think about it, but its
+coupon-collector maths assumes players mix uniformly and **they measurably do
+not**. Two steam ids sampled from the same match history turned out to share
+25 of 25 recent matches — a duo that queues exclusively together. Premades mean
+the ten players in a match are not ten independent draws; the effective number is
+nearer six. Querying both halves of a duo is entirely wasted, and the tail to
+full coverage is worse than the table shows.
 
 Whatever gets built, the sample is drawn from players tracker.gg happens to know
 about, seeded from leaderboards. That is a skill-biased population, and the
 build aggregate currently assumes it is looking at an unbiased one.
 
-Two practical notes for anyone picking this up. The `cf_clearance` cookie a
-browser mints is **portable** — replaying it from `urllib`, with a completely
-different TLS fingerprint, still returned 200 — so a collector needs a browser
-only to mint clearance, not per request. And this is an undocumented endpoint
-behind a WAF with no published rate limit or terms allowance for bulk pulls:
-cache aggressively, pace deliberately, and expect it to break without notice.
+#### A daily job cannot be complete the way this one is
+
+The obvious shape for this is what `match_data_collector` already does: a nightly
+job that collects every match from the previous calendar day. That is worth
+ruling out explicitly, because it is the natural thing to reach for and it does
+not work.
+
+Hi-Rez enumerates matches **by time** — queue × hour × ten-minute window — so
+completeness is structural. About 1,700 requests and the day is provably whole.
+tracker.gg has no time enumeration, only player lookup, which creates a
+bootstrapping problem: *you cannot know who played yesterday without querying
+them*, and a query costs the same whether that player played twenty matches or
+none.
+
+Two measured inefficiencies compound it. **One page spans about three days** —
+the sampled player's 25 most recent matches covered three calendar days at
+7/17/1 — so only ~8 of the 25 matches in a 2.9 MB response fall on any given
+target day, and with no date parameter there is no way to narrow it. And every
+match arrives once per queried participant, which is not waste to be engineered
+away but the very mechanism that provides coverage.
+
+Estimating ~115k matches/day at 5 matches per active player gives ~230k daily
+actives. With the effective six-independent-players figure from above:
+
+| Coverage of one day | Requests | Time @1.5 s | Transfer |
+|---|---|---|---|
+| 90% | 73,000 | 30.6 hr | 208 GB |
+| 95% | 91,000 | 37.7 hr | 256 GB |
+| 99% | 123,000 | 51.4 hr | 350 GB |
+
+**None of that fits in a day.** Landing 95% inside a twenty-hour window needs
+0.80 s/request sustained, and whether tracker.gg tolerates that is precisely the
+thing that cannot be established without probing a rate limit — which is how one
+gets blocked. The rows are also optimistic: they assume only players who actually
+played yesterday get queried, where a real roster pays full price for its
+inactives too.
+
+So daily completeness costs ~250 GB and 40+ hours to approximate what the Smite 1
+collector gets in 1,700 requests and 6 MB. The sensible reading is that
+completeness is a property this source structurally cannot provide, and chasing
+it is the wrong goal:
+
+| Requests/day | Target-day matches | Player-build rows | Transfer |
+|---|---|---|---|
+| 4,000 | 33,000 | 330,000 | 11 GB |
+| 8,000 | 66,000 | 660,000 | 23 GB |
+
+8,000 requests — 3.3 hours, 23 GB — yields ~660k player-build rows from the
+target day, the same order as the Smite 1 corpus's daily volume, at a fifteenth
+of the cost of chasing 95%. Aggregate build win rates need sample size and low
+bias, not a census.
+
+The catch is that the cheap sample is the biased one. Coverage concentrates on
+high-activity players, and the matches missed are disproportionately casual,
+low-activity lobbies — the population whose builds differ most from the sampled
+head. That bias, not the bandwidth, is the real cost, and nothing in
+`build_aggregate` currently models it.
+
+Both tables rest on an estimated concurrency figure rather than a measured one.
+Sampling match timestamps across a few hundred random players would replace the
+estimate with a real production rate, and should happen before anyone commits to
+these numbers.
+
+#### Practical notes
+
+The `cf_clearance` cookie a browser mints is **portable** — replaying it from
+`urllib`, with a completely different TLS fingerprint, still returned 200 — so a
+collector needs a browser only to mint clearance, not per request. This also
+keeps multi-megabyte payloads out of the browser, which matters because parsing
+several of them inside the page is enough to OOM it.
+
+And this is an undocumented endpoint behind a WAF with no published rate limit or
+terms allowance for bulk pulls: cache aggressively, pace deliberately, and expect
+it to break without notice.
