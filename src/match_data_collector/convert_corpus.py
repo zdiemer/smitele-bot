@@ -196,12 +196,19 @@ def verify(directories: List[str], repair: bool) -> int:
         if name.endswith(match_storage.SUFFIX)
     )
 
-    print(f"Verifying {len(paths)} Parquet file(s)", flush=True)
+    print(f"Verifying {len(paths)} Parquet file(s) — reading data, not just footers", flush=True)
     bad: List[str] = []
     for index, path in enumerate(paths, start=1):
         try:
-            pq.read_schema(path)
-            pq.ParquetFile(path).metadata  # forces the footer to be parsed
+            # Every row group, decoded. A footer-only check passes on a file
+            # whose data pages are damaged — which is exactly what happened
+            # here: 3,306 files "verified" and one of them then killed the
+            # aggregate four retries deep. The footer is written last, so its
+            # presence says the writer finished, not that what it wrote is
+            # readable.
+            handle = pq.ParquetFile(path)
+            for group in range(handle.num_row_groups):
+                handle.read_row_group(group)
         except Exception as error:  # pylint: disable=broad-except
             bad.append(path)
             print(f"  CORRUPT {os.path.basename(path)}: {error}", flush=True)
