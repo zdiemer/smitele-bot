@@ -7,6 +7,7 @@ from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 
+import build_ranker
 from build_optimizer import BuildOptimizer
 from god import God
 from god_types import GodId, GodRole, GodType
@@ -173,6 +174,103 @@ class GodBuilder:
         self.__gods = gods
         self.__items = items
         self.__provider = provider
+
+    def __ml_from_aggregate(
+        self, build_options: BuildOptions, stats
+    ) -> Tuple[List[Item], List[Item], str]:
+        """Pick a build from the precomputed per-build win counts."""
+        god = self.__gods[build_options.god_id]
+        queue_id = (
+            build_options.queue_id.value if build_options.queue_id is not None else None
+        )
+        role = (
+            build_options.role.value.capitalize()
+            if build_options.role is not None
+            else None
+        )
+
+        starters = tuple(item.id for item in self.__items.values() if item.is_starter)
+        best = stats.best_build(
+            god_id=build_options.god_id.value,
+            queue_id=queue_id,
+            role=role,
+            high_mmr=build_options.high_mmr,
+            require_starter=True,
+            starter_ids=starters,
+        )
+        if best is None or not any(best["items"]):
+            raise BuildFailedError
+
+        build = [self.__items[i] for i in best["items"] if i in self.__items]
+        if len(build) != len(build_ranker.ITEM_COLUMNS):
+            # An item the build was recorded with no longer exists in the
+            # catalogue; the build cannot be shown faithfully.
+            raise BuildFailedError
+
+        relic_ids = stats.best_relics(
+            god_id=build_options.god_id.value,
+            queue_id=queue_id,
+            role=role,
+            high_mmr=build_options.high_mmr,
+        )
+        relics = (
+            [self.__items[i] for i in relic_ids if i in self.__items]
+            if relic_ids
+            else None
+        )
+
+        god_plays, god_wins = stats.god_totals(
+            god_id=build_options.god_id.value,
+            queue_id=queue_id,
+            role=role,
+            high_mmr=build_options.high_mmr,
+        )
+
+        optimizer = BuildOptimizer(
+            god, self.get_valid_items_for_god(god), self.__items
+        )
+
+        role_str = f"**{role}** " if role else ""
+        in_high_mmr = " higher MMR (2000+)" if build_options.high_mmr else ""
+        in_queue = (
+            f" in{in_high_mmr} {build_options.queue_id.display_name}"
+            if build_options.queue_id is not None
+            else ""
+        )
+
+        common_role = stats.common_role(build_options.god_id.value)
+        common_role_str = (
+            f"{god.name}'s most common role is **{common_role}**. "
+            if common_role and (role or build_options.queue_id is not None)
+            else ""
+        )
+
+        mmr_str = ""
+        if best["avg_rating"] > 0:
+            mmr_str = (
+                "These winners average a rank of "
+                f"**{PlayerStats.get_tier_string(TierId(math.floor(best['avg_tier'])), best['avg_rating'])}**."
+            )
+
+        win_rate = (float(god_wins) / god_plays) if god_plays else 0.0
+
+        desc = (
+            f"here's your {role_str}build, chosen from **{best['unique_builds']:,}**"
+            f" distinct winning{' ' + god.name} {role_str}build"
+            f"{'s' if best['unique_builds'] > 1 else ''}{in_queue}. "
+            f"This exact build was played **{best['plays']:,}** times and won "
+            f"**{(best['win_rate']*100):,.2f}%** of them. "
+            f"{mmr_str}\n\n{common_role_str}"
+            f"{god.name}'s {'overall ' if not role else role_str}win percentage"
+            f"{in_queue} is **{(win_rate*100):,.2f}%**. "
+            f"{god.name}'s average winning K/D/A with this build is "
+            f"**{int(best['avg_kills'])}/{int(best['avg_deaths'])}/"
+            f"{int(best['avg_assists'])}**, dealing an average "
+            f"**{int(best['avg_damage']):,}** player damage.\n\n"
+            f"{optimizer.get_build_stats_string(build)}"
+        )
+
+        return (build, relics, desc)
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
         return list(
@@ -407,6 +505,20 @@ class GodBuilder:
         )
 
     def ml(self, build_options: BuildOptions) -> Tuple[List[Item], List[Item], str]:
+        # The aggregate is the intended path: it covers the whole corpus, which
+        # is far too large to hold as rows. The raw-frame version below remains
+        # for installs where no aggregate has been built yet, and for the team
+        # composition filters, which need per-match detail the aggregate
+        # deliberately does not keep.
+        stats = self.__provider.build_stats
+        if (
+            stats is not None
+            and not build_options.was_random_god()
+            and not build_options.enemies
+            and not build_options.allies
+        ):
+            return self.__ml_from_aggregate(build_options, stats)
+
         if self.__provider.player_matches is None:
             print("player_matches not initialized")
             raise BuildFailedError

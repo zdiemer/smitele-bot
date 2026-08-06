@@ -65,11 +65,22 @@ spec:
                   drop: ["ALL"]
               env:
                 {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                # Aggregate only converted days. Reading a raw JSON day whole
+                # needs many times its size in memory and gets the job
+                # OOMKilled; conversion is a prerequisite, not something this
+                # job should attempt inline.
+                - name: SMITELE_CORPUS_PARQUET_ONLY
+                  value: "1"
                 - name: HOME
                   value: /tmp
               volumeMounts:
                 - name: matchdata
                   mountPath: /matchdata
+                # The job builds a SmiteProvider to read the item catalogue,
+                # and that writes its Hi-Rez session token to the data
+                # directory — which is otherwise on the read-only root.
+                - name: data
+                  mountPath: /data
                 - name: tmp
                   mountPath: /tmp
               resources:
@@ -78,6 +89,8 @@ spec:
             - name: matchdata
               persistentVolumeClaim:
                 claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            - name: data
+              emptyDir: {}
             - name: tmp
               emptyDir:
                 sizeLimit: 1Gi

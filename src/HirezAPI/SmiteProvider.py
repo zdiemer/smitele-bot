@@ -21,6 +21,14 @@ from item import Item
 from HirezAPI import Smite, QueueId
 
 
+# Load every player row even when an aggregate is available. Only useful for
+# the team-composition filters, which need per-match detail the aggregate does
+# not keep — and only affordable on a small corpus.
+FORCE_CORPUS_IN_MEMORY: bool = os.environ.get(
+    "SMITELE_FORCE_CORPUS_IN_MEMORY", ""
+) not in ("", "0", "false", "False")
+
+
 class SmiteProvider(Smite):
     CONFIG_FILE: str = paths.CONFIG_FILE
     GODS_FILE: str = paths.data_file("gods.json")
@@ -30,6 +38,10 @@ class SmiteProvider(Smite):
     gods: Dict[GodId, God]
     items: Dict[int, Item]
     player_matches: pd.DataFrame = None
+
+    # The precomputed per-build win counts /build reads. None until the
+    # aggregate job has run at least once, which is a normal early state.
+    build_stats = None
 
     # Cached config values
     __config: dict = None
@@ -303,8 +315,39 @@ class SmiteProvider(Smite):
             with open(self.SMITE_PATCH_VERSION_FILE, "w", encoding="utf-8") as file:
                 file.write(str(current_patch))
 
+    def load_build_stats(self) -> bool:
+        """Load the aggregate, if one has been written.
+
+        Cheap enough to re-read on every refresh — it is a few megabytes where
+        the corpus it summarises is hundreds of gigabytes — so a newly written
+        aggregate is picked up without restarting the bot.
+        """
+        import build_ranker
+
+        loaded = build_ranker.BuildStats.load(paths.MODEL_DIR)
+        if loaded is not None:
+            self.build_stats = loaded
+            if not self._silent:
+                print(
+                    f"Loaded build aggregate: {len(loaded.builds):,} build groups",
+                    flush=True,
+                )
+        return loaded is not None
+
     async def load_dataframe(self):
         pd.options.mode.copy_on_write = True
+
+        # With an aggregate present there is nothing left that needs the raw
+        # rows: /build reads the aggregate, and the only other consumer is a
+        # debug command reporting the frame's own size. Loading them anyway
+        # would mean ~132M rows and tens of gigabytes for a corpus this size.
+        if self.load_build_stats() and not FORCE_CORPUS_IN_MEMORY:
+            if not self._silent:
+                print(
+                    "Serving builds from the aggregate; skipping corpus load.",
+                    flush=True,
+                )
+            return
         await asyncio.to_thread(self.__refresh_dataframe)
         asyncio.get_running_loop().create_task(self.__refresh_dataframe_loop())
 
