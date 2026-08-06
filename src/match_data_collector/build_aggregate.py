@@ -22,7 +22,9 @@ build_items.parquet and relic_stats.parquet.
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
+import re
 import sys
 import time
 from typing import Dict, List
@@ -41,6 +43,8 @@ from SmiteProvider import (  # noqa: E402  pylint: disable=wrong-import-position
 )
 
 HIGH_MMR: int = 2000
+
+_DATE_IN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 GROUP_KEYS: List[str] = ["GodId", "match_queue_id", "Role", "HighMmr"]
 
@@ -107,14 +111,45 @@ def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
     return frame
 
 
-def reduce_file(frame: pd.DataFrame):
-    """Per-build and per-relic counts for one day."""
+def corpus_date(path: str) -> "datetime.date":
+    """The day a corpus file covers, from its name."""
+    found = _DATE_IN_NAME.search(os.path.basename(path))
+    if not found:
+        return None
+    return datetime.datetime.strptime(found.group(1), "%Y-%m-%d").date()
+
+
+def recency_weight(day, newest, half_life_days: int) -> float:
+    """How much a day's matches count, halving every `half_life_days`.
+
+    Items get reworked and removed, so a win from three years ago describes a
+    game that no longer exists — but it still carries information, especially
+    for gods that are rarely picked now, so it is discounted rather than
+    dropped.
+
+    Measured against the newest day in the corpus rather than against today, so
+    the weights depend only on the data and a re-run produces the same numbers.
+    """
+    if day is None or newest is None or half_life_days <= 0:
+        return 1.0
+    return 0.5 ** (max((newest - day).days, 0) / half_life_days)
+
+
+def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
+    """Per-build and per-relic counts for one day.
+
+    Weighted counts are carried alongside the raw ones: the ranking uses the
+    weighted figures as an effective sample size, while the raw counts are what
+    gets shown to a player ("played N times").
+    """
     builds = frame.loc[frame["IsFullBuild"]]
     build_counts = (
         builds.groupby(GROUP_KEYS + ["BuildHash"], dropna=False, observed=True)
         .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
         .reset_index()
     )
+    build_counts["wplays"] = build_counts["plays"] * weight
+    build_counts["wwins"] = build_counts["wins"] * weight
 
     # One representative item set per hash. The hash is order-independent, so
     # any row carrying it describes the same six items.
@@ -128,17 +163,24 @@ def reduce_file(frame: pd.DataFrame):
         .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
         .reset_index()
     )
+    relic_counts["wplays"] = relic_counts["plays"] * weight
+    relic_counts["wwins"] = relic_counts["wins"] * weight
 
     return build_counts, items, relic_counts
 
 
 def consolidate(frames: List[pd.DataFrame], keys: List[str]) -> pd.DataFrame:
     if not frames:
-        return pd.DataFrame(columns=keys + ["plays", "wins"])
+        return pd.DataFrame(columns=keys + ["plays", "wins", "wplays", "wwins"])
     return (
         pd.concat(frames, ignore_index=True)
         .groupby(keys, dropna=False, observed=True)
-        .agg(plays=("plays", "sum"), wins=("wins", "sum"))
+        .agg(
+            plays=("plays", "sum"),
+            wins=("wins", "sum"),
+            wplays=("wplays", "sum"),
+            wwins=("wwins", "sum"),
+        )
         .reset_index()
     )
 
@@ -156,6 +198,12 @@ def main() -> int:
     # Reducing after every file would rewrite the running total constantly;
     # every N keeps the intermediate list small without that churn.
     parser.add_argument("--consolidate-every", type=int, default=25)
+    parser.add_argument(
+        "--half-life-days",
+        type=int,
+        default=180,
+        help="how fast older matches stop counting; 0 weights every day equally",
+    )
     args = parser.parse_args()
 
     provider = SmiteProvider(silent=True)
@@ -171,7 +219,13 @@ def main() -> int:
         print("No corpus files found.", file=sys.stderr)
         return 1
 
-    print(f"Aggregating {len(corpus)} corpus file(s)", flush=True)
+    dates = {path: corpus_date(path) for path in corpus}
+    newest = max((d for d in dates.values() if d), default=None)
+    print(
+        f"Aggregating {len(corpus)} corpus file(s); newest day {newest}, "
+        f"half-life {args.half_life_days}d",
+        flush=True,
+    )
 
     build_parts: List[pd.DataFrame] = []
     relic_parts: List[pd.DataFrame] = []
@@ -188,7 +242,9 @@ def main() -> int:
             continue
 
         rows_seen += frame.shape[0]
-        build_counts, items, relic_counts = reduce_file(frame)
+        build_counts, items, relic_counts = reduce_file(
+            frame, recency_weight(dates.get(path), newest, args.half_life_days)
+        )
         build_parts.append(build_counts)
         relic_parts.append(relic_counts)
         item_parts.append(items)
