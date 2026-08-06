@@ -67,6 +67,10 @@ spec:
                   drop: ["ALL"]
               env:
                 {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                # Train on converted days only. A raw JSON day needs many times
+                # its size in memory and would take the job out.
+                - name: SMITELE_CORPUS_PARQUET_ONLY
+                  value: "1"
                 - name: HOME
                   value: /tmp
                 # Torch defaults to one thread per core and then thrashes on a

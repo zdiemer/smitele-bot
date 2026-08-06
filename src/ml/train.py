@@ -63,6 +63,12 @@ def main() -> int:
     parser.add_argument("--days", type=int, default=60)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=4096)
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        default=4_000_000,
+        help="cap on training rows; sampled uniformly when the corpus exceeds it",
+    )
     parser.add_argument("--queue", type=int, action="append", default=None)
     parser.add_argument(
         "--out", default=os.path.join(paths.MATCH_DATA_DIR, "..", "model.npz")
@@ -81,6 +87,24 @@ def main() -> int:
         print("No corpus data found; nothing to train on.", file=sys.stderr)
         return 1
 
+    # Sample before building matchups, not after: that step attaches allies,
+    # enemies and the lane opponent with a Python loop per row, so it is the
+    # expensive part and there is no reason to pay it for rows about to be
+    # discarded. Whole matches are sampled rather than rows — a match missing
+    # players would produce compositions padded with absences.
+    if args.max_rows and raw.shape[0] > args.max_rows * 2:
+        matches = raw["Match"].drop_duplicates()
+        keep = matches.sample(
+            n=max(1, int(len(matches) * (args.max_rows * 2) / raw.shape[0])),
+            random_state=0,
+        )
+        print(
+            f"Sampling {len(keep):,} of {len(matches):,} matches "
+            f"({raw.shape[0]:,} rows)",
+            flush=True,
+        )
+        raw = raw[raw["Match"].isin(set(keep))]
+
     frame = features.build_matchup_frame(raw)
     before = frame.shape[0]
     frame = full_builds_only(frame)
@@ -89,6 +113,16 @@ def main() -> int:
         f"({before - frame.shape[0]:,} partial builds dropped)",
         flush=True,
     )
+
+    # A day is now ~630k player rows, so even a fortnight is millions and the
+    # corpus as a whole is 158M. Sampling caps the cost at a level where more
+    # data has stopped moving the score — the model went to AUC 0.675 on under
+    # a million rows — while keeping the split below meaningful.
+    if args.max_rows and frame.shape[0] > args.max_rows:
+        print(
+            f"Sampling {args.max_rows:,} of {frame.shape[0]:,} rows", flush=True
+        )
+        frame = frame.sample(n=args.max_rows, random_state=0)
 
     # Temporal split: matches are ordered by id, so the tail is the future.
     frame = frame.sort_values("Match")
