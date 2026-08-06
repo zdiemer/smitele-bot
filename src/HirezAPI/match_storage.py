@@ -18,9 +18,11 @@ them so no historical data is stranded:
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Dict, Iterable, List
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import ujson as json
 
@@ -81,8 +83,11 @@ def read_frame(path: str, exclude: Iterable[str] = ()) -> pd.DataFrame:
     excluded = set(exclude)
 
     if path.endswith(SUFFIX):
-        wanted = [name for name in pq.read_schema(path).names if name not in excluded]
-        return pd.read_parquet(path, columns=wanted)
+        def read():
+            keep = [name for name in pq.read_schema(path).names if name not in excluded]
+            return pd.read_parquet(path, columns=keep)
+
+        return _with_retry(read, path)
 
     with open(path, "r", encoding="utf-8") as file:
         records = json.loads(file.read())
@@ -91,6 +96,36 @@ def read_frame(path: str, exclude: Iterable[str] = ()) -> pd.DataFrame:
         _flatten(records),
         exclude=[column for column in excluded if column],
     )
+
+
+READ_ATTEMPTS: int = 4
+
+
+def _with_retry(read, path: str):
+    """Retry a read that failed for reasons the file itself isn't to blame for.
+
+    The corpus lives on an SMB share, and a read of it occasionally fails
+    mid-stream — pyarrow surfaces that as "Unexpected end of stream", which
+    looks exactly like a truncated file. It isn't: a verification pass over all
+    3,306 files immediately afterwards found every one readable. Without a
+    retry a single blip kills a job hundreds of files in, having done all the
+    work up to that point.
+    """
+    delay = 1.0
+    for attempt in range(1, READ_ATTEMPTS + 1):
+        try:
+            return read()
+        except (OSError, pa.ArrowInvalid) as error:
+            if attempt == READ_ATTEMPTS:
+                raise
+            print(
+                f"Read failed ({error}) on {os.path.basename(path)}, "
+                f"attempt {attempt}/{READ_ATTEMPTS}; retrying in {delay:.0f}s",
+                flush=True,
+            )
+            time.sleep(delay)
+            delay *= 2
+    return None
 
 
 def read_frame_columns(path: str, columns: Iterable[str]) -> pd.DataFrame:
@@ -104,8 +139,11 @@ def read_frame_columns(path: str, columns: Iterable[str]) -> pd.DataFrame:
     wanted = list(dict.fromkeys(columns))
 
     if path.endswith(SUFFIX):
-        available = set(pq.read_schema(path).names)
-        frame = pd.read_parquet(path, columns=[c for c in wanted if c in available])
+        def read():
+            available = set(pq.read_schema(path).names)
+            return pd.read_parquet(path, columns=[c for c in wanted if c in available])
+
+        frame = _with_retry(read, path)
     else:
         with open(path, "r", encoding="utf-8") as file:
             frame = pd.DataFrame.from_records(_flatten(json.loads(file.read())))

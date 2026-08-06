@@ -48,6 +48,22 @@ _DATE_IN_NAME = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 GROUP_KEYS: List[str] = ["GodId", "match_queue_id", "Role", "HighMmr"]
 
+# Role is the expensive key by a wide margin. As Python strings across tens of
+# millions of groups it costs more than every count column put together; as a
+# category with a fixed set it is one int8 per row. The category list must be
+# fixed rather than inferred, or concatenating two partials with different
+# observed roles silently falls back to object.
+ROLE_CATEGORIES: List[str] = [
+    "Solo",
+    "Jungle",
+    "Mid",
+    "Support",
+    "Carry",
+    "ADC",
+    "Unknown",
+]
+ROLE_DTYPE = pd.CategoricalDtype(ROLE_CATEGORIES)
+
 # Under-30 queues are the same mode with a different id; /build folds them
 # together, so the aggregate has to as well or the two would never match.
 QUEUE_ALIASES: Dict[int, int] = {
@@ -117,13 +133,16 @@ def prepare(frame: pd.DataFrame, items: Dict[int, object]) -> pd.DataFrame:
     frame["match_queue_id"] = (
         pd.to_numeric(frame["match_queue_id"], errors="coerce")
         .fillna(-1)
-        .astype(np.int64)
+        .astype(np.int32)
         .replace(QUEUE_ALIASES)
     )
-    frame["GodId"] = pd.to_numeric(frame["GodId"], errors="coerce").fillna(0).astype(
-        np.int64
+    frame["GodId"] = (
+        pd.to_numeric(frame["GodId"], errors="coerce").fillna(0).astype(np.int32)
     )
-    frame["Role"] = frame["Role"].astype(str).fillna("Unknown")
+    roles = frame["Role"].astype(str).str.strip().str.title()
+    frame["Role"] = roles.where(roles.isin(ROLE_CATEGORIES), "Unknown").astype(
+        ROLE_DTYPE
+    )
 
     rating, tier = queue_rating(frame)
     frame["HighMmr"] = rating >= HIGH_MMR
@@ -225,6 +244,29 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
 
 COUNT_COLUMNS: List[str] = ["plays", "wins", "wplays", "wwins"]
 
+# The running total dominates memory — a full corpus reaches tens of millions of
+# groups before the min-plays filter can be applied, and that filter needs the
+# complete count so it cannot be applied early. Counts fit comfortably in 32
+# bits (no single build is played four billion times) and the weighted and
+# averaged columns do not need double precision for what they are used for, so
+# narrowing them halves the resident size of the thing there is most of.
+NARROW_DTYPES: Dict[str, str] = {
+    "plays": "int32",
+    "wins": "int32",
+    "wplays": "float32",
+    "wwins": "float32",
+}
+
+
+def narrow(frame: pd.DataFrame) -> pd.DataFrame:
+    for column, dtype in NARROW_DTYPES.items():
+        if column in frame.columns:
+            frame[column] = frame[column].astype(dtype)
+    for column in frame.columns:
+        if column.startswith("sum_") or column == "rated_wins":
+            frame[column] = frame[column].astype("float32")
+    return frame
+
 
 def consolidate(
     frames: List[pd.DataFrame], keys: List[str], extra: List[str] = ()
@@ -233,7 +275,7 @@ def consolidate(
     columns = COUNT_COLUMNS + list(extra)
     if not frames:
         return pd.DataFrame(columns=keys + columns)
-    return (
+    return narrow(
         pd.concat(frames, ignore_index=True)
         .groupby(keys, dropna=False, observed=True)[columns]
         .sum()
@@ -253,7 +295,7 @@ def main() -> int:
     parser.add_argument("--out", default=paths.MODEL_DIR)
     # Reducing after every file would rewrite the running total constantly;
     # every N keeps the intermediate list small without that churn.
-    parser.add_argument("--consolidate-every", type=int, default=25)
+    parser.add_argument("--consolidate-every", type=int, default=10)
     parser.add_argument(
         "--half-life-days",
         type=int,

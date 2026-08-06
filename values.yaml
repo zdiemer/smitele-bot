@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.5.1"
+  tag: "1.5.4"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -149,13 +149,17 @@ aggregate:
   minPlays: 3
   # Empty means the whole corpus. Set to limit to the most recent N days.
   days: ""
-  activeDeadlineSeconds: 5400
+  activeDeadlineSeconds: 10800
+  # The running total is the whole cost: a full corpus reaches tens of millions
+  # of groups before min-plays can be applied, and that filter needs complete
+  # counts so it cannot run early. Request matches limit — a burstable pod that
+  # grows into a limit the node cannot honour is how two nodes were lost.
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: "1"
+      memory: 12Gi
     limits:
-      memory: 6Gi
+      memory: 12Gi
 
 # One-shot bulk conversion of archived JSON days to Parquet. Enable, watch it
 # finish, then disable again. Re-running is safe: already-converted days are

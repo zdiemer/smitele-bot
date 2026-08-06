@@ -173,9 +173,81 @@ def convert(json_path: str, delete: bool, batch_rows: int) -> bool:
     return True
 
 
+def verify(directories: List[str], repair: bool) -> int:
+    """Check every Parquet file is readable, and optionally undo the bad ones.
+
+    A truncated file is not detectable by looking at it — Parquet keeps its
+    schema in a footer, so a partial write is a normal-looking file that raises
+    "Unexpected end of stream" the moment something reads it. That surfaced
+    here as an aggregate job dying two thousand files in.
+
+    With --repair, a bad file and its day's completion marker are removed, so a
+    subsequent convert run rebuilds that day from the JSON it still has. This
+    is the reason to keep the originals until the output has been verified.
+    """
+    import pyarrow.parquet as pq
+
+    paths = sorted(
+        os.path.join(root, name)
+        for directory in directories
+        if directory and os.path.isdir(directory)
+        for root, _, files in os.walk(directory)
+        for name in files
+        if name.endswith(match_storage.SUFFIX)
+    )
+
+    print(f"Verifying {len(paths)} Parquet file(s)", flush=True)
+    bad: List[str] = []
+    for index, path in enumerate(paths, start=1):
+        try:
+            pq.read_schema(path)
+            pq.ParquetFile(path).metadata  # forces the footer to be parsed
+        except Exception as error:  # pylint: disable=broad-except
+            bad.append(path)
+            print(f"  CORRUPT {os.path.basename(path)}: {error}", flush=True)
+        if index % 500 == 0:
+            print(f"  {index}/{len(paths)} checked, {len(bad)} bad", flush=True)
+
+    if not bad:
+        print(f"All {len(paths)} files readable.")
+        return 0
+
+    print(f"\n{len(bad)} corrupt file(s).")
+    if not repair:
+        print("Re-run with --repair to remove them and their day's marker.")
+        return 1
+
+    days = set()
+    for path in bad:
+        os.remove(path)
+        # part suffix or not, strip back to the day so the marker goes too
+        stem = re.sub(r"(\.part\d+)?%s$" % re.escape(match_storage.SUFFIX), "", path)
+        days.add(stem)
+
+    for stem in days:
+        for leftover in parts_for(stem) + [f"{stem}.complete"]:
+            if os.path.exists(leftover):
+                os.remove(leftover)
+        print(f"  reset {os.path.basename(stem)} for reconversion", flush=True)
+
+    print(f"Removed {len(bad)} file(s) across {len(days)} day(s).")
+    print("Re-run convert_corpus.py to rebuild them from the JSON originals.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("directories", nargs="*")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="check every Parquet file is readable instead of converting",
+    )
+    parser.add_argument(
+        "--repair",
+        action="store_true",
+        help="with --verify, delete unreadable files so they can be redone",
+    )
     parser.add_argument(
         "--delete",
         action="store_true",
@@ -192,6 +264,9 @@ def main() -> int:
     args = parser.parse_args()
 
     directories = args.directories or [paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR]
+
+    if args.verify:
+        return verify(directories, args.repair)
 
     everything: List[str] = sorted(
         path
