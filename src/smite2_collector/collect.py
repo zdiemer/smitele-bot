@@ -185,6 +185,28 @@ async def crawl(args) -> int:
     if args.dry_run:
         print("  DRY RUN — nothing will be written")
 
+    cooldown = cooldown_module.Cooldown(
+        os.path.join(state_dir, cooldown_module.FILE_NAME)
+    )
+    if args.reset_cooldown:
+        print("  clearing the recorded stand-down before crawling")
+        cooldown.clear()
+
+    # Refuse to start inside a stand-down the last run was told to serve. A
+    # crawl that fires into a live ban collects nothing and spends reputation
+    # doing it, and the whole reason the deadline is on disk is so that this
+    # check can exist.
+    standdown = cooldown.read()
+    if standdown.active:
+        print(
+            f"\nSTANDING DOWN — {cooldown_module.describe(standdown.remaining)} "
+            f"left of a refusal recorded for {egress_module.identity()}.\n"
+            f"  because: {standdown.reason}\n"
+            "  Crawling now would only confirm it. Wait it out, move to another "
+            "egress, or pass --reset-cooldown if the ban is known to be over."
+        )
+        return 3
+
     # The god index comes from the wiki, and without it every row would have
     # GodId 0 and be dropped by the aggregate. Worth failing loudly for.
     provider = Smite2Provider(silent=True)
@@ -208,28 +230,6 @@ async def crawl(args) -> int:
     )
     if args.reset_clearance:
         manager.reset()
-
-    cooldown = cooldown_module.Cooldown(
-        os.path.join(state_dir, cooldown_module.FILE_NAME)
-    )
-    if args.reset_cooldown:
-        print("  clearing the recorded stand-down before crawling")
-        cooldown.clear()
-
-    # Refuse to start inside a stand-down the last run was told to serve. A
-    # crawl that fires into a live ban collects nothing and spends reputation
-    # doing it, and the whole reason the deadline is on disk is so that this
-    # check can exist.
-    standdown = cooldown.read()
-    if standdown.active:
-        print(
-            f"\nSTANDING DOWN — {cooldown_module.describe(standdown.remaining)} "
-            f"left of a refusal recorded for {egress_module.identity()}.\n"
-            f"  because: {standdown.reason}\n"
-            "  Crawling now would only confirm it. Wait it out, move to another "
-            "egress, or pass --reset-cooldown if the ban is known to be over."
-        )
-        return 3
 
     # Sampled once here and once at the end. Two requests across a run of
     # thousands, and the only way a rotating exit announces itself on a run that

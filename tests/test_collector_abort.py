@@ -216,25 +216,30 @@ class TestStandDown:
             os.path.join(str(state), cooldown_module.FILE_NAME)
         ).arm(seconds, reason)
 
-    def test_a_live_standdown_stops_the_run_before_any_request(self, crawling):
+    def test_a_live_standdown_stops_the_run_before_any_work(
+        self, crawling, monkeypatch
+    ):
+        """Refused before the session *and* before the catalogue load.
+
+        The check sits ahead of the wiki fetch on purpose: nothing about a
+        stand-down needs the god index, and a run that is not going to happen
+        should cost nothing at all.
+        """
         corpus, state = crawling
         self.standdown_at(state, 3600)
 
-        client_requests = []
-        original = Client.__init__
+        touched = []
+        monkeypatch.setattr(
+            collect, "TrackerClient", lambda *a, **k: touched.append("client")
+        )
+        monkeypatch.setattr(
+            collect, "Smite2Provider", lambda *a, **k: touched.append("provider")
+        )
 
-        def counting(self, *args, **kwargs):
-            original(self, *args, **kwargs)
-            client_requests.append(self)
-
-        Client.__init__ = counting
-        try:
-            code = asyncio.run(collect.crawl(args()))
-        finally:
-            Client.__init__ = original
+        code = asyncio.run(collect.crawl(args()))
 
         assert code == 3, "a stand-down is its own outcome, not a crawl failure"
-        assert not client_requests, "a banned run must not open a session at all"
+        assert touched == [], f"a banned run did work anyway: {touched}"
         assert not [n for n in os.listdir(str(corpus)) if n.endswith(".parquet")]
 
     def test_an_elapsed_standdown_does_not_stop_anything(self, crawling):
