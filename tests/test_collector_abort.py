@@ -161,6 +161,7 @@ def args(**overrides):
         dry_run=False,
         quiet=True,
         reset_clearance=False,
+        reset_cooldown=False,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -203,3 +204,45 @@ async def _never_blocks(self, platform, handle, page=0):
     self.requests += 1
     for index in range(3):
         yield match(f"{handle}-{page}-{index}")
+
+
+class TestStandDown:
+    """A run must not fire into a ban the last one was told to serve."""
+
+    def standdown_at(self, state, seconds, reason="429 asking for 3600s"):
+        from smite2 import cooldown as cooldown_module
+
+        cooldown_module.Cooldown(
+            os.path.join(str(state), cooldown_module.FILE_NAME)
+        ).arm(seconds, reason)
+
+    def test_a_live_standdown_stops_the_run_before_any_request(self, crawling):
+        corpus, state = crawling
+        self.standdown_at(state, 3600)
+
+        client_requests = []
+        original = Client.__init__
+
+        def counting(self, *args, **kwargs):
+            original(self, *args, **kwargs)
+            client_requests.append(self)
+
+        Client.__init__ = counting
+        try:
+            code = asyncio.run(collect.crawl(args()))
+        finally:
+            Client.__init__ = original
+
+        assert code == 3, "a stand-down is its own outcome, not a crawl failure"
+        assert not client_requests, "a banned run must not open a session at all"
+        assert not [n for n in os.listdir(str(corpus)) if n.endswith(".parquet")]
+
+    def test_an_elapsed_standdown_does_not_stop_anything(self, crawling):
+        _, state = crawling
+        self.standdown_at(state, 0)
+        assert asyncio.run(collect.crawl(args())) == 2, "the crawl ran and blocked"
+
+    def test_reset_cooldown_overrides_it(self, crawling):
+        _, state = crawling
+        self.standdown_at(state, 3600)
+        assert asyncio.run(collect.crawl(args(reset_cooldown=True))) == 2

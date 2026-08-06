@@ -46,6 +46,7 @@ from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 import ijson
 from curl_cffi import requests as curl_requests
 
+from smite2 import cooldown as cooldown_module
 from smite2 import egress
 from smite2.clearance import Clearance, ClearanceManager
 
@@ -240,10 +241,12 @@ class TrackerClient:
         silent: bool = False,
         jitter: float = DEFAULT_JITTER,
         proxy: Optional[str] = None,
+        cooldown: Optional["cooldown_module.Cooldown"] = None,
     ):
         self.__clearance = clearance
         self.__limiter = RateLimiter(interval, jitter)
         self.__proxy = egress.proxy_url() if proxy is None else proxy
+        self.__cooldown = cooldown
         self.__session: Optional[curl_requests.AsyncSession] = None
         self.__current: Optional[Clearance] = None
         self.__silent = silent
@@ -349,19 +352,40 @@ class TrackerClient:
             )
         return blocked
 
+    def __stand_down(self, seconds: float, reason: str) -> str:
+        """Record a refusal so the next run does not walk into it.
+
+        The deadline is the only part of a ban worth keeping, and it used to die
+        with the process — so a nightly would fire into a live one, collect
+        nothing, and poke the WAF for the privilege.
+        """
+        if self.__cooldown is None:
+            return ""
+        standdown = self.__cooldown.arm(seconds, reason)
+        return (
+            f" Nothing will crawl this address for "
+            f"{cooldown_module.describe(standdown.remaining)}."
+        )
+
     def __cool_down(self, path: str, retry_after: Optional[str]) -> str:
         """Stand down for a 429, or decide it is not a pause at all."""
         self.rate_limited += 1
         cooldown = _cooldown_seconds(retry_after)
         if cooldown > RETRY_AFTER_CAP_SECONDS:
+            reason = f"429 on {path} asking for {cooldown:.0f}s"
+            note = self.__stand_down(cooldown, reason)
             raise TrackerBlocked(
                 f"429 on {path} asking for {cooldown:.0f}s — that is a block, "
-                "not a pause"
+                f"not a pause.{note}"
             )
         if self.rate_limited > MAX_RATE_LIMITS:
+            # No header to trust here — the site kept answering, it just kept
+            # refusing. Stand down for the cap rather than guessing longer.
+            reason = f"{self.rate_limited} rate limits on {path} in one run"
+            note = self.__stand_down(RETRY_AFTER_CAP_SECONDS, reason)
             raise TrackerBlocked(
                 f"429 on {path} for the {self.rate_limited}th time this run — "
-                "widening the pace did not help; stopping"
+                f"widening the pace did not help; stopping.{note}"
             )
         widened = self.__limiter.widen()
         self.__limiter.pause(cooldown)

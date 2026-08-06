@@ -49,6 +49,7 @@ from smite2.clearance import (  # noqa: E402
     ClearanceStore,
     ClearanceUnavailable,
 )
+from smite2 import cooldown as cooldown_module  # noqa: E402
 from smite2 import egress as egress_module  # noqa: E402
 from smite2.provider import CLEARANCE_FILE, Smite2Provider  # noqa: E402
 from smite2.tracker_client import (  # noqa: E402
@@ -92,6 +93,18 @@ async def check_egress(state_dir: str) -> int:
         return 1
     print(f"  address      {address}")
 
+    cooldown = cooldown_module.Cooldown(
+        os.path.join(state_dir, cooldown_module.FILE_NAME), egress=identity
+    )
+    standdown = cooldown.read()
+    if standdown.active:
+        # Reported rather than enforced: checking is how you find out whether a
+        # ban has actually lifted, and one request is not what re-earns it.
+        print(
+            f"  stand-down   {cooldown_module.describe(standdown.remaining)} "
+            f"remaining ({standdown.reason})"
+        )
+
     manager = ClearanceManager(
         ClearanceStore(os.path.join(state_dir, CLEARANCE_FILE), egress=identity)
     )
@@ -103,7 +116,9 @@ async def check_egress(state_dir: str) -> int:
     print(f"  minted at    {clearance.observed_ip or 'unknown'}")
     print(f"  user agent   {clearance.user_agent}")
 
-    async with TrackerClient(manager, silent=True, proxy=configured) as client:
+    async with TrackerClient(
+        manager, silent=True, proxy=configured, cooldown=cooldown
+    ) as client:
         try:
             await client.leaderboard(LEADERBOARDS[0], take=1)
         except Exception as error:  # noqa: BLE001
@@ -194,6 +209,28 @@ async def crawl(args) -> int:
     if args.reset_clearance:
         manager.reset()
 
+    cooldown = cooldown_module.Cooldown(
+        os.path.join(state_dir, cooldown_module.FILE_NAME)
+    )
+    if args.reset_cooldown:
+        print("  clearing the recorded stand-down before crawling")
+        cooldown.clear()
+
+    # Refuse to start inside a stand-down the last run was told to serve. A
+    # crawl that fires into a live ban collects nothing and spends reputation
+    # doing it, and the whole reason the deadline is on disk is so that this
+    # check can exist.
+    standdown = cooldown.read()
+    if standdown.active:
+        print(
+            f"\nSTANDING DOWN — {cooldown_module.describe(standdown.remaining)} "
+            f"left of a refusal recorded for {egress_module.identity()}.\n"
+            f"  because: {standdown.reason}\n"
+            "  Crawling now would only confirm it. Wait it out, move to another "
+            "egress, or pass --reset-cooldown if the ban is known to be over."
+        )
+        return 3
+
     # Sampled once here and once at the end. Two requests across a run of
     # thousands, and the only way a rotating exit announces itself on a run that
     # happened to survive — where it would otherwise show up as a mystery.
@@ -207,7 +244,7 @@ async def crawl(args) -> int:
     blocked = False
 
     async with TrackerClient(
-        manager, interval=args.interval, jitter=args.jitter
+        manager, interval=args.interval, jitter=args.jitter, cooldown=cooldown
     ) as client:
         try:
             added = await seed(client, frontier, today, args.quiet)
@@ -521,6 +558,13 @@ def main() -> int:
         help="resolve the outbound address, mint one cookie and issue one "
         "request through it, then exit. For validating a proxy before anything "
         "depends on it. Writes nothing and does not crawl.",
+    )
+    parser.add_argument(
+        "--reset-cooldown",
+        action="store_true",
+        help="crawl even though a stand-down is recorded, for when the ban it "
+        "describes is known to be over. Deliberately manual: a stand-down that "
+        "clears itself early is not a stand-down.",
     )
     parser.add_argument(
         "--reset-clearance",

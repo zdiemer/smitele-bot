@@ -15,12 +15,21 @@ deployment did before this existed.
 
 Two reasons, and only the second is a good one.
 
-**A 429.** The crawl stops itself on `429 — pacing is too aggressive`. Before
-reaching for a proxy, check whether the pace was actually the variable: the run
-prints its request count and elapsed time, and dividing them tells you whether
-the configured interval was honoured. If it was, the address is not obviously
-the problem and a proxy is a guess. Widening `requestIntervalSeconds` and
-lowering `--pages` are cheaper experiments.
+**A 429 — but read what it says.** The distinction that matters is the
+`Retry-After` the run reports:
+
+- **A short one** (seconds to a couple of minutes) is a pacing signal. The crawl
+  now widens its interval, waits, and carries on; you do not need a proxy, and
+  raising `requestIntervalSeconds` is the cheaper fix if it keeps happening.
+- **A long one** — `asking for 3600s — that is a block, not a pause` — is not
+  about pacing at all. An hour is a ban issued to an address, and no interval
+  setting reaches it. This is the case a proxy actually addresses.
+
+Measured here: a backfill was refused with `Retry-After: 3600` after 187
+requests, having earlier survived 309 at a *faster* pace. Slowing down brought
+the refusal forward rather than pushing it back, which is the opposite of what
+a rate limit does. Cumulative daily volume from one address is the better
+explanation, and moving addresses is the remedy that fits it.
 
 **Separating this traffic from your home address.** A better reason. The crawl
 is a sustained multi-gigabyte pull against a WAF that has no allowance for it,
@@ -202,3 +211,27 @@ neither can use.
 | `backing off for another N min` | The breaker armed after twelve mints in 24h. Something is invalidating cookies faster than they should expire — almost always the two rows above. `--reset-clearance` clears it once the cause is fixed. |
 | `no route to the internet through <proxy>` | The proxy refused or timed out before Cloudflare was reached. Credentials, allowlist, or the provider being down. Deliberately does *not* arm the breaker. |
 | Mint succeeds, crawl 403s only after some hours | Normal cookie expiry if it recovers on its own. Persistent means the exit changed. |
+| `STANDING DOWN — 47 min left of a refusal recorded for …` | Working as intended. A previous run was handed a long `Retry-After` and recorded the deadline, so this one declined to start. See below. |
+
+## Stand-downs
+
+A long `Retry-After` is recorded to `tracker_cooldown.json` beside the clearance
+state, keyed by egress, and outlives the run that earned it. Any crawl starting
+inside the window refuses before issuing a single request and exits 3 — a
+distinct code, because declining to crawl is a different outcome from crawling
+and failing.
+
+This exists because the deadline used to die with the process, so the nightly
+would fire into a live ban at 02:40, collect nothing, and spend reputation
+confirming it.
+
+Three things follow:
+
+- **It is keyed by address.** A ban on your home connection does not stand down
+  a proxied crawl, which is the mechanical reason a proxy is a remedy rather
+  than a workaround.
+- **`--check-egress` reports it but does not obey it.** Checking is how you find
+  out whether a ban has lifted, and one request is not what re-earns it.
+- **`--reset-cooldown` overrides it**, for when you know the ban is over. It is
+  deliberately manual — kept separate from `--reset-clearance`, so that clearing
+  a stuck cookie cannot quietly clear a WAF ban as a side effect.
