@@ -2254,6 +2254,16 @@ class SmiteTrivia(commands.Cog):
         if ctx.author == self.__bot.user:
             return
 
+        # Discord gives an interaction three seconds to say anything at all,
+        # and building the first question does not fit inside that: an item
+        # tree fetches an icon per node, a god question asks the API for the
+        # skin list, and a friend question makes half a dozen sequential Hi-Rez
+        # calls in a loop until it finds a player who is not private. Missing
+        # the deadline is a 404 Unknown Interaction that takes the whole round
+        # down before a single question is posted. Deferring first buys fifteen
+        # minutes, which is how every other slow command here already works.
+        await ctx.defer()
+
         self.__active_rounds += 1
         try:
             await self.__run_trivia_round(

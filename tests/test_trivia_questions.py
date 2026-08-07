@@ -21,6 +21,7 @@ from smitetrivia import (  # noqa: E402
     AnswerRange,
     GodQuestionGenerator,
     ItemQuestionGenerator,
+    SmiteTrivia,
     TriviaAnswer,
     TriviaQuestion,
     _ChoiceView,
@@ -619,6 +620,53 @@ class TestChoiceView:
         late = FakeInteraction(3)
         await view.press(late, "Book of Thoth")
         assert late.response.sent
+
+
+class RecordingContext:
+    """A context that remembers the order it was spoken to in."""
+
+    def __init__(self):
+        self.author = object()
+        self.calls = []
+
+    async def defer(self):
+        self.calls.append("defer")
+
+    async def respond(self, **_kwargs):
+        self.calls.append("respond")
+        return object()
+
+
+class TestInteractionDeadline:
+    async def test_the_round_defers_before_it_does_anything_slow(self):
+        """Discord gives an interaction three seconds to say anything, and
+        building the first question does not fit: an item tree fetches an icon
+        per node and a friend question makes six sequential Hi-Rez calls. The
+        round died on 404 Unknown Interaction before posting a question."""
+        provider_asked = []
+
+        class Providers:
+            def for_ctx(self, _ctx, _game):
+                provider_asked.append("for_ctx")
+                return object()
+
+        cog = SmiteTrivia(types.SimpleNamespace(user=object()), Providers())
+        ctx = RecordingContext()
+        # Over the cap, so the round bails immediately after the deferral —
+        # which is the ordering under test, not the round itself.
+        await cog._SmiteTrivia__smitetrivia(ctx, 50, "", "")
+
+        assert ctx.calls[0] == "defer", ctx.calls
+        assert "respond" in ctx.calls
+        assert provider_asked, "the provider is resolved after the deferral"
+
+    async def test_the_bot_talking_to_itself_defers_nothing(self):
+        bot_user = object()
+        cog = SmiteTrivia(types.SimpleNamespace(user=bot_user), None)
+        ctx = RecordingContext()
+        ctx.author = bot_user
+        await cog._SmiteTrivia__smitetrivia(ctx, 5, "", "")
+        assert ctx.calls == []
 
 
 def make_item(kind: ItemType, **overrides):
