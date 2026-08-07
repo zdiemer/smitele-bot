@@ -99,15 +99,23 @@ used to ignore).
 
 ### Where the two models stand
 
-Over every god with enough Conquest data, **Smite 1 scores 1.78 of 6 and Smite 2
-scores 2.12** — the older, hand-tuned model is the worse one, which is worth
-knowing before trusting either. Smite 1's weakness is visible in its worst
-cases: Surtr, Chaac, Cu Chulainn and Vamana are four of the most-played solo
-gods, with thousands of wins each, and the optimizer hands all four the *same
-six items*. They share an archetype, and nothing downstream tells them apart, so
-for a solo laner the archetype table is the entire model. Their real builds are
-also more defensive and more utility-led than what it produces, which suggests
-the bruiser split overshoots for solo specifically.
+Over every god with enough Conquest data, **Smite 1 scores 1.89 of 6 and Smite 2
+scores 2.12** — the older, hand-tuned model is still the worse one, which is
+worth knowing before trusting either.
+
+Measuring it found the reason. Surtr, Chaac, Cu Chulainn and Vamana are four of
+the most-played solo gods, thousands of wins each, and the optimizer handed all
+four the *same six items*: they share an archetype, and nothing downstream told
+them apart, so for a solo laner the archetype table was the entire model. Smite 1
+does have a per-god signal — `GodPro`, its "high sustain" / "high defense" tags —
+and it was read for exactly one passive-denylist check and nothing else.
+Feeding it into the weights, at a strength fitted with the harness rather than
+picked, took Smite 1 from 1.78 to 1.89 and separated all four builds.
+
+They are still 0/6 individually, so this is a fix for the collapse rather than
+for solo laners. Their metas are built around Gladiator's Shield, Oni Hunter's
+Garb and Pridwen, whose value is almost entirely in their passives, and no
+amount of weighting stat lines reaches items like those.
 
 There is also a per-item table measured straight from win rates
 (`src/tools/derive_item_value.py`). It is generated, checked in and loaded, and

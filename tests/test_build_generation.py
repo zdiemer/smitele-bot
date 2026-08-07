@@ -321,6 +321,90 @@ class TestSmite1PassiveValue:
         assert optimizer.passive_score(evolved) > 0
 
 
+class TestSmite1ProNudges:
+    """A god's own description has to reach its build.
+
+    Without this the four most-played solo gods all resolve to
+    ABILITY_BASED_WARRIOR, the archetype is the entire model, and they are handed
+    the same six items despite describing themselves differently.
+    """
+
+    @staticmethod
+    def optimizer(pros, role=GodRole.WARRIOR, god_type=GodType.PHYSICAL):
+        god = God()
+        god.name = "Pro"
+        god.id = 1
+        god.role = role
+        god.type = god_type
+        god.pros = pros
+        god.stats = GodStats()
+        god.stats.values = {}
+        god.stats.basic_attack = _BasicAttack()
+        return BuildOptimizer(god, [], {})
+
+    @staticmethod
+    def weights(optimizer):
+        return optimizer._BuildOptimizer__get_weights()
+
+    def test_two_gods_of_one_archetype_want_different_things(self):
+        from god_types import GodPro
+
+        sustain = self.weights(self.optimizer([GodPro.HIGH_SUSTAIN]))
+        defense = self.weights(self.optimizer([GodPro.HIGH_DEFENSE]))
+        assert (
+            sustain[ItemAttribute.PHYSICAL_LIFESTEAL]
+            > defense[ItemAttribute.PHYSICAL_LIFESTEAL]
+        )
+        assert defense[ItemAttribute.HEALTH] > sustain[ItemAttribute.HEALTH]
+
+    def test_a_god_with_no_pros_is_left_alone(self):
+        assert self.weights(self.optimizer([])) == self.weights(self.optimizer([]))
+
+    def test_a_mage_is_never_handed_physical_power(self):
+        """The weight tables carry both halves of each pair with the wrong one
+        set to None, and None has to keep meaning "not for this god"."""
+        from god_types import GodPro
+
+        weights = self.weights(
+            self.optimizer(
+                [GodPro.HIGH_SINGLE_TARGET_DAMAGE],
+                role=GodRole.MAGE,
+                god_type=GodType.MAGICAL,
+            )
+        )
+        assert weights[ItemAttribute.PHYSICAL_POWER] is None
+        assert weights[ItemAttribute.MAGICAL_POWER] > 0
+
+    def test_a_pro_can_raise_a_stat_the_archetype_ignored(self):
+        """Added rather than multiplied: a sustain warrior wants lifesteal
+        whether or not its archetype asked for any."""
+        from god_types import GodPro
+
+        plain = self.weights(self.optimizer([]))
+        sustain = self.weights(self.optimizer([GodPro.HIGH_SUSTAIN]))
+        assert sustain[ItemAttribute.HP5] > plain[ItemAttribute.HP5]
+
+
+class TestOvercapTypes:
+    def test_an_integer_stat_does_not_crash_the_overcap_check(self):
+        """`isinstance(prop, float)` is False for an int, so that spelling asked
+        an integer for `.flat`. It only surfaced when a build carrying an
+        integer-valued stat happened to reach this check."""
+        from stat_calculator import _Penetration
+
+        optimizer = TestSmite1ProNudges.optimizer([])
+        check = optimizer._BuildOptimizer__check_overcapped
+        # Ints, floats and penetration pairs all have to survive.
+        assert check({ItemAttribute.HEALTH: 100}, set()) is False
+        assert check({ItemAttribute.HEALTH: 100.0}, set()) is False
+        assert (
+            check(
+                {ItemAttribute.PHYSICAL_PENETRATION: _Penetration(10, 0.1)}, set()
+            )
+            is False
+        )
+
+
 class TestSmite1ArchetypeTables:
     def test_no_two_archetypes_share_a_value(self):
         """An Enum turns a duplicated value into an alias, so

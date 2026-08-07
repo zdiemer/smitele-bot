@@ -166,6 +166,76 @@ PASSIVE_VALUE: Dict[PassiveAttribute, float] = {
 PASSIVE_DISCOUNT = 0.6
 
 
+# Stand-ins for the three attributes that depend on which kind of damage the god
+# deals. The weight tables carry both halves of each pair with the irrelevant
+# one set to None, so a nudge has to be resolved against the god before it can
+# be applied.
+_POWER = "power"
+_PENETRATION = "penetration"
+_LIFESTEAL = "lifesteal"
+
+_BY_GOD_TYPE: Dict[str, Dict[GodType, ItemAttribute]] = {
+    _POWER: {
+        GodType.PHYSICAL: ItemAttribute.PHYSICAL_POWER,
+        GodType.MAGICAL: ItemAttribute.MAGICAL_POWER,
+    },
+    _PENETRATION: {
+        GodType.PHYSICAL: ItemAttribute.PHYSICAL_PENETRATION,
+        GodType.MAGICAL: ItemAttribute.MAGICAL_PENETRATION,
+    },
+    _LIFESTEAL: {
+        GodType.PHYSICAL: ItemAttribute.PHYSICAL_LIFESTEAL,
+        GodType.MAGICAL: ItemAttribute.MAGICAL_LIFESTEAL,
+    },
+}
+
+# What a god's own description implies about what it should build.
+#
+# Smite 1 had nothing of the kind, and it showed: the four most-played solo gods
+# — Surtr, Chaac, Cu Chulainn, Vamana — all resolve to ABILITY_BASED_WARRIOR,
+# and with the archetype being the entire model they were handed the *same six
+# items* and scored 0/6 against their metas. Their `pros` differ ("high single
+# target damage", "high sustain", "high defense") and nothing had ever read them
+# for anything but one passive-denylist check.
+#
+# This is the same idea as Smite 2's spec nudges, which are the largest single
+# effect measured on that model, and it is applied the same way: on top of the
+# archetype rather than instead of it, so a god's description reorders its
+# priorities without inventing a build its archetype never wanted.
+#
+# The strength is fitted rather than picked. Against the twenty-five most-played
+# gods, halving these scores 2.00 and leaves two of the four solo gods sharing a
+# build; these values score 2.08 and separate all four; and raising them by half
+# again scores 1.92, because at that point the god's description is outvoting
+# the archetype rather than colouring it.
+PRO_EMPHASIS: Dict[GodPro, Dict[object, float]] = {
+    GodPro.HIGH_SUSTAIN: {_LIFESTEAL: 4, ItemAttribute.HP5: 3},
+    GodPro.HIGH_DEFENSE: {
+        ItemAttribute.HEALTH: 4,
+        ItemAttribute.PHYSICAL_PROTECTION: 3,
+        ItemAttribute.MAGICAL_PROTECTION: 3,
+    },
+    GodPro.HIGH_CROWD_CONTROL: {
+        ItemAttribute.COOLDOWN_REDUCTION: 3,
+        ItemAttribute.CROWD_CONTROL_REDUCTION: 1,
+    },
+    GodPro.HIGH_AREA_DAMAGE: {_POWER: 3, ItemAttribute.COOLDOWN_REDUCTION: 2},
+    GodPro.HIGH_SINGLE_TARGET_DAMAGE: {_POWER: 3, _PENETRATION: 3},
+    GodPro.HIGH_ATTACK_SPEED: {
+        ItemAttribute.ATTACK_SPEED: 4,
+        ItemAttribute.BASIC_ATTACK_DAMAGE: 2,
+    },
+    GodPro.HIGH_MOBILITY: {ItemAttribute.MOVEMENT_SPEED: 2},
+    GodPro.HIGH_MOVEMENT_SPEED: {ItemAttribute.MOVEMENT_SPEED: 3},
+    GodPro.GREAT_JUNGLER: {_PENETRATION: 2, _POWER: 1},
+    GodPro.PUSHER: {ItemAttribute.ATTACK_SPEED: 2},
+    # The medium tiers say the same thing more quietly.
+    GodPro.MEDIUM_AREA_DAMAGE: {_POWER: 1.5, ItemAttribute.COOLDOWN_REDUCTION: 1},
+    GodPro.MEDIUM_SINGLE_TARGET_DAMAGE: {_POWER: 1.5, _PENETRATION: 1.5},
+    GodPro.MEDIUM_CROWD_CONTROL: {ItemAttribute.COOLDOWN_REDUCTION: 1.5},
+}
+
+
 # How many combinations to check between yields to the event loop. The search
 # runs inside the bot's process, so it has to let other commands through; it
 # does not have to do so half a million times.
@@ -1378,7 +1448,11 @@ class BuildOptimizer:
     ) -> bool:
         for attr, prop in stats.items():
             if attr in self.FLAT_ITEM_ATTRIBUTE_CAPS:
-                flat_value = prop if isinstance(prop, float) else prop.flat
+                # Not `isinstance(prop, float)`: an integer stat value is
+                # neither a float nor a _Penetration, so that spelling took
+                # the else branch and asked an int for `.flat`. It only
+                # surfaced when a build carrying one reached this check.
+                flat_value = prop.flat if isinstance(prop, _Penetration) else prop
                 if attr == ItemAttribute.ATTACK_SPEED:
                     attack_speed = self.god.get_stat_at_level(attr, 20)
                     flat_value = attack_speed + attack_speed * prop
@@ -1406,7 +1480,9 @@ class BuildOptimizer:
                             continue
                     return True
             if attr in self.PERCENT_ITEM_ATTRIBUTE_CAPS:
-                pct_value = prop if isinstance(prop, float) else prop.percent
+                pct_value = (
+                    prop.percent if isinstance(prop, _Penetration) else prop
+                )
                 pct_cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[attr]
                 if attr == ItemAttribute.COOLDOWN_REDUCTION:
                     if self.god.role == GodRole.WARRIOR:
@@ -1449,7 +1525,42 @@ class BuildOptimizer:
                     god_weights[stat] = (15, 15)
                     continue
                 god_weights[stat] = 15
-        return self.__balanced(god_weights)
+        return self.__balanced(self.__by_pros(god_weights))
+
+    def __by_pros(
+        self, weights: Dict[ItemAttribute, float]
+    ) -> Dict[ItemAttribute, float]:
+        """The archetype's weights, nudged by what this god is described as.
+
+        Added to rather than multiplied, so a pro can raise a stat the archetype
+        rated at zero — a sustain warrior wants lifesteal whether or not
+        ABILITY_BASED_WARRIOR asked for any.
+
+        A weight of None means the attribute is the wrong half of a
+        physical/magical pair for this god and is left alone; that is what None
+        has always meant in these tables, and overwriting it would hand a mage
+        physical power.
+        """
+        pros = getattr(self.god, "pros", None) or []
+        if not pros:
+            return weights
+
+        out = dict(weights)
+        for pro in pros:
+            for key, bonus in PRO_EMPHASIS.get(pro, {}).items():
+                attribute = key
+                if isinstance(key, str):
+                    attribute = _BY_GOD_TYPE[key].get(self.god.type)
+                    if attribute is None:
+                        continue
+                current = out.get(attribute)
+                if current is None and attribute in out:
+                    continue
+                if isinstance(current, tuple):
+                    out[attribute] = tuple(part + bonus for part in current)
+                else:
+                    out[attribute] = (current or 0.0) + bonus
+        return out
 
     def __balance_stat_targets(self) -> None:
         """Relax the defensive floor a bruiser is held to.
