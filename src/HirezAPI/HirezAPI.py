@@ -20,6 +20,24 @@ from god_types import GodId
 
 HIREZ_DATE_FORMAT = "%m/%d/%Y %I:%M:%S %p"
 
+# Four shapes of the same thing: Hi-Rez struggling partway through a run of
+# batched calls. `_make_request` retries these itself, so they only reach a
+# caller once the retries are spent.
+RETRYABLE_ERRORS = (
+    JSONDecodeError,
+    aiohttp.ContentTypeError,
+    aiohttp.ClientConnectionError,
+    asyncio.TimeoutError,
+)
+
+# What a caller actually has to catch. `ConnectionError` is ours — raised by
+# `_make_request` when the retries produce nothing but null bodies — and it is
+# the *builtin*, which shares no ancestry with aiohttp's similarly named
+# `ClientConnectionError`. Catching either one never catches the other, so a
+# caller spelling the list out by hand reliably catches the wrong half and dies
+# on the rest. Callers should use this tuple rather than restate it.
+TRANSIENT_ERRORS = RETRYABLE_ERRORS + (ConnectionError,)
+
 
 class _Base:
     """_Base implements base Hirez API functionality.
@@ -128,19 +146,13 @@ class _Base:
                     time_string,
                     *args,
                 )
-            except (
-                JSONDecodeError,
-                aiohttp.ContentTypeError,
-                aiohttp.ClientConnectionError,
-                asyncio.TimeoutError,
-            ):
-                # Four shapes of the same thing: Hi-Rez struggling partway
-                # through a run of batched calls. An HTML error page instead of
-                # JSON, a dropped connection, or a request that simply never
-                # comes back — a `getqueuestatsbatch` for a heavily-played
-                # account can exceed aiohttp's default timeout outright. All of
-                # them used to raise straight past this loop, so one slow
-                # response cost the whole call.
+            except RETRYABLE_ERRORS:
+                # An HTML error page instead of JSON, a dropped connection, or
+                # a request that simply never comes back — a
+                # `getqueuestatsbatch` for a heavily-played account can exceed
+                # aiohttp's default timeout outright. All of them used to raise
+                # straight past this loop, so one slow response cost the whole
+                # call.
                 req_count += 1
                 res = None
                 if req_count >= self.MAX_RETRIES:

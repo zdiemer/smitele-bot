@@ -1,0 +1,107 @@
+{{- if .Values.backfill.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "backfill.enabled requires matchData.enabled — there is nowhere durable to write the recovered days otherwise" }}
+{{- end }}
+{{- if not .Values.backfill.from }}
+{{- fail "backfill.enabled requires backfill.from — without a start date the collector would only ever re-collect yesterday" }}
+{{- end }}
+{{- if not .Values.backfill.until }}
+{{- fail "backfill.enabled requires backfill.until — an open-ended range has no oldest-first order to walk" }}
+{{- end }}
+{{/*
+Walks backfill.from..backfill.until oldest first, collecting at most
+backfill.maxDays days per run and skipping every day already on the share. Runs
+on a schedule rather than as one long Job because the work is bounded by the
+daily request quota, not by wall clock: it has to stop, wait for the quota to
+reset, and pick up where it left off. Re-running after it has finished the
+range is a no-op that spends no requests.
+
+Progress:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/component=backfill --tail=20
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-backfill
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backfill.schedule | quote }}
+  {{- with .Values.backfill.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.backfill.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.backfill.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.backfill.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backfill.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.backfill.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.backfill.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backfill
+          annotations:
+            checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: backfill
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "./src/match_data_collector/match_data_collector.py"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                - name: SMITELE_COLLECT_DATE
+                  value: {{ .Values.backfill.from | quote }}
+                - name: SMITELE_COLLECT_UNTIL
+                  value: {{ .Values.backfill.until | quote }}
+                - name: SMITELE_COLLECT_MAX_DAYS
+                  value: {{ .Values.backfill.maxDays | quote }}
+                - name: HOME
+                  value: /tmp
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.backfill.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            {{/*
+              Same reasoning as the collector: not the bot's ReadWriteOnce data
+              PVC, which would pin this to the bot's node. Starting cold costs
+              the gods/items cache, two API calls.
+            */}}
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

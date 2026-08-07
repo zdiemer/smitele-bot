@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.8.21"
+  tag: "1.8.22"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -117,6 +117,49 @@ collector:
   # hours is far more than observed runs need and still bounds a stuck job well
   # inside the next day's window.
   activeDeadlineSeconds: 21600
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# Recovering a gap in the corpus, a slice at a time.
+#
+# `getmatchidsbyqueue` serves a rolling window — 180 days, measured 2026-08-07 —
+# so a gap is recoverable only while it stays inside that window, and its old
+# edge expires a day every day. The range is walked oldest first for that
+# reason, and days already on disk are skipped for nothing, which is what makes
+# this safe to run on a schedule until it has nothing left to do.
+#
+# Pacing is the whole point of `maxDays`. A day of collection costs ~2,500 of
+# the 75,000 daily requests and takes ~28 minutes, so 20 days is ~50,000
+# requests and ~9.5 hours — a comfortable fraction of both budgets, leaving the
+# nightly collector and the bot their share. At that rate a 177-day gap closes
+# in about nine days.
+#
+# Disable this once `until` has been reached; it costs nothing to leave running
+# but it is a job with an end.
+backfill:
+  enabled: false
+  # 12:00 UTC — after the nightly collector at 09:20 has finished and spent its
+  # share, so the two never compete for the same day's quota.
+  schedule: "0 12 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # No retry. A failed slice loses at most the day it was on, and every day it
+  # already wrote is skipped by the next run — so re-running the schedule is a
+  # better recovery than restarting a job that has already spent its requests.
+  backoffLimit: 0
+  # 11 hours: 20 days at ~28 minutes, with room for slow ones.
+  activeDeadlineSeconds: 39600
+  # Oldest first. Empty `from` disables the job's schedule guard, so set both.
+  from: ""
+  until: ""
+  maxDays: 20
   resources:
     requests:
       cpu: 200m
