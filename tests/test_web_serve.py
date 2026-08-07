@@ -314,6 +314,43 @@ class TestPlayers:
             await client.close()
 
 
+class TestStatsEndpoint:
+    async def test_missing_stats_is_503(self, site):
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            assert (await client.get("/api/stats")).status == 503
+        finally:
+            await client.close()
+
+    async def test_three_snapshots_are_independent(self, site):
+        # Three jobs, three cadences, three files. None may take the others down.
+        snapshots, dist, write = site
+        write(snapshot.STATS_FILE, {"generated_at": time.time(), "games": {}})
+        client = await client_for(snapshots, dist)
+        try:
+            assert (await client.get("/api/stats")).status == 200
+            assert (await client.get("/api/status")).status == 503
+            assert (await client.get("/api/players")).status == 503
+        finally:
+            await client.close()
+
+    async def test_stats_is_served_with_its_age(self, site):
+        snapshots, dist, write = site
+        write(
+            snapshot.STATS_FILE,
+            {"generated_at": time.time() - 120, "games": {"smite": {"built": True}}},
+        )
+        client = await client_for(snapshots, dist)
+        try:
+            body = await (await client.get("/api/stats")).json()
+
+            assert body["games"]["smite"]["built"] is True
+            assert 110 < body["stale_seconds"] < 300
+        finally:
+            await client.close()
+
+
 class TestMeta:
     async def test_reports_both_ages_without_either_file(self, site):
         snapshots, dist, _ = site

@@ -134,6 +134,34 @@ export type Status = {
   hirez: { quota: Quota | Failed; servers: Server[] | Failed } | Failed
 }
 
+export type Breakdown = {
+  key: string
+  name: string
+  plays: number
+  wins: number
+  win_percent: number | null
+}
+
+export type GameStats = {
+  built: boolean
+  total_plays?: number
+  high_mmr_plays?: number
+  distinct_gods?: number
+  distinct_queues?: number
+  queues?: Breakdown[]
+  roles?: Breakdown[]
+  gods?: Breakdown[]
+  gods_total?: number
+  matches_per_day?: { date: string; matches: number }[] | Failed
+}
+
+export type Stats = {
+  version: number
+  generated_at: number
+  stale_seconds: number | null
+  games: Record<string, GameStats | Failed>
+}
+
 export type RankedEntry = {
   queue: string
   tier: string

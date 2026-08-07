@@ -8,7 +8,7 @@
  */
 
 import { match, NavLink, usePath } from './router'
-import type { Players, Status } from './api'
+import type { Players, Stats, Status } from './api'
 import { useEndpoint } from './useSnapshot'
 import { duration, snapshotHealth } from './format'
 import { Empty, Mark } from './components'
@@ -16,10 +16,12 @@ import Overview from './views/Overview'
 import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
 import { PlayerDetail, PlayerList } from './views/Players'
+import StatsView from './views/Stats'
 
 const TABS = [
   { to: '/', label: 'Overview', end: true },
   { to: '/data', label: 'Data' },
+  { to: '/stats', label: 'Corpus' },
   { to: '/upstreams', label: 'Upstreams' },
   { to: '/players', label: 'Players' },
 ]
@@ -80,6 +82,24 @@ function PlayersRoute({ name }: { name?: string }) {
   return name === undefined ? <PlayerList doc={data} /> : <PlayerDetail doc={data} name={name} />
 }
 
+function StatsRoute() {
+  // Its own endpoint and its own cadence. The aggregate behind it rebuilds
+  // daily, so this snapshot runs every six hours and must not ride the
+  // fifteen-minute liveness poll.
+  const { data, error, loading } = useEndpoint<Stats>('/api/stats')
+
+  if (loading && !data) return <Empty>Loading the corpus breakdown…</Empty>
+  if (error || !data) {
+    return (
+      <Empty>
+        No corpus snapshot yet{error ? `: ${error}` : ''}. The stats job runs every
+        six hours and writes its own file, separately from the liveness snapshot.
+      </Empty>
+    )
+  }
+  return <StatsView stats={data} />
+}
+
 function Body({ status }: { status: Status | null }) {
   const { path } = usePath()
   const waiting = <Empty>Waiting for a snapshot…</Empty>
@@ -87,6 +107,7 @@ function Body({ status }: { status: Status | null }) {
   if (match('/', path)) return status ? <Overview status={status} /> : waiting
   if (match('/data', path)) return status ? <Data status={status} /> : waiting
   if (match('/upstreams', path)) return status ? <ApiHealth status={status} /> : waiting
+  if (match('/stats', path)) return <StatsRoute />
   if (match('/players', path)) return <PlayersRoute />
 
   const player = match('/players/:name', path)

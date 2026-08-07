@@ -33,16 +33,24 @@
    * else is ever allowed to use them, so a coloured thing on this page always
    * means something is or isn't fine.
    *
-   * IDENTITY answers "which of these am I reading?" — teal for Smite 1, violet
-   * for Smite 2, and teal doubles as the interactive colour because Smite 1 is
-   * the primary game and the accent was already its. Neither reads as a status
-   * because neither is on the red-amber-green axis. */
+   * IDENTITY answers "which of these am I reading?" — blue for Smite 1, magenta
+   * for Smite 2, and blue doubles as the interactive colour because Smite 1 is
+   * the primary game and the accent was already its. Neither reads as a status:
+   * both are off the red-amber-green axis.
+   *
+   * The identity pair is validated, not chosen by eye. The first attempt was
+   * teal and violet, which measured ΔE 3.3 under deuteranopia and 13.1 for
+   * normal vision — two colours most people cannot tell apart. Blue and magenta
+   * measure 10.1 and 22.3, and magenta against the refusal vermilion measures
+   * 14.9 and 15.2, so identity can never be misread as a verdict. The dark-mode
+   * steps are separately validated against the dark ground rather than
+   * lightened by hand. */
   --refuse: #c1441a;
   --healthy: #2c6a58;
   --late: #9a6c14;
 
-  --smite1: #0e6e8a;
-  --smite2: #6a4c93;
+  --smite1: #1f6fb2;
+  --smite2: #a8367f;
   --accent: var(--smite1);
 
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", "Roboto Mono",
@@ -53,9 +61,12 @@
   --gutter: 2.2ch;
   --step: 1.5rem;
   --pad: 2.5rem;
-  /* ~120 monospace characters. 76rem was nearly 190 — technically readable and
-   * genuinely unpleasant, because the eye loses the row on the way back. */
-  --measure: 66rem;
+  /* ~90 monospace characters, and the reason it is a fixed width rather than a
+   * percentage: a percentage margin starves a laptop to buy whitespace on a
+   * monitor. Capping the column instead means the margins grow with the screen
+   * — roughly 22% a side at 1440, 29% at 1920, 34% at 2560 — while a small
+   * window still gets a usable page. */
+  --measure: 50rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -70,10 +81,11 @@
     --refuse: #e8734a;
     --healthy: #63b79c;
     --late: #d3a249;
-    /* Lifted well off the dark ground — the light-theme values are near
-     * invisible on it, and an identity colour nobody can see is not one. */
-    --smite1: #58b6d4;
-    --smite2: #a98cd8;
+    /* Their own steps against the dark ground, not the light values lightened:
+     * the naive lift landed both at L 0.71, outside the band the dark surface
+     * can hold. */
+    --smite1: #4a9ad8;
+    --smite2: #d06aaa;
   }
 }
 
@@ -440,6 +452,145 @@ dl {
 
 .meter .read .of {
   color: var(--dim);
+}
+
+/* --- charts -------------------------------------------------------------- */
+
+/*
+ * Bars are one hue — the game's — because every chart here is a single series
+ * compared across categories. The category is on the axis label, so colouring
+ * each bar differently would encode nothing and just spend the palette.
+ *
+ * Shape follows the register above it: label, then the mark, then the value.
+ * The bar simply replaces the dotted leader.
+ */
+
+.bars {
+  display: grid;
+  gap: 2px;
+  margin: 0.35rem 0 0.2rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 11rem) 1fr auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  font-size: 12.5px;
+  padding: 1px 0;
+}
+
+.bar-row:hover .bar-fill {
+  filter: brightness(1.12);
+}
+
+.bar-name {
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.bar-track {
+  min-width: 0;
+  height: 9px;
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--accent);
+  /* Rounded only at the data end, anchored square on the baseline, so the bar
+   * cannot read as longer than it is. */
+  border-radius: 0 3px 3px 0;
+  min-width: 2px;
+}
+
+.bar-value {
+  color: var(--ink);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-value .sub {
+  color: var(--dim);
+}
+
+/* The area chart's frame. Recessive: a baseline and two guides, no box. */
+
+.plot {
+  margin: 0.5rem 0 0.25rem;
+  position: relative;
+}
+
+.plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.plot .grid-line {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.plot .axis-text {
+  fill: var(--dim);
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.plot .series-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.plot .series-area {
+  fill: var(--accent);
+  opacity: 0.13;
+}
+
+.plot .endpoint {
+  fill: var(--accent);
+  stroke: var(--paper);
+  stroke-width: 2;
+}
+
+.plot .crosshair {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.plot-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11.5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  font-size: 11.5px;
+  color: var(--dim);
+  margin-top: 0.15rem;
+}
+
+.plot-legend b {
+  color: var(--ink);
+  font-weight: 500;
 }
 
 /* --- tables -------------------------------------------------------------- */

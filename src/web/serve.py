@@ -179,6 +179,12 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
                 return _json(entry)
         return _json({"error": "no such player on the roster"}, status=404)
 
+    async def stats(_request: web.Request) -> web.Response:
+        document = snapshots.load(snapshot_module.STATS_FILE)
+        if document is None:
+            return _unavailable("stats")
+        return _json(_aged(document))
+
     async def meta(_request: web.Request) -> web.Response:
         status_doc = snapshots.load(snapshot_module.STATUS_FILE)
         players_doc = snapshots.load(snapshot_module.PLAYERS_FILE)
@@ -241,6 +247,7 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
     app.router.add_get("/api/status", status)
     app.router.add_get("/api/players", players)
     app.router.add_get("/api/players/{name}", player)
+    app.router.add_get("/api/stats", stats)
     app.router.add_get("/api/meta", meta)
     app.router.add_route("*", "/api/{tail:.*}", api_not_found)
     app.router.add_get("/", spa)

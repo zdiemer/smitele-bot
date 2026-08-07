@@ -315,6 +315,115 @@ class TestNullRowsInABatch:
         assert [row for row in (None or []) if row] == []
 
 
+class TestCorpusBreakdown:
+    """The per-god table rolled up by queue, god and role.
+
+    The number that matters most here is what `plays` counts: the aggregate
+    groups by (god, queue, role, mmr) and counts *player records*, so ten come
+    from one match. Nothing may divide by ten and call it matches.
+    """
+
+    @staticmethod
+    def _table(tmp_path):
+        pd = pytest.importorskip("pandas")
+
+        frame = pd.DataFrame(
+            [
+                # god, queue, role, high mmr, plays, wins
+                (1, 426, "Solo", False, 100, 55),
+                (1, 426, "Mid", False, 50, 20),
+                (1, 435, "Unknown", False, 30, 15),
+                (2, 426, "Solo", True, 20, 12),
+            ],
+            columns=["GodId", "match_queue_id", "Role", "HighMmr", "plays", "wins"],
+        )
+        frame.to_parquet(os.path.join(str(tmp_path), "god_stats.parquet"))
+        return frame
+
+    def test_rolls_up_by_every_dimension(self, tmp_path):
+        self._table(tmp_path)
+        from game import Game
+
+        result = snapshot.stats_section(
+            Game.SMITE,
+            str(tmp_path),
+            (lambda g: f"god{g}", lambda q: f"queue{q}"),
+        )
+
+        assert result["built"] is True
+        assert result["total_plays"] == 200
+        assert result["high_mmr_plays"] == 20
+        assert result["distinct_gods"] == 2
+        assert result["distinct_queues"] == 2
+
+        # Sorted by plays, biggest first — a breakdown nobody can rank is not one.
+        assert [q["name"] for q in result["queues"]] == ["queue426", "queue435"]
+        assert result["queues"][0]["plays"] == 170
+        assert result["gods"][0]["name"] == "god1"
+        assert result["gods"][0]["plays"] == 180
+
+    def test_win_percent_is_a_ratio_not_a_percentage(self, tmp_path):
+        self._table(tmp_path)
+        from game import Game
+
+        result = snapshot.stats_section(
+            Game.SMITE, str(tmp_path), (str, str)
+        )
+
+        god1 = next(g for g in result["gods"] if g["key"] == "1")
+        assert god1["wins"] == 90
+        assert god1["win_percent"] == pytest.approx(0.5, abs=0.01)
+
+    def test_a_missing_aggregate_says_so_rather_than_showing_zeroes(self, tmp_path):
+        from game import Game
+
+        result = snapshot.stats_section(Game.SMITE, str(tmp_path), (str, str))
+
+        # Not `total_plays: 0`, which reads as "the corpus is empty" rather than
+        # "nothing has been aggregated yet".
+        assert result == {"built": False}
+
+    def test_unnamed_ids_fall_back_rather_than_raising(self, tmp_path):
+        self._table(tmp_path)
+        from game import Game
+
+        def refuses(_value):
+            raise KeyError("no such god")
+
+        with pytest.raises(KeyError):
+            refuses(1)
+
+        # The real resolvers swallow their own lookup errors; this pins that the
+        # rollup passes the raw key through so they can.
+        result = snapshot.stats_section(
+            Game.SMITE, str(tmp_path), (lambda g: f"#{g}", lambda q: f"#{q}")
+        )
+        assert result["gods"][0]["name"].startswith("#")
+
+
+class TestMatchesPerDay:
+    def test_counts_by_the_day_played(self, tmp_path):
+        pd = pytest.importorskip("pandas")
+
+        pd.DataFrame(
+            {
+                "match_id": ["a", "b", "c", "d"],
+                "date": ["2026-08-01", "2026-08-02", "2026-08-02", "2026-08-01"],
+            }
+        ).to_parquet(os.path.join(str(tmp_path), "seen_matches.parquet"))
+
+        series = snapshot.matches_per_day(str(tmp_path))
+
+        # Chronological, because it is drawn as a time series.
+        assert series == [
+            {"date": "2026-08-01", "matches": 2},
+            {"date": "2026-08-02", "matches": 2},
+        ]
+
+    def test_no_index_is_an_empty_series_not_an_error(self, tmp_path):
+        assert snapshot.matches_per_day(str(tmp_path)) == []
+
+
 class TestWriting:
     def test_write_is_atomic_and_leaves_no_partial(self, tmp_path):
         target = snapshot.write(str(tmp_path), snapshot.STATUS_FILE, {"version": 1})

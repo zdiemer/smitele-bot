@@ -66,6 +66,11 @@ SCHEMA_VERSION = 1
 
 STATUS_FILE = "status.json"
 PLAYERS_FILE = "players.json"
+STATS_FILE = "stats.json"
+
+# How many gods to name in the breakdown. The tail is a long thin line of gods
+# with a handful of plays each and says nothing a reader would act on.
+TOP_GODS = 20
 
 # Where the snapshots are written, and where serve.py looks for them. The same
 # env var on both sides so a deployment sets it once.
@@ -294,6 +299,177 @@ def tracker_section(state_dir: str) -> Dict[str, Any]:
             ),
         },
     }
+
+
+# --- what is actually in the corpus ----------------------------------------
+
+
+def _god_stats(model_dir: str):
+    """The aggregate's per-god table, or None if it has never been built.
+
+    83KB for Smite 1 and 37KB for Smite 2 — the whole point of reading this
+    rather than the corpus, which is 3,300 files and tens of gigabytes.
+    """
+    path = os.path.join(model_dir, "god_stats.parquet")
+    if not os.path.exists(path):
+        return None
+    import pandas as pd  # noqa: PLC0415
+
+    return pd.read_parquet(path)
+
+
+def stats_section(game: Game, model_dir: str, names) -> Dict[str, Any]:
+    """How the corpus breaks down by queue, by god and by role.
+
+    A note on what `plays` counts, because it is easy to report wrong: the
+    aggregate groups by (god, queue, role, mmr) and counts *player records*, not
+    matches. Ten of them come from one game. Summing gives "times a god was
+    played", which is the honest label and also the more interesting number for
+    the god breakdown — so nothing here divides by ten and calls it matches.
+    """
+    frame = _god_stats(model_dir)
+    if frame is None or frame.empty:
+        return {"built": False}
+
+    god_name, queue_name = names
+
+    def rollup(column: str, label) -> List[Dict[str, Any]]:
+        grouped = frame.groupby(column, observed=True)[["plays", "wins"]].sum()
+        rows = [
+            {
+                "key": str(key),
+                "name": label(key),
+                "plays": int(row.plays),
+                "wins": int(row.wins),
+                "win_percent": round(float(row.wins) / float(row.plays), 4)
+                if row.plays
+                else None,
+            }
+            for key, row in grouped.iterrows()
+        ]
+        return sorted(rows, key=lambda r: r["plays"], reverse=True)
+
+    gods = rollup("GodId", god_name)
+    queues = rollup("match_queue_id", queue_name)
+    roles = rollup("Role", lambda role: str(role))
+
+    total_plays = int(frame["plays"].sum())
+    high_mmr = int(frame.loc[frame["HighMmr"], "plays"].sum())
+
+    return {
+        "built": True,
+        "total_plays": total_plays,
+        "high_mmr_plays": high_mmr,
+        "distinct_gods": len(gods),
+        "distinct_queues": len(queues),
+        "queues": queues,
+        "roles": roles,
+        "gods": gods[:TOP_GODS],
+        "gods_total": len(gods),
+    }
+
+
+def matches_per_day(state_dir: str) -> List[Dict[str, Any]]:
+    """Smite 2's collected matches, by the day they were played.
+
+    Only Smite 2 has this. Smite 1's corpus is one file per day and its manifest
+    predates row counting, so the equivalent series would be a row of blanks.
+    """
+    path = os.path.join(state_dir, "seen_matches.parquet")
+    if not os.path.exists(path):
+        return []
+
+    frame = match_storage.read_frame_columns(path, ["date"])
+    counts = frame["date"].value_counts().sort_index()
+    return [
+        {"date": str(day), "matches": int(n)}
+        for day, n in counts.items()
+        if day and str(day) != "nan"
+    ]
+
+
+async def build_stats() -> Dict[str, Any]:
+    """Both games' corpus breakdowns.
+
+    Its own mode and its own schedule. The liveness snapshot runs every fifteen
+    minutes and is two API calls; this reads two Parquet tables and — for the
+    names — a god catalogue per game. The aggregate behind it rebuilds once a
+    day, so running this any faster than a few hours would be work for nothing.
+    """
+    document: Dict[str, Any] = {
+        "version": SCHEMA_VERSION,
+        "generated_at": time.time(),
+        "games": {},
+    }
+
+    # Smite 1: names from the Hi-Rez catalogue, cached on disk between runs.
+    try:
+        from SmiteProvider import SmiteProvider  # noqa: PLC0415
+
+        provider = SmiteProvider(silent=True)
+        await provider.create()
+
+        def god_name(god_id) -> str:
+            try:
+                return provider.gods[GodId(int(god_id))].name
+            except (KeyError, ValueError):
+                return f"#{god_id}"
+
+        def queue_name(queue_id) -> str:
+            try:
+                return QueueId(int(queue_id)).display_name
+            except ValueError:
+                return f"queue {queue_id}"
+
+        document["games"][Game.SMITE.value] = section(
+            "smite stats",
+            lambda: stats_section(
+                Game.SMITE, paths.game_model_dir(Game.SMITE), (god_name, queue_name)
+            ),
+        )
+    except Exception as error:  # noqa: BLE001
+        print(f"snapshot: smite stats failed: {error}", flush=True)
+        document["games"][Game.SMITE.value] = {
+            "error": f"{type(error).__name__}: {error}"
+        }
+
+    # Smite 2: names from the wiki, also cached on disk. Failing here must not
+    # cost the Smite 1 breakdown, which is why this is a second try block and
+    # not a second statement in the first one.
+    try:
+        from smite2.provider import Smite2Provider  # noqa: PLC0415
+        from smite2.queues import Smite2QueueId  # noqa: PLC0415
+
+        provider2 = Smite2Provider(silent=True)
+        await provider2.create()
+
+        def god_name2(god_id) -> str:
+            god = provider2.gods.get(int(god_id))
+            return god.name if god else f"#{god_id}"
+
+        def queue_name2(queue_id) -> str:
+            try:
+                return Smite2QueueId(int(queue_id)).display_name
+            except ValueError:
+                return f"queue {queue_id}"
+
+        state_dir = paths.game_model_dir(Game.SMITE_2)
+        stats = section(
+            "smite2 stats",
+            lambda: stats_section(Game.SMITE_2, state_dir, (god_name2, queue_name2)),
+        )
+        if isinstance(stats, dict) and "error" not in stats:
+            stats["matches_per_day"] = section(
+                "smite2 per-day", lambda: matches_per_day(state_dir)
+            )
+        document["games"][Game.SMITE_2.value] = stats
+    except Exception as error:  # noqa: BLE001
+        print(f"snapshot: smite2 stats failed: {error}", flush=True)
+        document["games"][Game.SMITE_2.value] = {
+            "error": f"{type(error).__name__}: {error}"
+        }
+
+    return document
 
 
 # --- the two documents -----------------------------------------------------
@@ -598,6 +774,17 @@ def write(directory: str, name: str, document: Dict[str, Any]) -> str:
 async def run(args) -> int:
     directory = args.out or snapshot_dir()
 
+    if args.stats:
+        document = await build_stats()
+        target = write(directory, STATS_FILE, document)
+        built = [
+            name
+            for name, game in document["games"].items()
+            if isinstance(game, dict) and game.get("built")
+        ]
+        print(f"Wrote {target} — {', '.join(built) or 'no aggregates built'}", flush=True)
+        return 0
+
     if args.players:
         document = await build_players()
         target = write(directory, PLAYERS_FILE, document)
@@ -619,6 +806,14 @@ def main() -> int:
         help="refresh the roster's Smite 1 stats instead of the liveness "
         "snapshot. About 120 Hi-Rez requests, so it runs on its own, much "
         "slower schedule and writes its own file.",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="break the corpus down by queue, god and role from the aggregate's "
+        "per-god table. Reads two small Parquet files and a god catalogue per "
+        "game; the aggregate behind it rebuilds daily, so this has its own, "
+        "slower schedule.",
     )
     parser.add_argument(
         "--out",

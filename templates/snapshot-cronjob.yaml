@@ -23,7 +23,9 @@ Manual run:
       (dict "suffix" "snapshot" "component" "snapshot" "args" (list)
             "config" .Values.snapshot.liveness)
       (dict "suffix" "snapshot-players" "component" "snapshot-players" "args" (list "--players")
-            "config" .Values.snapshot.players) }}
+            "config" .Values.snapshot.players)
+      (dict "suffix" "snapshot-stats" "component" "snapshot-stats" "args" (list "--stats")
+            "config" .Values.snapshot.stats) }}
 {{- range $job := $jobs }}
 ---
 apiVersion: batch/v1
