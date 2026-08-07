@@ -181,17 +181,28 @@ class PlayerLookups:
         after ~300 requests in one run, and every request the site's player
         refresh spends is one the nightly crawl does not get.
 
-        Returns `(platform_info, segments)` — the first carrying the display
-        handle and avatar, which is the only place either is published. Hi-Rez
-        has no equivalent worth reading: its `Avatar_URL` is a vestige of the
-        old web profile and the one populated value in this roster 403s.
+        Returns `(platform_info, gamemode_segments)` — the first carrying the
+        display handle and avatar, which is the only place either is published.
+        Hi-Rez has no equivalent worth reading: its `Avatar_URL` is a vestige of
+        the old web profile and the one populated value in this roster 403s.
+
+        **Filtered by type, and that is load-bearing.** The profile mixes three
+        kinds of segment in one list — for one account it was 9 god, 4 gamemode
+        and 3 role — so taking them all sums a player's matches roughly twice
+        and lets "best mode" come back as *Jungle*, which is a lane. The god
+        rows here are also only a recent slice; `segments(kind="god")` is the
+        full list and is what callers should use for that.
         """
         raw = await self.profile(platform, handle)
         if not raw:
             return None
         return (
             raw.get("platformInfo") or {},
-            [_segment(row, "gamemode") for row in (raw.get("segments") or [])],
+            [
+                _segment(row, "gamemode")
+                for row in (raw.get("segments") or [])
+                if row.get("type") == "gamemode"
+            ],
         )
 
     async def segments(

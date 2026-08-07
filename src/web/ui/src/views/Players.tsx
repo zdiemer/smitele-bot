@@ -10,20 +10,68 @@
 
 import { useMemo, useState } from 'react'
 import { Link } from '../router'
-import type { Player, Players as PlayersDoc } from '../api'
+import type { Player, Players as PlayersDoc, Smite2Player } from '../api'
 import { count, duration, percent, when } from '../format'
 import { Band, Empty, Pair, Row, Rows } from '../components'
 
-type SortKey = 'name' | 'level' | 'matches' | 'win_percent' | 'kda' | 'last_played_at'
+/**
+ * Shared sorting for both rosters.
+ *
+ * The Smite 2 table was a plain list next to a sortable one, which reads as an
+ * oversight rather than a decision — and the two answer the same question, so
+ * they should behave the same way.
+ */
+function useSorted<T>(
+  rows: T[],
+  columns: { key: string; value: (row: T) => number | string }[],
+  initial: string,
+) {
+  const [key, setKey] = useState(initial)
+  const [descending, setDescending] = useState(true)
 
-const COLUMNS: { key: SortKey; label: string }[] = [
-  { key: 'name', label: 'Player' },
-  { key: 'level', label: 'Level' },
-  { key: 'matches', label: 'Matches' },
-  { key: 'win_percent', label: 'Win rate' },
-  { key: 'kda', label: 'KDA' },
-  { key: 'last_played_at', label: 'Last played' },
-]
+  const sorted = useMemo(() => {
+    const column = columns.find((c) => c.key === key) ?? columns[0]
+    const out = [...rows]
+    out.sort((a, b) => {
+      const left = column.value(a)
+      const right = column.value(b)
+      if (left === right) return 0
+      return left < right ? -1 : 1
+    })
+    return descending ? out.reverse() : out
+  }, [rows, columns, key, descending])
+
+  const toggle = (next: string) => {
+    if (next === key) setDescending(!descending)
+    else {
+      setKey(next)
+      // Names read naturally A→Z; every other column is "most first".
+      setDescending(next !== 'name')
+    }
+  }
+
+  const header = (columnKey: string, label: string) => (
+    <th
+      key={columnKey}
+      className="sortable"
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={key === columnKey ? (descending ? 'descending' : 'ascending') : 'none'}
+      onClick={() => toggle(columnKey)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          toggle(columnKey)
+        }
+      }}
+    >
+      {label}
+      {key === columnKey && (descending ? ' ↓' : ' ↑')}
+    </th>
+  )
+
+  return { sorted, header }
+}
 
 /**
  * A player's picture, or the closest true thing to one.
@@ -55,123 +103,96 @@ function onBrokenImage(fallback: string | null) {
   }
 }
 
-function sortValue(player: Player, key: SortKey): number | string {
-  switch (key) {
-    case 'name':
-      return player.name.toLowerCase()
-    case 'level':
-      return player.level ?? -1
-    case 'matches':
-      return player.totals?.matches ?? -1
-    case 'win_percent':
-      return player.totals?.win_percent ?? -1
-    case 'kda':
-      return player.totals?.kda ?? -1
-    case 'last_played_at':
-      return player.last_played_at ? Date.parse(player.last_played_at) : -1
-  }
-}
-
 export function PlayerList({ doc }: { doc: PlayersDoc }) {
-  const [key, setKey] = useState<SortKey>('matches')
-  const [descending, setDescending] = useState(true)
+  const columns = useMemo(
+    () => [
+      { key: 'name', label: 'player', value: (p: Player) => p.name.toLowerCase() },
+      { key: 'level', label: 'level', value: (p: Player) => p.level ?? -1 },
+      { key: 'matches', label: 'matches', value: (p: Player) => p.totals?.matches ?? -1 },
+      {
+        key: 'win_percent',
+        label: 'win rate',
+        value: (p: Player) => p.totals?.win_percent ?? -1,
+      },
+      { key: 'kda', label: 'kda', value: (p: Player) => p.totals?.kda ?? -1 },
+      {
+        key: 'last_played_at',
+        label: 'last played',
+        value: (p: Player) =>
+          p.last_played_at ? Date.parse(p.last_played_at) : -1,
+      },
+    ],
+    [],
+  )
+  const { sorted, header } = useSorted(doc.players ?? [], columns, 'matches')
 
-  const rows = useMemo(() => {
-    const sorted = [...(doc.players ?? [])]
-    sorted.sort((a, b) => {
-      const left = sortValue(a, key)
-      const right = sortValue(b, key)
-      if (left === right) return a.name.localeCompare(b.name)
-      return left < right ? -1 : 1
-    })
-    return descending ? sorted.reverse() : sorted
-  }, [doc.players, key, descending])
-
-  if (!rows.length) return <Empty>The roster snapshot is empty.</Empty>
-
-  const toggle = (next: SortKey) => {
-    if (next === key) setDescending(!descending)
-    else {
-      setKey(next)
-      setDescending(next !== 'name')
-    }
-  }
+  if (!sorted.length) return <Empty>The roster snapshot is empty.</Empty>
 
   return (
     <>
-      <div className="scroll">
-        <table className="stack-sm">
-          <thead>
-            <tr>
-              {COLUMNS.map((column) => (
-                <th
-                  key={column.key}
-                  className="sortable"
-                  onClick={() => toggle(column.key)}
-                  aria-sort={
-                    key === column.key
-                      ? descending
-                        ? 'descending'
-                        : 'ascending'
-                      : 'none'
-                  }
-                >
-                  {column.label}
-                  {key === column.key && (descending ? ' ↓' : ' ↑')}
-                </th>
+      {/* In a Band, like the Smite 2 table below it — otherwise the two sit on
+          different left edges and the pair reads as a mistake. */}
+      <Band
+        label="Smite 1"
+        qualifier="from the Hi-Rez API · refreshed every six hours"
+        game="smite"
+        health="ok"
+      >
+        <div className="scroll">
+          <table className="stack-sm">
+            <thead>
+              <tr>{columns.map((column) => header(column.key, column.label))}</tr>
+            </thead>
+            <tbody>
+              {sorted.map((player) => (
+                <tr key={player.name}>
+                  <td>
+                    <span className="who">
+                      {face(player) ? (
+                        <img
+                          className="face"
+                          src={face(player)!}
+                          alt=""
+                          loading="lazy"
+                          onError={onBrokenImage(player.top_gods?.[0]?.icon ?? null)}
+                        />
+                      ) : (
+                        <span className="face face-blank" aria-hidden="true" />
+                      )}
+                      {player.found && !player.private ? (
+                        <Link to={`/players/${encodeURIComponent(player.name)}`}>
+                          {player.name}
+                        </Link>
+                      ) : (
+                        player.name
+                      )}
+                    </span>
+                    {player.private && <span className="muted"> · hidden</span>}
+                    {!player.found && <span className="muted"> · not found</span>}
+                  </td>
+                  <td data-label="level">{count(player.level)}</td>
+                  <td data-label="matches">{count(player.totals?.matches)}</td>
+                  <td data-label="win rate">{percent(player.totals?.win_percent)}</td>
+                  <td data-label="kda">
+                    {player.totals ? player.totals.kda.toFixed(2) : '—'}
+                  </td>
+                  <td data-label="last played">
+                    {player.last_played_at
+                      ? new Date(player.last_played_at).toLocaleDateString(undefined, {
+                          dateStyle: 'medium',
+                        })
+                      : '—'}
+                  </td>
+                </tr>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((player) => (
-              <tr key={player.name}>
-                <td>
-                  <span className="who">
-                    {face(player) ? (
-                      <img
-                        className="face"
-                        src={face(player)!}
-                        alt=""
-                        loading="lazy"
-                        onError={onBrokenImage(player.top_gods?.[0]?.icon ?? null)}
-                      />
-                    ) : (
-                      <span className="face face-blank" aria-hidden="true" />
-                    )}
-                    {player.found && !player.private ? (
-                      <Link to={`/players/${encodeURIComponent(player.name)}`}>
-                        {player.name}
-                      </Link>
-                    ) : (
-                      player.name
-                    )}
-                  </span>
-                  {player.private && <span className="muted"> · hidden profile</span>}
-                  {!player.found && <span className="muted"> · not found</span>}
-                </td>
-                <td data-label="level">{count(player.level)}</td>
-                <td data-label="matches">{count(player.totals?.matches)}</td>
-                <td data-label="win rate">{percent(player.totals?.win_percent)}</td>
-                <td data-label="kda">
-                  {player.totals ? player.totals.kda.toFixed(2) : '—'}
-                </td>
-                <td data-label="last played">
-                  {player.last_played_at
-                    ? new Date(player.last_played_at).toLocaleDateString(undefined, {
-                        dateStyle: 'medium',
-                      })
-                    : '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="muted">
-        Smite 1, refreshed every six hours. Totals count every queue the account has
-        played; “best queue” excludes bot and custom matches, where a 100% win rate is true
-        and means nothing.
-      </p>
+            </tbody>
+          </table>
+        </div>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Totals count every queue the account has played; “best queue” excludes
+          bot and custom matches, where a 100% win rate is true and means nothing.
+        </p>
+      </Band>
 
       <Smite2Roster doc={doc} />
     </>
@@ -216,6 +237,39 @@ function Smite2Roster({ doc }: { doc: PlayersDoc }) {
   const rows = smite2.players ?? []
   if (!rows.length) return null
 
+  return <Smite2Table rows={rows} />
+}
+
+function Smite2Table({ rows }: { rows: Smite2Player[] }) {
+  const columns = useMemo(
+    () => [
+      {
+        key: 'name',
+        label: 'player',
+        value: (p: Smite2Player) => (p.name ?? p.handle ?? p.id).toLowerCase(),
+      },
+      { key: 'matches', label: 'matches', value: (p: Smite2Player) => p.matches ?? -1 },
+      {
+        key: 'win_percent',
+        label: 'win rate',
+        value: (p: Smite2Player) => p.win_percent ?? -1,
+      },
+      { key: 'kda', label: 'kda', value: (p: Smite2Player) => p.kda ?? -1 },
+      {
+        key: 'rating',
+        label: 'rating',
+        value: (p: Smite2Player) => p.skill_rating ?? -1,
+      },
+      {
+        key: 'modes',
+        label: 'modes',
+        value: (p: Smite2Player) => p.modes?.length ?? -1,
+      },
+    ],
+    [],
+  )
+  const { sorted, header } = useSorted(rows, columns, 'matches')
+
   return (
     <Band
       label="Smite 2"
@@ -226,17 +280,10 @@ function Smite2Roster({ doc }: { doc: PlayersDoc }) {
       <div className="scroll">
         <table className="stack-sm">
           <thead>
-            <tr>
-              <th>player</th>
-              <th>matches</th>
-              <th>win rate</th>
-              <th>rating</th>
-              <th>peak</th>
-              <th>modes</th>
-            </tr>
+            <tr>{columns.map((column) => header(column.key, column.label))}</tr>
           </thead>
           <tbody>
-            {rows.map((entry) => (
+            {sorted.map((entry) => (
               <tr key={entry.id}>
                 <td>
                   <span className="who">
@@ -263,8 +310,8 @@ function Smite2Roster({ doc }: { doc: PlayersDoc }) {
                 </td>
                 <td data-label="matches">{count(entry.matches)}</td>
                 <td data-label="win rate">{percent(entry.win_percent)}</td>
-                <td data-label="rating">{count(entry.skill_rating)}</td>
-                <td data-label="peak">{count(entry.peak_skill_rating)}</td>
+                <td data-label="kda">{entry.kda?.toFixed(2) ?? '—'}</td>
+                <td data-label="rating">{entry.skill_rating ?? '—'}</td>
                 <td data-label="modes">{count(entry.modes?.length)}</td>
               </tr>
             ))}
@@ -273,8 +320,7 @@ function Smite2Roster({ doc }: { doc: PlayersDoc }) {
       </div>
       <p className="muted" style={{ marginBottom: 0 }}>
         Smite 2 publishes a numeric skill rating and no tier name, so that is
-        what this shows rather than inventing a division for it. Rating is from
-        the ranked mode the player has climbed highest in.
+        what this shows rather than inventing a division for it.
       </p>
     </Band>
   )
