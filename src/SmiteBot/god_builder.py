@@ -1367,7 +1367,7 @@ class GodBuilder:
             ttk_str = f"Kills a full team in **{min_ttk:.2f}s**. "
         viable_str = f"Best of **{len(builds):,}** viable builds. "
 
-        relics = optimizer.conventional_relics()
+        relics = optimizer.conventional_relics(build_options.queue_id)
 
         # The same viable set, asked what it would want ahead and behind. One
         # search, three rankings — see `rank_builds`.

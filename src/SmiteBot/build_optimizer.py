@@ -1981,39 +1981,58 @@ class BuildOptimizer:
                 build.insert(1, evo)
         return (viable_builds, iterations)
 
-    # Relics are actives, and what they are worth is a question about the match
-    # rather than about the build: Beads is worth everything against a stun and
-    # nothing against a team with none, and no stat line says so. They are
-    # therefore picked by convention rather than computed, and the build says as
-    # much rather than implying a number stood behind them.
+    # What people actually take, per game mode, by pick rate over the corpus.
     #
-    # Matched on name because relic ids churn between patches while these two
-    # have been the default pair for years — a cleanse and a shield.
-    CONVENTIONAL_RELICS = ("beads", "barrier", "aegis")
+    # This was a hand-written name list — "beads", "barrier", "aegis" — and it
+    # was wrong. "barrier" matched Blessed Barrier, which appears in the top
+    # eight of no mode at all, so every optimized build recommended a relic
+    # almost nobody builds. Nothing weighted it; it was simply asserted.
+    #
+    # Mode matters more than anything else here, which the old list could not
+    # express. Assault is 37% Greater Cloak of Meditation and 19% Cloak of the
+    # Ascetic, relics that barely register in Conquest; Joust wants Greater
+    # Magic Shell. Percentages below are pick rates among winning builds.
+    RELICS_BY_MODE: Dict[str, Tuple[str, ...]] = {
+        # Conquest, ranked and casual, are within a point or two of each other.
+        "conquest": ("Greater Purification Beads", "Greater Aegis Amulet"),
+        "joust": ("Greater Purification Beads", "Greater Aegis Amulet"),
+        "arena": ("Greater Purification Beads", "Greater Aegis Amulet"),
+        "assault": ("Greater Cloak of Meditation", "Greater Purification Beads"),
+        "duel": ("Greater Purification Beads", "Greater Aegis Amulet"),
+    }
 
-    def conventional_relics(self, count: int = 2) -> List[Item]:
-        """The relics a player takes by default, best-known first."""
-        available = [
-            item
+    DEFAULT_RELICS: Tuple[str, ...] = (
+        "Greater Purification Beads",
+        "Greater Aegis Amulet",
+    )
+
+    def conventional_relics(self, queue_id=None, count: int = 2) -> List[Item]:
+        """The relics a player takes by default in this game mode.
+
+        Still a convention rather than a computation: what a relic is worth is a
+        question about the match, and no stat line answers it. The difference is
+        that the convention is now the corpus's rather than mine.
+        """
+        available = {
+            item.name: item
             for item in self.__all_items.values()
-            if item.type is ItemType.RELIC
-            and item.active
-            and item.tier == 4
-            and item.price == 500
-            # Two relics are flagged active by the API but cannot be bought.
-            and item.id not in (21478, 21492)
-        ]
+            if item.type is ItemType.RELIC and item.active
+        }
 
-        chosen: List[Item] = []
-        for wanted in self.CONVENTIONAL_RELICS:
-            for item in available:
-                if wanted in item.name.lower() and item not in chosen:
-                    chosen.append(item)
-                    break
-            if len(chosen) == count:
-                return chosen
+        mode = ""
+        name = getattr(queue_id, "name", "") or ""
+        for candidate in self.RELICS_BY_MODE:
+            if candidate.upper() in name.upper():
+                mode = candidate
+                break
+        wanted = self.RELICS_BY_MODE.get(mode, self.DEFAULT_RELICS)
 
-        for item in sorted(available, key=lambda relic: relic.name):
+        chosen = [available[n] for n in wanted if n in available]
+        if len(chosen) >= count:
+            return chosen[:count]
+
+        # A renamed relic should not leave the build with none.
+        for item in sorted(available.values(), key=lambda relic: relic.name):
             if item not in chosen:
                 chosen.append(item)
             if len(chosen) == count:

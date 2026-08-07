@@ -37,7 +37,20 @@ RUN apt-get update \
       libpci3 \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir "camoufox[geoip]"
+# Retried, because this fails intermittently and takes the whole image with it.
+# Both this and the fetch below pull from the network — PyPI here, and camoufox's
+# own release host plus the MaxMind geoip database there — and a single dropped
+# connection failed a build that had nothing wrong with it. Backs off between
+# attempts and still fails the build if none of them land, so a genuinely broken
+# dependency is not papered over.
+RUN set -eu; \
+    for attempt in 1 2 3 4 5; do \
+      pip install --no-cache-dir "camoufox[geoip]" && exit 0; \
+      echo "camoufox install failed (attempt ${attempt}/5), retrying" >&2; \
+      sleep $((attempt * 5)); \
+    done; \
+    echo "camoufox install failed after 5 attempts" >&2; \
+    exit 1
 
 # Where the browser lives, declared rather than left to whatever HOME happens
 # to be. camoufox resolves its install directory through platformdirs, i.e.
@@ -50,8 +63,16 @@ ENV XDG_CACHE_HOME=/home/smitele/.cache
 # Fetch at build time, not at run time. The CronJob runs with
 # readOnlyRootFilesystem, so a first-run download would have nowhere to land —
 # and a nightly job should not pull a browser before it starts.
-RUN python -m camoufox fetch \
- && chmod -R a+rX /home/smitele/.cache
+RUN set -eu; \
+    for attempt in 1 2 3 4 5; do \
+      python -m camoufox fetch && break; \
+      echo "camoufox fetch failed (attempt ${attempt}/5), retrying" >&2; \
+      sleep $((attempt * 5)); \
+      if [ "${attempt}" = "5" ]; then \
+        echo "camoufox fetch failed after 5 attempts" >&2; exit 1; \
+      fi; \
+    done; \
+    chmod -R a+rX /home/smitele/.cache
 
 # Prove the fetch landed where this image says it did. Without this the
 # mismatch above is invisible until a crawl fails against the live site.
