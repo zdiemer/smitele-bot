@@ -74,6 +74,41 @@ class TestSectionsDegrade:
 
         assert result == {"built": None, "newest": None, "files": 0, "rows": 0}
 
+    def test_uncounted_rows_are_null_not_zero(self, tmp_path):
+        """A manifest that predates row counting must not read as an empty corpus.
+
+        Smite 1's real manifest carries UNKNOWN (-1) on all 3,306 entries, which
+        summed to a confident `rows: 0` — the same thing an aggregate built over
+        nothing would report, and the one number on that card anyone would act on.
+        """
+        manifest_module = pytest.importorskip("manifest")
+        import datetime
+
+        entries = [
+            manifest_module.Entry(
+                path=f"/corpus/match_details_2026-08-0{n}.parquet",
+                name=f"match_details_2026-08-0{n}.parquet",
+                size=100,
+                mtime=1,
+                rows=manifest_module.UNKNOWN,
+            )
+            for n in range(1, 4)
+        ]
+        manifest_module.write(
+            str(tmp_path),
+            manifest_module.Manifest(
+                entries=entries,
+                newest=datetime.date(2026, 8, 3),
+                built=datetime.date(2026, 8, 4),
+            ),
+        )
+
+        result = snapshot.aggregate_section(str(tmp_path))
+
+        assert result["rows"] is None, "uncounted rows reported as a real count"
+        assert result["unknown_rows"] == 3
+        assert result["files"] == 3
+
     def test_missing_crawl_state_is_reported_not_raised(self, tmp_path):
         result = snapshot.crawl_section(str(tmp_path))
 

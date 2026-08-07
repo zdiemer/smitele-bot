@@ -1,9 +1,15 @@
 /**
- * The handful of pieces every view is built from.
+ * The pieces every view is built from.
  *
- * Health is expressed with a colour *and* a word, never colour alone — the
- * whole page is a status board, and a status board that only works if you can
- * distinguish red from green is a status board that does not work.
+ * There is no Card here any more, and that is the point. A card is a box, a box
+ * costs horizontal space, and the two games could not line up across boxes —
+ * which is the one comparison this page exists to make. `Band` is a card's
+ * replacement: a hairline rule, a status character in a 2ch gutter, and content
+ * on the shared grid.
+ *
+ * State is a character first and a colour second, everywhere. `Mark` renders
+ * `·` `!` `×` with a colour that agrees, so the page still works screenshotted,
+ * projected, printed, or read by someone who cannot separate red from green.
  */
 
 import type { ReactNode } from 'react'
@@ -11,68 +17,111 @@ import type { Health } from './format'
 import { failed } from './api'
 import type { Failed } from './api'
 
-export function Dot({ health }: { health: Health }) {
-  return <span className={`dot dot-${health}`} aria-hidden="true" />
+const GLYPH: Record<Health, string> = {
+  ok: '·',
+  warn: '!',
+  bad: '×',
+  unknown: '?',
 }
 
-const HEALTH_WORD: Record<Health, string> = {
-  ok: 'OK',
-  warn: 'Late',
-  bad: 'Problem',
-  unknown: 'Unknown',
+const WORD: Record<Health, string> = {
+  ok: 'healthy',
+  warn: 'behind schedule',
+  bad: 'blocked',
+  unknown: 'unknown',
 }
 
-export function Badge({ health, label }: { health: Health; label?: string }) {
+export function Mark({ health }: { health: Health }) {
   return (
-    <span className={`badge badge-${health}`}>
-      <Dot health={health} />
-      {label ?? HEALTH_WORD[health]}
+    <span className={`mark mark-${health}`} title={WORD[health]}>
+      <span aria-hidden="true">{GLYPH[health]}</span>
+      <span className="sr-only" style={srOnly}>
+        {WORD[health]}
+      </span>
     </span>
   )
 }
 
-export function Card({
-  title,
-  health,
-  badge,
+const srOnly: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+}
+
+/** A labelled register: rule, status gutter, content. */
+export function Band({
+  label,
+  qualifier,
+  health = 'ok',
   children,
-  footer,
 }: {
-  title: string
+  label: string
+  qualifier?: string
   health?: Health
-  badge?: string
   children: ReactNode
-  footer?: ReactNode
 }) {
   return (
-    <section className={`card${health ? ` card-${health}` : ''}`}>
-      <header className="card-head">
-        <h2>{title}</h2>
-        {health && <Badge health={health} label={badge} />}
-      </header>
-      <div className="card-body">{children}</div>
-      {footer && <footer className="card-foot">{footer}</footer>}
+    <section>
+      <div className="band">
+        <Mark health={health} />
+        <div className="body">
+          <h3 className="label">
+            {label}
+            {qualifier && <span className="qual">{qualifier}</span>}
+          </h3>
+          {children}
+        </div>
+      </div>
     </section>
   )
 }
 
-export function Row({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
+/** Two columns that collapse to one — how the games sit side by side. */
+export function Pair({ children }: { children: ReactNode }) {
+  return <div className="pair">{children}</div>
+}
+
+export function Rows({ children }: { children: ReactNode }) {
+  return <dl>{children}</dl>
+}
+
+export function Row({
+  label,
+  value,
+  unit,
+  absent,
+  hint,
+}: {
+  label: string
+  value: ReactNode
+  unit?: string
+  /** Renders dim. For "never", "not recorded" — not for a real zero. */
+  absent?: boolean
+  hint?: string
+}) {
   return (
-    <div className="row">
+    <div className="reg">
       <dt>
-        {label}
-        {hint && <span className="hint" title={hint}>?</span>}
+        {hint ? (
+          <span className="hint" title={hint}>
+            {label}
+          </span>
+        ) : (
+          label
+        )}
       </dt>
-      <dd>{value}</dd>
+      <dd className={absent ? 'absent' : undefined}>
+        {value}
+        {unit && <span className="unit"> {unit}</span>}
+      </dd>
     </div>
   )
 }
 
-export function Rows({ children }: { children: ReactNode }) {
-  return <dl className="rows">{children}</dl>
-}
-
-/** A meter with its numbers written out, because a bar alone is not a number. */
+/** A rule that fills. Not a pill, and never rounded. */
 export function Meter({
   used,
   limit,
@@ -85,23 +134,21 @@ export function Meter({
   unit: string
 }) {
   const share = limit ? Math.min(used / limit, 1) : 0
+  const tone = health === 'ok' ? '' : health === 'warn' ? ' warn' : ' bad'
   return (
-    <div className="meter-wrap">
+    <div className="meter">
       <div
-        className={`meter meter-${health}`}
+        className="track"
         role="meter"
         aria-valuenow={used}
         aria-valuemin={0}
         aria-valuemax={limit}
         aria-label={unit}
       >
-        <span style={{ width: `${share * 100}%` }} />
+        <div className={`fill${tone}`} style={{ width: `${share * 100}%` }} />
       </div>
-      <div className="meter-legend">
-        <strong>{used.toLocaleString()}</strong>
-        <span>
-          of {limit.toLocaleString()} {unit}
-        </span>
+      <div className="read">
+        <b>{used.toLocaleString()}</b> <span className="of">of {limit.toLocaleString()} {unit}</span>
       </div>
     </div>
   )
@@ -110,15 +157,13 @@ export function Meter({
 /**
  * A section the snapshot could not produce.
  *
- * Rendered as its own thing rather than as empty state: "the share was
- * unreachable" and "there is no data yet" look identical if both render as a
- * dash, and only one of them is somebody's problem.
+ * Its own thing rather than empty state: "the share was unreachable" and "there
+ * is nothing here yet" look identical as a dash, and only one is a problem.
  */
 export function SectionError({ of }: { of: Failed }) {
   return (
     <p className="section-error">
-      <Dot health="bad" />
-      Couldn’t read this: <code>{of.error}</code>
+      <b>×</b> couldn’t read this — <code>{of.error}</code>
     </p>
   )
 }
@@ -132,7 +177,7 @@ export function Section<T>({
   children: (value: T) => ReactNode
 }) {
   if (failed(value)) return <SectionError of={value} />
-  if (value === null || value === undefined) return <p className="muted">No data yet.</p>
+  if (value === null || value === undefined) return <Empty>No data yet.</Empty>
   return <>{children(value as T)}</>
 }
 

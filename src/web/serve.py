@@ -46,6 +46,15 @@ DIST_ENV = "SMITELE_WEB_DIST"
 # be older than the thing it is caching.
 API_MAX_AGE = 60
 
+# The shell names fingerprinted asset filenames, so a stale one points at files
+# that no longer exist. `no-cache` still lets the browser keep a copy — it just
+# has to revalidate before using it.
+SHELL_CACHE_CONTROL = "no-cache, must-revalidate"
+
+# Vite puts a content hash in every asset filename, so these bytes are immutable
+# by construction.
+ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
 
 def dist_dir() -> str:
     return os.environ.get(DIST_ENV) or os.path.join(HERE, "dist")
@@ -209,11 +218,23 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
                 == os.path.abspath(static_root)
                 and os.path.isfile(candidate)
             ):
-                return web.FileResponse(candidate)
+                # Vite fingerprints every asset filename, so a given URL's bytes
+                # never change and a year is as good as forever.
+                return web.FileResponse(
+                    candidate, headers={"Cache-Control": ASSET_CACHE_CONTROL}
+                )
 
         if not os.path.exists(index):
             return web.Response(text="no SPA bundle built", status=503)
-        return web.FileResponse(index)
+        # The shell must revalidate on every load. It names the fingerprinted
+        # assets, so a cached copy from before a deploy points at filenames that
+        # no longer exist — a blank page nobody can fix from their end.
+        #
+        # It also has to be said out loud. A response carrying only
+        # Last-Modified is *heuristically* cacheable, which browsers apply to
+        # error statuses too: Firefox held on to a 404 from before this host's
+        # tunnel route existed and kept serving it long after the site was up.
+        return web.FileResponse(index, headers={"Cache-Control": SHELL_CACHE_CONTROL})
 
     app = web.Application()
     app.router.add_get("/healthz", healthz)

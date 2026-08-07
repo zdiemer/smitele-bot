@@ -123,6 +123,51 @@ class TestApiNeverFallsThroughToTheShell:
             await client.close()
 
 
+class TestCaching:
+    """The shell must revalidate; fingerprinted assets need not.
+
+    A response carrying only `Last-Modified` is heuristically cacheable, and
+    browsers apply that to error statuses too — Firefox held a 404 from before
+    this host's tunnel route existed and kept serving it long after the site was
+    up. Saying it out loud is the fix.
+    """
+
+    async def test_the_shell_must_revalidate(self, site):
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            for path in ("/", "/players/foo"):
+                response = await client.get(path)
+                header = response.headers["Cache-Control"]
+                # The shell names hashed asset filenames. A cached copy from
+                # before a deploy points at files that no longer exist.
+                assert "no-cache" in header, path
+        finally:
+            await client.close()
+
+    async def test_hashed_assets_are_immutable(self, site):
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get("/app.js")
+
+            assert "immutable" in response.headers["Cache-Control"]
+        finally:
+            await client.close()
+
+    async def test_a_missing_page_is_not_cacheable_forever(self, site):
+        # The shell is what an unknown path returns, so it inherits no-cache —
+        # which is exactly what stops a stale 404 outliving the fix.
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get("/no/such/page")
+
+            assert "no-cache" in response.headers["Cache-Control"]
+        finally:
+            await client.close()
+
+
 class TestReadiness:
     async def test_ready_without_any_snapshot(self, site):
         snapshots, dist, _ = site

@@ -12,7 +12,7 @@ import { useMemo, useState } from 'react'
 import { Link } from '../router'
 import type { Player, Players as PlayersDoc } from '../api'
 import { count, duration, percent, when } from '../format'
-import { Card, Empty, Row, Rows } from '../components'
+import { Band, Empty, Pair, Row, Rows } from '../components'
 
 type SortKey = 'name' | 'level' | 'matches' | 'win_percent' | 'kda' | 'last_played_at'
 
@@ -69,7 +69,7 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
 
   return (
     <>
-      <div className="table-wrap">
+      <div className="scroll">
         <table>
           <thead>
             <tr>
@@ -167,66 +167,76 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
 
       {player.private && <Empty>This profile is hidden, so there is nothing to show.</Empty>}
 
-      <div className="grid">
-        <Card title="Account">
+      <Band label="Account" health="ok">
+        <Pair>
           <Rows>
-            <Row label="Level" value={count(player.level)} />
-            <Row label="Created" value={when(dateSeconds(player.created_at))} />
-            <Row label="Last login" value={when(dateSeconds(player.last_login_at))} />
-            <Row label="Last played" value={when(dateSeconds(player.last_played_at))} />
-            <Row label="Worshippers" value={count(player.total_worshippers)} />
-            <Row label="Disconnects" value={count(player.leaves)} />
+            <Row label="level" value={count(player.level)} />
+            <Row label="created" value={when(dateSeconds(player.created_at))} />
+            <Row label="last login" value={when(dateSeconds(player.last_login_at))} />
           </Rows>
-        </Card>
+          <Rows>
+            <Row label="last played" value={when(dateSeconds(player.last_played_at))} />
+            <Row label="worshippers" value={count(player.total_worshippers)} />
+            <Row label="disconnects" value={count(player.leaves)} />
+          </Rows>
+        </Pair>
+      </Band>
 
-        {totals && (
-          <Card title="Lifetime totals">
+      {totals && (
+        <Band label="Lifetime totals" qualifier="every queue" health="ok">
+          <Pair>
             <Rows>
-              <Row label="Matches" value={count(totals.matches)} />
+              <Row label="matches" value={count(totals.matches)} />
               <Row
-                label="Wins / losses"
+                label="wins / losses"
                 value={`${count(totals.wins)} / ${count(totals.losses)}`}
               />
-              <Row label="Win rate" value={percent(totals.win_percent)} />
+              <Row label="win rate" value={percent(totals.win_percent)} />
+              <Row label="time played" value={duration(totals.minutes * 60)} />
+            </Rows>
+            <Rows>
               <Row
                 label="K / D / A"
                 value={`${count(totals.kills)} / ${count(totals.deaths)} / ${count(totals.assists)}`}
               />
               <Row label="KDA" value={totals.kda.toFixed(2)} />
-              <Row label="Gold" value={count(totals.gold)} />
-              <Row label="Time played" value={duration(totals.minutes * 60)} />
+              <Row label="gold" value={count(totals.gold)} />
             </Rows>
-          </Card>
-        )}
+          </Pair>
+        </Band>
+      )}
 
-        {player.best_queue && (
-          <Card title="Best queue">
+      {player.best_queue && (
+        <Band
+          label="Best queue"
+          qualifier="bot and custom excluded · ten matches minimum"
+          health="ok"
+        >
+          <Pair>
             <Rows>
-              <Row label="Queue" value={player.best_queue.queue} />
-              <Row label="Win rate" value={percent(player.best_queue.win_percent)} />
-              <Row label="Matches" value={count(player.best_queue.matches)} />
+              <Row label="queue" value={player.best_queue.queue} />
+              <Row label="win rate" value={percent(player.best_queue.win_percent)} />
             </Rows>
-            <p className="muted" style={{ marginBottom: 0 }}>
-              Bot and custom queues excluded, and a queue needs at least ten matches.
-            </p>
-          </Card>
-        )}
-      </div>
+            <Rows>
+              <Row label="matches" value={count(player.best_queue.matches)} />
+            </Rows>
+          </Pair>
+        </Band>
+      )}
 
       {player.ranked && player.ranked.length > 0 && (
-        <>
-          <h3 className="section">Ranked</h3>
-          <div className="table-wrap">
+        <Band label="Ranked" health="ok">
+          <div className="scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Queue</th>
-                  <th>Tier</th>
-                  <th>MMR</th>
-                  <th>TP</th>
-                  <th>Wins</th>
-                  <th>Losses</th>
-                  <th>Disconnects</th>
+                  <th>queue</th>
+                  <th>tier</th>
+                  <th>mmr</th>
+                  <th>tp</th>
+                  <th>wins</th>
+                  <th>losses</th>
+                  <th>disconnects</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,23 +254,22 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
               </tbody>
             </table>
           </div>
-        </>
+        </Band>
       )}
 
       {player.top_gods && player.top_gods.length > 0 && (
-        <>
-          <h3 className="section">Most worshipped</h3>
-          <div className="table-wrap">
+        <Band label="Most worshipped" qualifier="top ten by worshippers" health="ok">
+          <div className="scroll">
             <table>
               <thead>
                 <tr>
-                  <th>God</th>
-                  <th>Worshippers</th>
-                  <th>Rank</th>
-                  <th>Wins</th>
-                  <th>Losses</th>
-                  <th>Win rate</th>
-                  <th>KDA</th>
+                  <th>god</th>
+                  <th>worshippers</th>
+                  <th>rank</th>
+                  <th>wins</th>
+                  <th>losses</th>
+                  <th>win rate</th>
+                  <th>kda</th>
                 </tr>
               </thead>
               <tbody>
@@ -284,7 +293,7 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
               </tbody>
             </table>
           </div>
-        </>
+        </Band>
       )}
     </>
   )

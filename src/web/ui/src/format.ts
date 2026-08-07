@@ -53,6 +53,13 @@ export function when(epochSeconds: number | null | undefined): string {
   })
 }
 
+/** `match_details_2026-08-05.parquet` → `2026-08-05`. */
+export function day(filename: string | null | undefined): string | null {
+  if (!filename) return null
+  const found = filename.match(/(\d{4}-\d{2}-\d{2})/)
+  return found ? found[1] : filename
+}
+
 export function count(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
   return value.toLocaleString()

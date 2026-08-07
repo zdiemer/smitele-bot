@@ -9,6 +9,7 @@
  */
 
 import { useMemo } from 'react'
+import { Band } from '../components'
 import { marked } from 'marked'
 import source from '../../../../../docs/desktop-api.md?raw'
 
@@ -17,16 +18,14 @@ export default function Docs() {
 
   return (
     <>
-      <div className="banner" style={{ borderColor: 'var(--warn)' }}>
-        <span className="dot dot-warn" aria-hidden="true" />
-        <div>
-          <strong>Design sketch — none of this is implemented.</strong>
+      <Band label="Design sketch" qualifier="none of this is implemented" health="warn">
+        <p className="prose" style={{ marginBottom: 0 }}>
           The live API is <code>/api/status</code>, <code>/api/players</code>,{' '}
-          <code>/api/players/&#123;name&#125;</code> and <code>/api/meta</code>, all of
-          which serve a snapshot.
-        </div>
-      </div>
-      <article className="prose" dangerouslySetInnerHTML={{ __html: html }} />
+          <code>/api/players/&#123;name&#125;</code> and <code>/api/meta</code> — all of
+          which serve a snapshot and compute nothing.
+        </p>
+      </Band>
+      <article className="doc" dangerouslySetInnerHTML={{ __html: html }} />
     </>
   )
 }

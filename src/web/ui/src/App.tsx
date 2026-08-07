@@ -11,7 +11,7 @@ import { match, NavLink, usePath } from './router'
 import type { Players, Status } from './api'
 import { useEndpoint } from './useSnapshot'
 import { duration, snapshotHealth } from './format'
-import { Badge, Empty } from './components'
+import { Empty, Mark } from './components'
 import Overview from './views/Overview'
 import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
@@ -21,7 +21,7 @@ import Docs from './views/Docs'
 const TABS = [
   { to: '/', label: 'Overview', end: true },
   { to: '/data', label: 'Data' },
-  { to: '/api', label: 'API health' },
+  { to: '/upstreams', label: 'Upstreams' },
   { to: '/players', label: 'Players' },
   { to: '/docs', label: 'Desktop API' },
 ]
@@ -42,9 +42,11 @@ function Freshness({
   if (error) {
     return (
       <div className="freshness">
-        <Badge health="bad" label="No snapshot" />
-        <span>{error}</span>
-        <button onClick={refresh}>Retry</button>
+        <Mark health="bad" />
+        <span className="broken">
+          no snapshot — <b>{error}</b>
+        </span>
+        <button onClick={refresh}>retry</button>
       </div>
     )
   }
@@ -54,15 +56,11 @@ function Freshness({
 
   return (
     <div className="freshness">
-      <Badge
-        health={health}
-        label={health === 'ok' ? 'Fresh' : health === 'warn' ? 'Stale' : 'Very stale'}
-      />
-      <span>
-        Snapshot written <strong>{duration(stale)}</strong> ago. The job runs every 15
-        minutes; nothing on this page calls Hi-Rez or tracker.gg directly.
+      <span className={health === 'ok' ? '' : health === 'warn' ? 'stale' : 'broken'}>
+        snapshot written <b>{duration(stale)}</b> ago
       </span>
-      <button onClick={refresh}>Refresh</button>
+      <span>· every 15 min · nothing here calls Hi-Rez or tracker.gg</span>
+      <button onClick={refresh}>refresh</button>
     </div>
   )
 }
@@ -90,7 +88,7 @@ function Body({ status }: { status: Status | null }) {
 
   if (match('/', path)) return status ? <Overview status={status} /> : waiting
   if (match('/data', path)) return status ? <Data status={status} /> : waiting
-  if (match('/api', path)) return status ? <ApiHealth status={status} /> : waiting
+  if (match('/upstreams', path)) return status ? <ApiHealth status={status} /> : waiting
   if (match('/docs', path)) return <Docs />
   if (match('/players', path)) return <PlayersRoute />
 
@@ -105,21 +103,25 @@ export default function App() {
 
   return (
     <div className="shell">
+      {/*
+        The freshness strip sits in the masthead rather than below it: every
+        number on this page is exactly as trustworthy as the snapshot behind it,
+        so the age belongs next to the title, not in a bar you scroll past.
+      */}
       <header className="masthead">
-        <h1>Smite data &amp; API liveness</h1>
-        <p>
-          Scraper and upstream health for the Smite 1 and Smite 2 data behind Smite-le.
-        </p>
-        <nav>
-          {TABS.map((tab) => (
-            <NavLink key={tab.to} to={tab.to} end={tab.end}>
-              {tab.label}
-            </NavLink>
-          ))}
-        </nav>
+        <h1 className="wordmark">
+          smite<span>.diemer.codes</span>
+        </h1>
+        <Freshness status={data} error={error} loading={loading} refresh={refresh} />
       </header>
 
-      <Freshness status={data} error={error} loading={loading} refresh={refresh} />
+      <nav>
+        {TABS.map((tab) => (
+          <NavLink key={tab.to} to={tab.to} end={tab.end}>
+            {tab.label}
+          </NavLink>
+        ))}
+      </nav>
 
       <Body status={data} />
     </div>

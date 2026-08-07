@@ -134,14 +134,19 @@ def aggregate_section(directory: str) -> Dict[str, Any]:
     if stored is None:
         return {"built": None, "newest": None, "files": 0, "rows": 0}
 
+    counted = [e.rows for e in stored.entries if e.rows > 0]
+    unknown = sum(1 for e in stored.entries if e.rows <= 0)
+
     return {
         "built": stored.built.isoformat() if stored.built else None,
         "newest": stored.newest.isoformat() if stored.newest else None,
         "files": len(stored.entries),
-        # UNKNOWN is -1 for a file whose footer could not be read; summing it
-        # in would quietly understate the corpus rather than admit a gap.
-        "rows": sum(e.rows for e in stored.entries if e.rows > 0),
-        "unknown_rows": sum(1 for e in stored.entries if e.rows <= 0),
+        # None, not 0, when nothing could be counted. Smite 1's manifest predates
+        # row counting and carries UNKNOWN (-1) on all 3,306 entries, which summed
+        # to a confident "0 rows" — indistinguishable from an aggregate built over
+        # an empty corpus, and the one number on that card anybody would act on.
+        "rows": sum(counted) if counted else None,
+        "unknown_rows": unknown,
     }
 
 
