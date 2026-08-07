@@ -678,7 +678,7 @@ class ItemQuestionGenerator(QuestionGenerator):
             winner = item if prop.flat_value > match.flat_value else other
             return _with_choices(
                 TriviaQuestion(
-                    f"Which gives more **{prop.attribute.display_name}** — "
+                    f"Which gives more **{prop.attribute.display_name}**, "
                     f"**{item.name}** or **{other.name}**?",
                     winner.name,
                 ),
@@ -693,7 +693,7 @@ class ItemQuestionGenerator(QuestionGenerator):
         winner = item if mine > theirs else other
         return _with_choices(
             TriviaQuestion(
-                f"Which costs more — **{item.name}** or **{other.name}**?",
+                f"Which costs more, **{item.name}** or **{other.name}**?",
                 winner.name,
             ),
             [(other if winner is item else item).name],
@@ -1458,7 +1458,7 @@ class GodQuestionGenerator(QuestionGenerator):
         index = abilities.index(ability)
         answers = ["Passive", "5"] if index == len(cls.__SLOTS) else cls.__SLOTS[index]
         return TriviaQuestion(
-            f"Which slot is **{god.name}'s {ability.name}** in — "
+            f"Which slot is **{god.name}'s {ability.name}** in: "
             f"1, 2, 3, Ultimate or Passive?",
             TriviaAnswer(list(answers)),
             ability.icon_url,
