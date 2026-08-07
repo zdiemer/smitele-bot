@@ -10,7 +10,7 @@ from item import Item, ItemAttribute, ItemProperty, ItemType
 from passive_parser import PassiveAttribute
 import team_context
 from stat_calculator import BuildStatCalculator, GodBuild, _Penetration, _Stats
-from HirezAPI import QueueId
+from HirezAPI import PlayerRole, QueueId
 
 
 def compute_item_price(item: Item, all_items: Dict[int, Item]) -> int:
@@ -166,6 +166,15 @@ PASSIVE_VALUE: Dict[PassiveAttribute, float] = {
 PASSIVE_DISCOUNT = 0.6
 
 
+# Which archetype a class resolves to in each lane it is actually played in.
+#
+# Only the pairs the corpus shows people playing are listed; a class in a lane
+# nobody plays it in falls back to its own default rather than inventing a
+# build. Every entry here is a lane a real god wins games in — assassins do
+# support and mid, guardians do mid and solo, warriors and mages roam widely.
+_LANE_ARCHETYPES: Dict[GodRole, Dict[object, "BuildArchetype"]] = {}
+
+
 # Stand-ins for the three attributes that depend on which kind of damage the god
 # deals. The weight tables carry both halves of each pair with the irrelevant
 # one set to None, so a nudge has to be resolved against the god before it can
@@ -300,6 +309,67 @@ class BuildArchetype(Enum):
             return BuildArchetype.MID_MAGE
         if role == GodRole.WARRIOR:
             return BuildArchetype.ABILITY_BASED_WARRIOR
+
+    @staticmethod
+    def for_lane(role: GodRole, lane):
+        """The archetype for a class played in a particular lane.
+
+        Archetype used to be a property of the god alone, which meant a god had
+        exactly one no matter where you asked to play them: Ne Zha in support
+        got the jungle build, Charon in mid got the support build. That is also
+        why four archetypes had nothing pointing at them — there was no way to
+        reach `SUPPORT_ASSASSIN` when the only key was "is an assassin".
+
+        A lane is a better answer than a god here. The corpus bears it out: Ne
+        Zha's support games average 827 health and 190/169 protections against
+        65 health in the jungle, and Charon's mid games average 442 magical
+        power against 57 as a support. Those are different builds, not one build
+        with a different god attached.
+        """
+        if lane is None:
+            return None
+        by_lane = _LANE_ARCHETYPES.get(role, {})
+        return by_lane.get(lane)
+
+
+# Populated here rather than inside the enum because it names its own members.
+_LANE_ARCHETYPES.update(
+    {
+        GodRole.ASSASSIN: {
+            PlayerRole.JUNGLE: BuildArchetype.ABILITY_BASED_ASSASSIN,
+            PlayerRole.SOLO: BuildArchetype.SOLO_ASSASSIN,
+            PlayerRole.SUPPORT: BuildArchetype.SUPPORT_ASSASSIN,
+            PlayerRole.MID: BuildArchetype.MID_ASSASSIN,
+            PlayerRole.CARRY: BuildArchetype.AUTO_ATTACK_ASSASSIN,
+        },
+        GodRole.GUARDIAN: {
+            PlayerRole.SUPPORT: BuildArchetype.SUPPORT_GUARDIAN,
+            PlayerRole.SOLO: BuildArchetype.SOLO_GUARDIAN,
+            PlayerRole.MID: BuildArchetype.MID_GUARDIAN,
+            PlayerRole.JUNGLE: BuildArchetype.SOLO_GUARDIAN,
+        },
+        GodRole.HUNTER: {
+            PlayerRole.CARRY: BuildArchetype.CARRY_HUNTER,
+            PlayerRole.MID: BuildArchetype.ABILITY_BASED_HUNTER,
+            PlayerRole.JUNGLE: BuildArchetype.CARRY_HUNTER,
+            PlayerRole.SOLO: BuildArchetype.ABILITY_BASED_HUNTER,
+        },
+        GodRole.MAGE: {
+            PlayerRole.MID: BuildArchetype.MID_MAGE,
+            PlayerRole.SOLO: BuildArchetype.SOLO_MAGE,
+            PlayerRole.SUPPORT: BuildArchetype.SUPPORT_MAGE,
+            PlayerRole.JUNGLE: BuildArchetype.JUNGLE_MAGE,
+            PlayerRole.CARRY: BuildArchetype.AUTO_ATTACK_MAGE,
+        },
+        GodRole.WARRIOR: {
+            PlayerRole.SOLO: BuildArchetype.ABILITY_BASED_WARRIOR,
+            PlayerRole.JUNGLE: BuildArchetype.JUNGLE_WARRIOR,
+            PlayerRole.SUPPORT: BuildArchetype.SUPPORT_WARRIOR,
+            PlayerRole.MID: BuildArchetype.ABILITY_BASED_WARRIOR,
+            PlayerRole.CARRY: BuildArchetype.AUTO_ATTACK_WARRIOR,
+        },
+    }
+)
 
 
 # The archetypes meant to be bruisers rather than tanks, and the defensive share
@@ -528,18 +598,20 @@ class BuildOptimizer:
         stat: str = None,
         balance: float = None,
         context: "team_context.TeamContext" = None,
+        role=None,
     ):
         self.god = god
         self.valid_items = valid_items
         self.__all_items = all_items
-        archetype = None
-        if god.id in self.GOD_ID_ARCHETYPE_MAPPINGS:
-            archetype = self.GOD_ID_ARCHETYPE_MAPPINGS[god.id]
-        self.__current_archetype = (
-            BuildArchetype.default_archetype(self.god.role)
-            if archetype is None
-            else archetype
-        )
+        # A god's own mapping wins, because it is a statement about that god
+        # rather than about its class. Otherwise the lane decides, and only if
+        # no lane was asked for does the class default apply.
+        archetype = self.GOD_ID_ARCHETYPE_MAPPINGS.get(god.id)
+        if archetype is None:
+            archetype = BuildArchetype.for_lane(god.role, role)
+        if archetype is None:
+            archetype = BuildArchetype.default_archetype(god.role)
+        self.__current_archetype = archetype
         self.__init_archetype_passive_denylist()
         self.__init_archetype_passive_wishlist()
         self.__init_archetype_stat_targets()
@@ -979,6 +1051,41 @@ class BuildOptimizer:
                 ItemAttribute.MANA: 1200,
                 ItemAttribute.MP5: 50,
             },
+            # The four that had no tables at all, shaped from what the corpus
+            # shows these gods actually build in these lanes.
+            #
+            # Ne Zha's support games average 827 health and 190/169 protections,
+            # so a support assassin is a support first and an assassin second.
+            BuildArchetype.SUPPORT_ASSASSIN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.HEALTH: 800,
+                ItemAttribute.MAGICAL_PROTECTION: 150,
+                ItemAttribute.PHYSICAL_PROTECTION: 170,
+            },
+            # Tsukuyomi mid: the jungle build with the mana to hold a lane,
+            # 969 mana and 29 HP5 against 743 and 2 in the jungle.
+            BuildArchetype.MID_ASSASSIN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.20,
+                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 220,
+                ItemAttribute.MANA: 900,
+                ItemAttribute.HP5: 25,
+            },
+            # Charon mid averages 442 magical power. A guardian in mid is
+            # playing a mage, not a tank that wandered in.
+            BuildArchetype.MID_GUARDIAN: {
+                ItemAttribute.COOLDOWN_REDUCTION: 0.30,
+                ItemAttribute.MAGICAL_PENETRATION: (10, 0.20),
+                ItemAttribute.MAGICAL_POWER: 420,
+                ItemAttribute.MANA: 400,
+            },
+            # A carry that wants the attack speed rather than the crit.
+            BuildArchetype.ATTACK_SPEED_STIM_HUNTER: {
+                ItemAttribute.ATTACK_SPEED: 0.80,
+                ItemAttribute.PHYSICAL_LIFESTEAL: 0.15,
+                ItemAttribute.PHYSICAL_PENETRATION: (10, 0.20),
+                ItemAttribute.PHYSICAL_POWER: 190,
+            },
             BuildArchetype.HEALER_MAGE: {
                 ItemAttribute.COOLDOWN_REDUCTION: 0.30,
                 ItemAttribute.MAGICAL_PENETRATION: (25, 0.30),
@@ -1203,6 +1310,29 @@ class BuildOptimizer:
         ability_hunter[ItemAttribute.MANA] = 2
         ability_hunter[ItemAttribute.COOLDOWN_REDUCTION] = 1
         defaults[BuildArchetype.ABILITY_BASED_HUNTER] = ability_hunter
+
+        # The four archetypes that had no weights. Each is built from the one
+        # it most resembles rather than written from nothing, because what
+        # changes between them is emphasis rather than vocabulary.
+        support_assassin = defaults[BuildArchetype.SUPPORT_GUARDIAN].copy()
+        support_assassin[ItemAttribute.PHYSICAL_POWER] = 2
+        defaults[BuildArchetype.SUPPORT_ASSASSIN] = support_assassin
+
+        mid_assassin = defaults[BuildArchetype.ABILITY_BASED_ASSASSIN].copy()
+        mid_assassin[ItemAttribute.MANA] = 3
+        mid_assassin[ItemAttribute.MP5] = 2
+        mid_assassin[ItemAttribute.HP5] = 2
+        defaults[BuildArchetype.MID_ASSASSIN] = mid_assassin
+
+        mid_guardian = defaults[BuildArchetype.MID_MAGE].copy()
+        mid_guardian[ItemAttribute.HEALTH] = 2
+        mid_guardian[ItemAttribute.CROWD_CONTROL_REDUCTION] = 2
+        defaults[BuildArchetype.MID_GUARDIAN] = mid_guardian
+
+        stim_hunter = defaults[BuildArchetype.CARRY_HUNTER].copy()
+        stim_hunter[ItemAttribute.ATTACK_SPEED] = 8
+        stim_hunter[ItemAttribute.CRITICAL_STRIKE_CHANCE] = 2
+        defaults[BuildArchetype.ATTACK_SPEED_STIM_HUNTER] = stim_hunter
 
         # Additional Settings for Mage Archetypes
         lifesteal_mage = defaults[BuildArchetype.MID_MAGE].copy()
@@ -1993,12 +2123,25 @@ class BuildOptimizer:
     # Ascetic, relics that barely register in Conquest; Joust wants Greater
     # Magic Shell. Percentages below are pick rates among winning builds.
     RELICS_BY_MODE: Dict[str, Tuple[str, ...]] = {
-        # Conquest, ranked and casual, are within a point or two of each other.
         "conquest": ("Greater Purification Beads", "Greater Aegis Amulet"),
         "joust": ("Greater Purification Beads", "Greater Aegis Amulet"),
         "arena": ("Greater Purification Beads", "Greater Aegis Amulet"),
-        "assault": ("Greater Cloak of Meditation", "Greater Purification Beads"),
+        "assault": ("Greater Cloak of Meditation", "Cloak of the Ascetic"),
         "duel": ("Greater Purification Beads", "Greater Aegis Amulet"),
+    }
+
+    # Role changes the answer more than anything except mode, and in Conquest it
+    # changes it completely: solo takes Persistent Teleport in 60% of winning
+    # builds, jungle takes Greater Blink Rune in 51%, and support takes Phantom
+    # Shell and Greater Magic Shell, none of which the lanes either side of it
+    # touch. Only Conquest records a role — every other mode logs "Unknown" —
+    # so this applies there and the mode table covers the rest.
+    RELICS_BY_ROLE: Dict[object, Tuple[str, ...]] = {
+        PlayerRole.SOLO: ("Persistent Teleport", "Scorching Blink Rune"),
+        PlayerRole.JUNGLE: ("Greater Blink Rune", "Greater Purification Beads"),
+        PlayerRole.MID: ("Greater Aegis Amulet", "Greater Purification Beads"),
+        PlayerRole.SUPPORT: ("Phantom Shell", "Greater Magic Shell"),
+        PlayerRole.CARRY: ("Greater Aegis Amulet", "Greater Purification Beads"),
     }
 
     DEFAULT_RELICS: Tuple[str, ...] = (
@@ -2006,7 +2149,9 @@ class BuildOptimizer:
         "Greater Aegis Amulet",
     )
 
-    def conventional_relics(self, queue_id=None, count: int = 2) -> List[Item]:
+    def conventional_relics(
+        self, queue_id=None, role=None, count: int = 2
+    ) -> List[Item]:
         """The relics a player takes by default in this game mode.
 
         Still a convention rather than a computation: what a relic is worth is a
@@ -2025,7 +2170,12 @@ class BuildOptimizer:
             if candidate.upper() in name.upper():
                 mode = candidate
                 break
-        wanted = self.RELICS_BY_MODE.get(mode, self.DEFAULT_RELICS)
+
+        # Role wins where it is known, and it is only known in Conquest.
+        if role is not None and mode in ("", "conquest"):
+            wanted = self.RELICS_BY_ROLE.get(role, self.DEFAULT_RELICS)
+        else:
+            wanted = self.RELICS_BY_MODE.get(mode, self.DEFAULT_RELICS)
 
         chosen = [available[n] for n in wanted if n in available]
         if len(chosen) >= count:

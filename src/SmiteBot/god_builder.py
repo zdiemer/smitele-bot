@@ -1293,6 +1293,7 @@ class GodBuilder:
             god,
             items_for_god,
             self.__items,
+            role=build_options.role,
             context=self.__team_context(build_options),
             balance=(
                 build_options.balance.ratio
@@ -1367,7 +1368,9 @@ class GodBuilder:
             ttk_str = f"Kills a full team in **{min_ttk:.2f}s**. "
         viable_str = f"Best of **{len(builds):,}** viable builds. "
 
-        relics = optimizer.conventional_relics(build_options.queue_id)
+        relics = optimizer.conventional_relics(
+            build_options.queue_id, build_options.role
+        )
 
         # The same viable set, asked what it would want ahead and behind. One
         # search, three rankings — see `rank_builds`.
