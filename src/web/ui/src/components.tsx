@@ -31,6 +31,41 @@ const WORD: Record<Health, string> = {
   unknown: 'unknown',
 }
 
+/**
+ * The site's mark, inline.
+ *
+ * The same shape as `public/icon.svg` and the polygon in `og.py` — three
+ * transcriptions of one bolt, which is the cost of wanting a crisp favicon, a
+ * Pillow-drawn preview card, and this. Change one and change all three.
+ *
+ * It carries its own dark tile rather than inheriting the page's ink, so the
+ * mark is identical here, in a browser tab and on a preview card instead of
+ * being a different colour in each.
+ */
+export function Bolt({ size = 30 }: { size?: number }) {
+  return (
+    <svg
+      className="bolt"
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect width="64" height="64" rx="12" fill="#14171a" />
+      <g strokeLinecap="round" strokeWidth="3.5">
+        <path d="M9 20h11" stroke="#4a9ad8" />
+        <path d="M6 30h10" stroke="#4a9ad8" opacity=".7" />
+        <path d="M11 40h7" stroke="#4a9ad8" opacity=".45" />
+        <path d="M46 26h9" stroke="#d06aaa" opacity=".45" />
+        <path d="M48 36h10" stroke="#d06aaa" opacity=".7" />
+        <path d="M44 46h11" stroke="#d06aaa" />
+      </g>
+      <path d="M37 7L21 34h10l-4 23 20-31H34z" fill="#ffffff" />
+    </svg>
+  )
+}
+
 export function Mark({ health }: { health: Health }) {
   return (
     <span className={`mark mark-${health}`} title={WORD[health]}>

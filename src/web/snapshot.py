@@ -795,6 +795,7 @@ async def player_document(provider, username: str) -> Dict[str, Any]:
             {
                 "god_id": int(god["god_id"]),
                 "god": _god_name(provider, int(god["god_id"])),
+                "icon": _god_icon(provider, int(god["god_id"])),
                 "worshippers": int(god["Worshippers"]),
                 "rank": int(god["Rank"]),
                 "wins": int(god["Wins"]),
@@ -813,7 +814,7 @@ async def player_document(provider, username: str) -> Dict[str, Any]:
         "name": player.name or username,
         "found": True,
         "private": False,
-        "avatar_url": player.avatar_url,
+        "avatar_url": _secure(player.avatar_url),
         "level": player.level,
         "platform": player.platform,
         "region": player.region,
@@ -883,6 +884,31 @@ def _competitive(queue_name: str) -> bool:
     """
     category, _, _mode = (queue_name or "").partition(":")
     return category.strip().lower() not in UNCOMPETITIVE_QUEUE_PREFIXES
+
+
+def _secure(url: Optional[str]) -> Optional[str]:
+    """Hi-Rez hands back avatar URLs on plain http.
+
+    The site is served over https, so a browser blocks those as mixed content
+    and the image silently never loads — which looks exactly like a player who
+    has no avatar at all. Their CDN serves the same path over TLS, so this is a
+    scheme swap and not a proxy.
+    """
+    if not url:
+        return None
+    return url.replace("http://", "https://", 1) if url.startswith("http://") else url
+
+
+def _god_icon(provider, god_id: int) -> Optional[str]:
+    """That god's portrait, for players with no avatar of their own.
+
+    Only one of the fourteen has ever set one, so without a fallback the roster
+    is thirteen empty squares and a photograph.
+    """
+    try:
+        return provider.gods[GodId(god_id)].icon_url or None
+    except (KeyError, ValueError):
+        return None
 
 
 def _god_name(provider, god_id: int) -> Optional[str]:

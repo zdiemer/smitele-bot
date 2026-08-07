@@ -195,6 +195,7 @@ export type RankedEntry = {
 export type GodEntry = {
   god_id: number
   god: string | null
+  icon?: string | null
   worshippers: number
   rank: number
   wins: number

@@ -154,7 +154,26 @@ code {
   text-wrap: balance;
 }
 
-.wordmark span {
+/* The mark and the name are one target back to the overview. */
+.wordmark-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: inherit;
+  border-bottom: none;
+}
+
+.wordmark-link:hover .host {
+  color: var(--ink);
+}
+
+.bolt {
+  flex: none;
+  display: block;
+  border-radius: 6px;
+}
+
+.wordmark .host {
   color: var(--accent);
   font-weight: 500;
 }
@@ -808,6 +827,27 @@ th.sortable:hover {
 }
 
 /* --- players ------------------------------------------------------------- */
+
+/* Name and face travel together, so the stacked mobile layout keeps them on
+ * one line rather than orphaning the picture above the label. */
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.face {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--paper-2);
+}
+
+.face-blank {
+  border: 1px solid var(--rule);
+}
 
 .player-head {
   display: flex;

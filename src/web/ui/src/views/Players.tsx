@@ -25,6 +25,18 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'last_played_at', label: 'Last played' },
 ]
 
+/**
+ * A player's picture, or the closest true thing to one.
+ *
+ * Exactly one of the fourteen has ever set a Hi-Rez avatar, so without a
+ * fallback the roster is thirteen blanks and a photograph. Their most-played
+ * god stands in — it is a fact about them rather than a placeholder, and on a
+ * Smite site it reads as identity rather than as a missing image.
+ */
+function face(player: Player): string | null {
+  return player.avatar_url || player.top_gods?.[0]?.icon || null
+}
+
 function sortValue(player: Player, key: SortKey): number | string {
   switch (key) {
     case 'name':
@@ -96,13 +108,20 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
             {rows.map((player) => (
               <tr key={player.name}>
                 <td>
-                  {player.found && !player.private ? (
-                    <Link to={`/players/${encodeURIComponent(player.name)}`}>
-                      {player.name}
-                    </Link>
-                  ) : (
-                    player.name
-                  )}
+                  <span className="who">
+                    {face(player) ? (
+                      <img className="face" src={face(player)!} alt="" loading="lazy" />
+                    ) : (
+                      <span className="face face-blank" aria-hidden="true" />
+                    )}
+                    {player.found && !player.private ? (
+                      <Link to={`/players/${encodeURIComponent(player.name)}`}>
+                        {player.name}
+                      </Link>
+                    ) : (
+                      player.name
+                    )}
+                  </span>
                   {player.private && <span className="muted"> · hidden profile</span>}
                   {!player.found && <span className="muted"> · not found</span>}
                 </td>
@@ -243,7 +262,7 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
       </Link>
 
       <div className="player-head">
-        {player.avatar_url ? <img src={player.avatar_url} alt="" /> : null}
+        {face(player) ? <img src={face(player)!} alt="" /> : null}
         <div>
           <h1>{player.name}</h1>
           <p className="muted" style={{ margin: 0 }}>

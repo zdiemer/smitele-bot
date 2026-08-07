@@ -7,11 +7,11 @@
  * renders nothing.
  */
 
-import { match, NavLink, usePath } from './router'
+import { Link, match, NavLink, usePath } from './router'
 import type { Players, Stats, Status } from './api'
 import { useEndpoint } from './useSnapshot'
 import { duration, snapshotHealth } from './format'
-import { Empty, Mark } from './components'
+import { Bolt, Empty, Mark } from './components'
 import Overview from './views/Overview'
 import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
@@ -127,8 +127,18 @@ export default function App() {
         so the age belongs next to the title, not in a bar you scroll past.
       */}
       <header className="masthead">
+        {/*
+          The wordmark is the way back to the overview — the convention every
+          site has, and the one thing a reader will try after clicking into a
+          player. `end` so it is only marked current on the overview itself.
+        */}
         <h1 className="wordmark">
-          smite<span>.diemer.codes</span>
+          <Link to="/" className="wordmark-link">
+            <Bolt />
+            <span>
+              smite<span className="host">.diemer.codes</span>
+            </span>
+          </Link>
         </h1>
         <Freshness status={data} error={error} loading={loading} refresh={refresh} />
       </header>
