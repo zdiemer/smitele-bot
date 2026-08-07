@@ -110,6 +110,35 @@ class TestHtmlErrorPage:
             asyncio.run(client._make_request("getdataused"))
 
 
+class TestSlowAndDroppedResponses:
+    """A `getqueuestatsbatch` for a heavy account can outrun aiohttp's timeout.
+
+    Seen live: one roster member out of fourteen failed every run with a bare
+    `TimeoutError` carrying no message at all. Same family as the HTML error
+    page — Hi-Rez struggling under a burst — and it raised straight past the
+    retry loop for the same reason.
+    """
+
+    @pytest.mark.parametrize(
+        "failure", [TimeoutError, aiohttp.ClientConnectionError]
+    )
+    def test_it_is_retried(self, client, monkeypatch, failure):
+        import asyncio
+
+        calls = respond_with(monkeypatch, client, [failure, {"ret_msg": None}])
+
+        assert asyncio.run(client._make_request("getqueuestats")) == {"ret_msg": None}
+        assert calls["count"] == 2
+
+    def test_a_persistent_timeout_still_raises(self, client, monkeypatch):
+        import asyncio
+
+        respond_with(monkeypatch, client, [TimeoutError] * hirez.Smite.MAX_RETRIES)
+
+        with pytest.raises(TimeoutError):
+            asyncio.run(client._make_request("getqueuestats"))
+
+
 class TestExpiredSessionStillWorks:
     def test_a_list_carrying_an_invalid_session_is_detected(self, client):
         assert client._Base__is_expired([{"ret_msg": "Invalid session id."}]) is True

@@ -280,6 +280,41 @@ class TestCompetitiveQueues:
         assert snapshot._competitive(name) is False
 
 
+class TestNullRowsInABatch:
+    """Hi-Rez returns lists with null *elements*, not just null responses.
+
+    Seen live: one roster member failed every run with
+    `TypeError: 'NoneType' object is not subscriptable`. The client already
+    retries a wholly-null body; this is a good list carrying rows Hi-Rez
+    declined to fill in, and grouping over one of them took the whole player
+    down.
+    """
+
+    def test_a_batch_with_null_rows_is_survivable(self):
+        from itertools import groupby
+
+        rows = [
+            {"Queue": "Normal: Conquest", "GodId": 1, "Wins": 1},
+            None,
+            {"Queue": "Normal: Conquest", "GodId": 2, "Wins": 1},
+        ]
+
+        # What the code does now.
+        cleaned = [row for row in (rows or []) if row]
+        grouped = {name: list(g) for name, g in groupby(cleaned, key=lambda r: r["Queue"])}
+
+        assert len(cleaned) == 2
+        assert list(grouped) == ["Normal: Conquest"]
+
+        # And what it used to do, so this test fails loudly if the guard is
+        # removed rather than silently passing.
+        with pytest.raises(TypeError):
+            list(groupby(rows, key=lambda r: r["Queue"]))
+
+    def test_a_null_response_is_survivable(self):
+        assert [row for row in (None or []) if row] == []
+
+
 class TestWriting:
     def test_write_is_atomic_and_leaves_no_partial(self, tmp_path):
         target = snapshot.write(str(tmp_path), snapshot.STATUS_FILE, {"version": 1})

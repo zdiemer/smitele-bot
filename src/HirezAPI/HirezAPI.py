@@ -128,11 +128,19 @@ class _Base:
                     time_string,
                     *args,
                 )
-            except (JSONDecodeError, aiohttp.ContentTypeError):
-                # Hi-Rez answers with an HTML error page rather than JSON when
-                # it is unhappy, which it routinely is partway through a run of
-                # batched calls. This used to raise straight past the retry
-                # loop, so a transient page cost the whole call.
+            except (
+                JSONDecodeError,
+                aiohttp.ContentTypeError,
+                aiohttp.ClientConnectionError,
+                asyncio.TimeoutError,
+            ):
+                # Four shapes of the same thing: Hi-Rez struggling partway
+                # through a run of batched calls. An HTML error page instead of
+                # JSON, a dropped connection, or a request that simply never
+                # comes back — a `getqueuestatsbatch` for a heavily-played
+                # account can exceed aiohttp's default timeout outright. All of
+                # them used to raise straight past this loop, so one slow
+                # response cost the whole call.
                 req_count += 1
                 res = None
                 if req_count >= self.MAX_RETRIES:

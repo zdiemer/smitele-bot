@@ -396,7 +396,12 @@ async def player_document(provider, username: str) -> Dict[str, Any]:
         rows = await provider.get_queue_stats_batch(
             player.id, (str(q.value) for q in all_queues[start : start + 20])
         )
-        if not any(rows):
+        # A batch can come back as a list with null *elements* — not a null
+        # response, which the client already retries, but individual rows Hi-Rez
+        # declined to fill in. Grouping over one of those subscripts None and
+        # takes the whole player down.
+        rows = [row for row in (rows or []) if row]
+        if not rows:
             continue
         from itertools import groupby  # noqa: PLC0415
 
@@ -431,7 +436,7 @@ async def player_document(provider, username: str) -> Dict[str, Any]:
                 best_queue = queue_name
                 best_queue_matches = stats.matches
 
-    gods = await provider.get_god_ranks(player.id)
+    gods = [god for god in (await provider.get_god_ranks(player.id) or []) if god]
     top_gods = sorted(
         (
             {
@@ -555,7 +560,15 @@ async def build_players() -> Dict[str, Any]:
         except Exception as error:  # noqa: BLE001
             # One bad lookup out of fourteen must not cost the other thirteen.
             # A partial file beats yesterday's whole one.
-            print(f"snapshot: player {username} failed: {error}", flush=True)
+            #
+            # The type is in the message because several of these arrive with an
+            # empty str() — a bare TimeoutError logged as "failed: " and said
+            # nothing about what to fix.
+            print(
+                f"snapshot: player {username} failed: "
+                f"{type(error).__name__}: {error}",
+                flush=True,
+            )
             players.append(
                 {
                     "name": username,
