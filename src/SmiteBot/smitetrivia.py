@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import math
+import os
 import random
 import re
 import time
@@ -16,6 +17,7 @@ import edit_distance
 from discord.ext import commands
 from unidecode import unidecode
 
+import art_cache
 import paths
 from game import Game
 from providers import Providers
@@ -306,6 +308,50 @@ def _with_choices(
     question.answer = TriviaAnswer([str(correct)])
     question.choices = choices
     return question
+
+
+# Enough of Discord's list to keep the extension honest; anything else it will
+# not treat as an image at all.
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+async def _attach_image(
+    embed: discord.Embed, question: TriviaQuestion
+) -> Optional[discord.File]:
+    """Send the picture with the message rather than pointing Discord at it.
+
+    `set_image(url=...)` posts the message the moment it is built and leaves
+    every client to go and fetch the art itself, so a multiple-choice question
+    arrived as four buttons above an empty frame that filled in a beat later.
+    Uploading the bytes makes the image part of the message — which is what the
+    build-tree question always did, since the tree it draws exists nowhere to
+    link to.
+
+    Art is fetched through the same disk cache the rest of the bot uses, under
+    a directory of its own: trivia asks for ability icons and Discord avatars,
+    which no other command caches, and keying them by kind would mean the
+    question knowing what kind of thing its picture is.
+
+    Falls back to the URL whenever the fetch does not produce an image, which
+    is exactly the behaviour every question had before.
+    """
+    source = question.image_url_or_bytes
+    if not isinstance(source, str) or not source:
+        return None
+
+    name = art_cache.cache_key(source)
+    extension = os.path.splitext(name)[1].lower()
+    if extension not in _IMAGE_EXTENSIONS:
+        extension = ".png"
+    filename = f"question{extension}"
+
+    data = await art_cache.fetch(source, "trivia", name)
+    if not art_cache.looks_like_image(data.getvalue()):
+        embed.set_image(url=source)
+        return None
+
+    embed.set_image(url=f"attachment://{filename}")
+    return discord.File(data, filename=filename)
 
 
 def _offer_choices(
@@ -2211,6 +2257,17 @@ class SmiteTrivia(commands.Cog):
                 weights=[self.__CATEGORY_WEIGHTS[c] for c in allowed],
                 k=1,
             )[0]
+        embed, question, file = await self.__generate(provider, catalogue, category)
+        if file is None:
+            # One place, so every generator's art is uploaded rather than
+            # linked — the tree question was the only one that ever was, and
+            # only because it had no URL to link to.
+            file = await _attach_image(embed, question)
+        return (embed, question, file)
+
+    async def __generate(
+        self, provider, catalogue: _Catalogue, category: TriviaCategory
+    ) -> Tuple[discord.Embed, TriviaQuestion, discord.File]:
         if category == TriviaCategory.CONSUMABLES:
             return ItemQuestionGenerator(
                 random.choice(catalogue.consumables), provider.items

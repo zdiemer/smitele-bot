@@ -8,6 +8,7 @@ nothing generated a question from a Smite 2 god. These do.
 
 from __future__ import annotations
 
+import io
 import types
 
 import pytest
@@ -17,6 +18,7 @@ discord = pytest.importorskip("discord", reason="py-cord not installed")
 from god_types import GodPro, GodRange, GodRole, GodType  # noqa: E402
 from item import Item, ItemProperty, ItemAttribute, ItemType  # noqa: E402
 from ability import Ability, _item, _itemDescription  # noqa: E402
+import smitetrivia  # noqa: E402
 from smitetrivia import (  # noqa: E402
     AnswerRange,
     GodQuestionGenerator,
@@ -620,6 +622,68 @@ class TestChoiceView:
         late = FakeInteraction(3)
         await view.press(late, "Book of Thoth")
         assert late.response.sent
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+
+class TestImageUpload:
+    async def test_the_art_is_uploaded_rather_than_linked(self, monkeypatch):
+        """`set_image(url=...)` posts the message and leaves the client to go
+        and fetch the art, so a question arrived as buttons above an empty
+        frame that filled in a beat later."""
+        asked = []
+
+        async def fetch(url, *parts):
+            asked.append((url, parts))
+            return io.BytesIO(PNG)
+
+        monkeypatch.setattr(smitetrivia.art_cache, "fetch", fetch)
+        embed = discord.Embed()
+        question = TriviaQuestion("Which item?", "Book of Thoth", "http://x/icon.jpg")
+
+        file = await smitetrivia._attach_image(embed, question)
+
+        assert file is not None
+        assert file.filename == "question.jpg", "the real extension is kept"
+        assert embed.image.url == "attachment://question.jpg"
+        assert asked == [("http://x/icon.jpg", ("trivia", "icon.jpg"))]
+
+    async def test_art_that_will_not_load_falls_back_to_the_url(self, monkeypatch):
+        """Hi-Rez's CDN 403s some icons. A missing picture must cost the
+        picture, not the question."""
+
+        async def fetch(_url, *_parts):
+            return io.BytesIO(b"<html>403</html>")
+
+        monkeypatch.setattr(smitetrivia.art_cache, "fetch", fetch)
+        embed = discord.Embed()
+        question = TriviaQuestion("Which item?", "Book of Thoth", "http://x/icon.png")
+
+        assert await smitetrivia._attach_image(embed, question) is None
+        assert embed.image.url == "http://x/icon.png"
+
+    async def test_an_unknown_extension_is_not_passed_through(self, monkeypatch):
+        """Discord decides an attachment is an image by its filename."""
+
+        async def fetch(_url, *_parts):
+            return io.BytesIO(PNG)
+
+        monkeypatch.setattr(smitetrivia.art_cache, "fetch", fetch)
+        embed = discord.Embed()
+        question = TriviaQuestion("Which god?", "Anubis", "http://x/portrait")
+
+        file = await smitetrivia._attach_image(embed, question)
+        assert file.filename == "question.png"
+
+    async def test_a_question_with_no_picture_uploads_nothing(self):
+        assert await smitetrivia._attach_image(discord.Embed(), TriviaQuestion("?", "a")) is None
+
+    async def test_already_rendered_bytes_are_left_to_their_own_file(self):
+        """The build-tree image is drawn, not fetched — it arrives as a File
+        from the generator and must not be fetched over again."""
+        question = TriviaQuestion("Which item?", "Book of Thoth", io.BytesIO(PNG))
+        assert await smitetrivia._attach_image(discord.Embed(), question) is None
 
 
 class RecordingContext:
