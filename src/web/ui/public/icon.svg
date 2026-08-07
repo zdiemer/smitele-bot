@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
+     aria-label="smite.diemer.codes">
+  <!--
+    The strike. "Smite" means to strike, and a strike is the same shape as a
+    liveness spike, so the bolt is not a decoration beside a chart — it is the
+    spike. Motion lines rather than a baseline: blue trailing behind, magenta
+    thrown ahead, which is also the site's two-game split.
+
+    White on its own dark tile rather than currentColor, so the mark is the same
+    object in a light tab, a dark tab, a preview card and a home screen. A tile
+    is also what makes it legible at 16px, where an outline would disappear.
+
+    Kept in sync with the polygon in src/web/og.py by hand — the preview card is
+    drawn with Pillow, which has no SVG parser.
+  -->
+  <rect width="64" height="64" rx="12" fill="#14171a"/>
+  <g stroke-linecap="round" stroke-width="3.5">
+    <path d="M9 20h11" stroke="#4a9ad8"/>
+    <path d="M6 30h10" stroke="#4a9ad8" opacity=".7"/>
+    <path d="M11 40h7"  stroke="#4a9ad8" opacity=".45"/>
+    <path d="M46 26h9"  stroke="#d06aaa" opacity=".45"/>
+    <path d="M48 36h10" stroke="#d06aaa" opacity=".7"/>
+    <path d="M44 46h11" stroke="#d06aaa"/>
+  </g>
+  <path d="M37 7L21 34h10l-4 23 20-31H34z" fill="#ffffff"/>
+</svg>

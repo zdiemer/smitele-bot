@@ -55,6 +55,10 @@ SHELL_CACHE_CONTROL = "no-cache, must-revalidate"
 # by construction.
 ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
+# The preview card. Matched to the snapshot cadence — a chat client that cached
+# it for a day would show a stand-down that lifted hours ago.
+OG_MAX_AGE = 900
+
 
 def dist_dir() -> str:
     return os.environ.get(DIST_ENV) or os.path.join(HERE, "dist")
@@ -203,6 +207,65 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
             }
         )
 
+    # Rendered card, keyed on the snapshots it was drawn from. `None` until the
+    # first request asks for one — a crawler is the only thing that ever will,
+    # and rendering at startup would cost every rolling pod a PNG nobody reads.
+    card: Dict[str, Any] = {"key": None, "png": None}
+
+    async def og_image(_request: web.Request) -> web.Response:
+        """The link preview, drawn live rather than checked in.
+
+        Keyed on both snapshot mtimes, so it re-renders when the data moves and
+        not once more — a thousand crawler fetches cost one render. A static
+        card would be a photograph of the numbers on the day it was exported,
+        which for a site whose entire subject is freshness is worse than none.
+        """
+        status_doc = snapshots.load(snapshot_module.STATUS_FILE) or {}
+        stats_doc = snapshots.load(snapshot_module.STATS_FILE) or {}
+        key = (
+            status_doc.get("generated_at"),
+            stats_doc.get("generated_at"),
+        )
+
+        if card["key"] != key or card["png"] is None:
+            try:
+                import og  # noqa: PLC0415
+
+                card["png"] = og.render(status_doc, stats_doc)
+                card["key"] = key
+            except Exception as error:  # noqa: BLE001
+                # A preview that cannot be drawn must not take a page down with
+                # it; the crawler simply gets no image.
+                print(f"serve: could not render og.png: {error}", flush=True)
+                return _json({"error": "preview unavailable"}, status=503)
+
+        return web.Response(
+            body=card["png"],
+            content_type="image/png",
+            headers={"Cache-Control": f"public, max-age={OG_MAX_AGE}"},
+        )
+
+    async def touch_icon(_request: web.Request) -> web.Response:
+        """The iOS home-screen icon, drawn from the same polygon as the card.
+
+        Rendered rather than checked in so there is one shape to change instead
+        of a binary to remember to regenerate. It never varies, so it is drawn
+        once per process and cached hard.
+        """
+        if card.get("icon") is None:
+            try:
+                import og  # noqa: PLC0415
+
+                card["icon"] = og.icon(180)
+            except Exception as error:  # noqa: BLE001
+                print(f"serve: could not render icon: {error}", flush=True)
+                return _json({"error": "icon unavailable"}, status=503)
+        return web.Response(
+            body=card["icon"],
+            content_type="image/png",
+            headers={"Cache-Control": ASSET_CACHE_CONTROL},
+        )
+
     async def api_not_found(_request: web.Request) -> web.Response:
         # An unknown /api path must never fall through to the SPA shell. A
         # client asking for JSON and getting 200 text/html debugs badly.
@@ -249,6 +312,8 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
     app.router.add_get("/api/players/{name}", player)
     app.router.add_get("/api/stats", stats)
     app.router.add_get("/api/meta", meta)
+    app.router.add_get("/og.png", og_image)
+    app.router.add_get("/icon-180.png", touch_icon)
     app.router.add_route("*", "/api/{tail:.*}", api_not_found)
     app.router.add_get("/", spa)
     app.router.add_get("/{path:.*}", spa)

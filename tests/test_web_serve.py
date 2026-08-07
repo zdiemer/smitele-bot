@@ -351,6 +351,62 @@ class TestStatsEndpoint:
             await client.close()
 
 
+class TestPreviewCard:
+    """/og.png is rendered per snapshot, not per request and not at build time."""
+
+    async def test_it_serves_a_png(self, site):
+        snapshots, dist, write = site
+        write(snapshot.STATUS_FILE, {"generated_at": time.time()})
+        write(snapshot.STATS_FILE, {"generated_at": time.time(), "games": {}})
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get("/og.png")
+
+            assert response.status == 200
+            assert response.content_type == "image/png"
+            assert (await response.read())[:8] == b"\x89PNG\r\n\x1a\n"
+        finally:
+            await client.close()
+
+    async def test_it_renders_even_with_no_snapshots(self, site):
+        # A crawler hitting a cold deploy must get a card, not a 503 that gets
+        # cached as "this site has no preview".
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            assert (await client.get("/og.png")).status == 200
+        finally:
+            await client.close()
+
+    async def test_it_is_cached_against_the_snapshot_not_the_request(self, site):
+        snapshots, dist, write = site
+        write(snapshot.STATUS_FILE, {"generated_at": 1000.0})
+        write(snapshot.STATS_FILE, {"generated_at": 1000.0, "games": {}})
+        client = await client_for(snapshots, dist)
+        try:
+            first = await (await client.get("/og.png")).read()
+            second = await (await client.get("/og.png")).read()
+
+            # Same snapshot, same bytes — the second request did no work.
+            assert first == second
+        finally:
+            await client.close()
+
+    async def test_its_cache_header_matches_the_snapshot_cadence(self, site):
+        snapshots, dist, write = site
+        write(snapshot.STATUS_FILE, {"generated_at": time.time()})
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get("/og.png")
+
+            assert f"max-age={serve.OG_MAX_AGE}" in response.headers["Cache-Control"]
+            # A chat client caching it for a day would show a stand-down that
+            # lifted hours ago.
+            assert serve.OG_MAX_AGE <= 3600
+        finally:
+            await client.close()
+
+
 class TestMeta:
     async def test_reports_both_ages_without_either_file(self, site):
         snapshots, dist, _ = site

@@ -9,6 +9,35 @@
       name="description"
       content="Scraper and API liveness for the Smite 1 and Smite 2 data behind Smite-le."
     />
+
+    <!--
+      One SVG, used directly. Supported everywhere that matters, and a single
+      file beats a pile of PNGs at four sizes. iOS is the exception — it will
+      not take SVG — so the touch icon is the one raster we keep.
+    -->
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <meta name="theme-color" content="#14171a" />
+
+    <!--
+      The preview card is /og.png, drawn by serve.py from whatever the snapshot
+      last wrote and cached against its mtime. Nothing about it is checked in or
+      generated at build time: a static card would be a photograph of the
+      numbers on the day it was exported, and for a site whose whole subject is
+      freshness that is worse than having none.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="smite.diemer.codes" />
+    <meta property="og:title" content="Smite · data and API liveness" />
+    <meta
+      property="og:description"
+      content="How fresh the Smite 1 and Smite 2 corpora are, whether either upstream is refusing us, and what is actually in the data."
+    />
+    <meta property="og:url" content="https://smite.diemer.codes/" />
+    <meta property="og:image" content="https://smite.diemer.codes/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <div id="root"></div>
