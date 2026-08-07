@@ -1,0 +1,144 @@
+{{- if .Values.snapshot.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "snapshot.enabled requires matchData.enabled — the snapshots go on the share, where the web pods can read them" }}
+{{- end }}
+{{/*
+What smite.diemer.codes serves, gathered on a schedule.
+
+Two CronJobs from one script, rendered from one template because the only
+differences between them are the flag, the schedule and the deadline. They
+write separate files on purpose: the fifteen-minute job must not be able to
+blank the six-hourly one's data by running first.
+
+This is the only workload that talks to Hi-Rez on the site's behalf. The web
+pods hold no credentials, which is what makes a public URL safe against a
+metered API.
+
+Manual run:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-snapshot snapshot-manual
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-snapshot-players players-manual
+*/}}
+{{- $root := . }}
+{{- $jobs := list
+      (dict "suffix" "snapshot" "component" "snapshot" "args" (list)
+            "config" .Values.snapshot.liveness)
+      (dict "suffix" "snapshot-players" "component" "snapshot-players" "args" (list "--players")
+            "config" .Values.snapshot.players) }}
+{{- range $job := $jobs }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" $root }}-{{ $job.suffix }}
+  labels:
+    {{- include "smitele-bot.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $job.component }}
+spec:
+  schedule: {{ $job.config.schedule | quote }}
+  {{- with $root.Values.snapshot.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  {{/*
+    A run that overlaps its successor is a run that is stuck on the share.
+    Starting a second one would put two writers on the same file.
+  */}}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  {{/*
+    Short: if the fifteen-minute job misses its window, the next one is fifteen
+    minutes away and a catch-up run has nothing extra to say.
+  */}}
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      {{/*
+        One retry. Unlike the crawl — where a failure is usually a WAF refusal
+        and coming back is the wrong move — a failure here is normally a share
+        that flickered, and a second attempt a moment later usually works.
+      */}}
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ $job.config.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: {{ $job.component }}
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" $root | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: snapshot
+              {{/*
+                The base image, not the web one. This needs the Hi-Rez client
+                and the corpus readers; it has no use for an SPA bundle, and
+                depending on one would put a browser build between a data job
+                and being deployable.
+              */}}
+              image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              command: ["python", "./src/web/snapshot.py"]
+              args:
+                {{- range $job.args }}
+                - {{ . | quote }}
+                {{- end }}
+                - --out
+                - {{ $root.Values.snapshot.dir | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" $root | nindent 16 }}
+                {{/*
+                  No egress proxy. This reads the tracker.gg state files off
+                  disk and never makes a tracker.gg request, so handing it a
+                  metered proxy would pay for nothing — and keying the
+                  clearance read to a *different* egress than the crawl uses
+                  would report the wrong bucket's block state.
+                */}}
+                - name: HOME
+                  value: /tmp
+                {{/*
+                  The Hi-Rez session token lands in SMITELE_DATA_DIR. Pointed at
+                  the share so it survives between runs: at 96 runs a day, a
+                  per-run session would spend a fifth of the 500/day cap on
+                  logging in. Not the bot's PVC — that is ReadWriteOnce and
+                  private to the bot.
+                */}}
+                - name: SMITELE_DATA_DIR
+                  value: {{ printf "%s/state" $root.Values.snapshot.dir | quote }}
+                - name: SMITELE_CACHE_DIR
+                  value: /tmp/cache
+                - name: SMITELE_S2_MATCH_DATA_DIR
+                  value: /matchdata/smite2/output
+                - name: SMITELE_S2_MATCH_ARCHIVE_DIR
+                  value: /matchdata/smite2/archive
+                - name: SMITELE_CORPUS_PARQUET_ONLY
+                  value: {{ $root.Values.bot.parquetOnlyCorpus | quote }}
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml $root.Values.snapshot.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" $root }}-matchdata
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+          {{- with $root.Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

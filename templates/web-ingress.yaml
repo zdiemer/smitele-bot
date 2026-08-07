@@ -1,0 +1,61 @@
+{{- if and .Values.web.enabled .Values.web.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-web
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: {{ .Values.web.ingress.tls.certResolver }}
+    # DuckDNS's API can only set TXT at the account's top-level subdomain, so
+    # per-host certs for sub-subdomains fail the ACME challenge. We ride a
+    # wildcard SAN instead — one cert covers every sub-subdomain.
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: {{ .Values.web.ingress.tls.domain | quote }}
+    traefik.ingress.kubernetes.io/router.tls.domains.0.sans: {{ .Values.web.ingress.tls.wildcardSan | quote }}
+spec:
+  ingressClassName: {{ .Values.web.ingress.className }}
+  rules:
+    - host: {{ .Values.web.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "smitele-bot.fullname" . }}-web
+                port:
+                  number: {{ .Values.web.port }}
+    {{- /*
+      Extra hosts served over the shared Cloudflare tunnel: TLS is terminated at
+      Cloudflare's edge, so these are deliberately absent from the ACME cert list
+      below. Traefik routes them by Host header; the tunnel dials in with No TLS
+      Verify. A list, so the site can be published across any number of external
+      domains. See infra/cloudflared in the selfhosted repo.
+    */}}
+    {{- range .Values.web.ingress.cloudflareHosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "smitele-bot.fullname" $ }}-web
+                port:
+                  number: {{ $.Values.web.port }}
+    {{- end }}
+  {{- if .Values.web.ingress.tls.enabled }}
+  {{- /*
+    ONLY the DuckDNS host. Putting a diemer.codes name here asks the duckdns
+    resolver for a cert it cannot get — DNS-01 against a zone it does not
+    control — and a failing domain can take the whole ACME order down with it,
+    wildcard included.
+  */}}
+  tls:
+    - hosts:
+        - {{ .Values.web.ingress.host }}
+  {{- end }}
+{{- end }}

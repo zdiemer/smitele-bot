@@ -1,0 +1,54 @@
+# smite.diemer.codes: the bot image plus a built SPA.
+#
+# The Python half is already in the base image — `serve.py` reads a JSON file
+# and serves static assets, and needs nothing the bot does not already have. All
+# this adds is `dist/`, which is why the node toolchain lives in a build stage
+# that contributes no layers to the result.
+#
+# The snapshot CronJob that *writes* those JSON files runs from the base image
+# directly. It has no use for a bundle, and giving it one would mean a browser
+# build sits between a data job and being deployable.
+#
+# Built by build.sh alongside the main image and tagged in lockstep with it.
+
+ARG BASE_IMAGE=ghcr.io/zdiemer/smitele-bot
+ARG BASE_TAG=latest
+
+FROM node:22-alpine AS ui
+
+WORKDIR /build/src/web/ui
+
+# Lockfile first, so a source edit does not re-resolve the dependency tree.
+COPY src/web/ui/package.json src/web/ui/package-lock.json ./
+RUN npm ci
+
+# The docs view imports `docs/desktop-api.md?raw`, so the page and the repo
+# cannot drift. That import resolves *above* the ui directory, which is why the
+# doc is copied into the same relative position it occupies in the repo — a
+# build context missing it fails here, at build time, rather than shipping a
+# docs tab that renders nothing.
+COPY docs/desktop-api.md /build/docs/desktop-api.md
+COPY src/web/ui/ ./
+
+RUN npm run build
+
+# Prove the markdown actually made it into the bundle. `?raw` resolving to an
+# empty string is a silent success otherwise.
+RUN grep -q "build-advice API for a desktop client" dist/assets/*.js \
+ && echo "docs inlined into the bundle"
+
+FROM ${BASE_IMAGE}:${BASE_TAG}
+
+# serve.py looks for `dist` next to itself by default, so nothing has to agree
+# on a path in two places.
+COPY --from=ui --chown=smitele:smitele /build/src/web/ui/dist /home/smitele/src/web/dist
+
+# Same port as the bot's status endpoint, which is fine — they are different
+# pods. The Service names the port, not the number.
+ENV SMITELE_WEB_PORT=8080 \
+    SMITELE_WEB_SNAPSHOT_DIR=/matchdata/web
+
+RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/match_data_collector', 'src/web']; \
+import serve; app = serve.build_app(); print('web app builds ok')"
+
+ENTRYPOINT ["python", "./src/web/serve.py"]

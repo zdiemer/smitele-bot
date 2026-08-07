@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 
 def half_of(player_key: str) -> int:
@@ -101,6 +101,25 @@ class CoverageTracker:
             if day.coverage is not None
         ]
         return sum(estimates) / len(estimates) if estimates else None
+
+    def snapshot(self, limit: int = 8) -> List[Dict[str, Optional[float]]]:
+        """The same table `report` prints, as fields rather than columns.
+
+        Same ordering and same limit, so what the dashboard shows and what the
+        Job log shows are the same rows and cannot disagree.
+        """
+        return [
+            {
+                "date": date,
+                "seen": day.seen,
+                "half_a": len(day.first),
+                "half_b": len(day.second),
+                "both": day.both,
+                "estimated_total": day.estimated_total,
+                "coverage": day.coverage,
+            }
+            for date, day in sorted(self.days.items(), reverse=True)[:limit]
+        ]
 
     def report(self, limit: int = 8) -> str:
         lines = [

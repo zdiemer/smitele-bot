@@ -102,6 +102,34 @@ if [[ "${SKIP_S2COLLECTOR:-0}" != "1" ]]; then
   fi
 fi
 
+# smite.diemer.codes is the bot image plus a built SPA. The node toolchain lives
+# in a build stage and contributes no layers, so this is quick — but it is still
+# the only image here that needs a network fetch of somebody else's dependency
+# tree, hence SKIP_WEB=1 for changes that don't touch the site.
+if [[ "${SKIP_WEB:-0}" != "1" ]]; then
+  WEB_REPO="$(awk -F'"' '/smitele-bot-web/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
+  WEB_IMAGE="${WEB_REPO:-ghcr.io/zdiemer/smitele-bot-web}:${TAG}"
+
+  if command -v docker >/dev/null; then
+    echo "==> Building ${WEB_IMAGE} (docker)"
+    docker build -f "${HERE}/Dockerfile.web" \
+      --build-arg "BASE_IMAGE=${REPO}" --build-arg "BASE_TAG=${TAG}" \
+      -t "${WEB_IMAGE}" "${HERE}"
+    echo "==> Pushing ${WEB_IMAGE}"
+    docker push "${WEB_IMAGE}"
+  else
+    echo "==> Building + pushing ${WEB_IMAGE} (buildctl)"
+    buildctl build \
+      --frontend dockerfile.v0 \
+      --local context="${HERE}" \
+      --local dockerfile="${HERE}" \
+      --opt filename=Dockerfile.web \
+      --opt "build-arg:BASE_IMAGE=${REPO}" \
+      --opt "build-arg:BASE_TAG=${TAG}" \
+      --output "type=image,\"name=${WEB_IMAGE}\",push=true"
+  fi
+fi
+
 echo "==> Done. Run upgrade.sh to roll the cluster onto the new image."
 echo "    (First push only: set the ghcr.io/zdiemer/smitele-bot package"
 echo "     visibility to Public so every node can pull it anonymously.)"

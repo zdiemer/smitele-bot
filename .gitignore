@@ -7,6 +7,20 @@
 # any other constant — and the blanket rule above had them silently untracked,
 # so the optimizer loaded an empty table on any fresh checkout and said nothing.
 !src/SmiteBot/item_value_*.json
+
+# Same trap, second time: a node project keeps its manifest, its lockfile and
+# its compiler config in .json, so the blanket rule above would leave the web UI
+# with no package.json and a `npm ci` that fails on a fresh clone.
+!src/web/ui/package.json
+!src/web/ui/package-lock.json
+!src/web/ui/tsconfig*.json
+
+# Installed and generated, not source. dist/ is rebuilt by Dockerfile.web on
+# every image build; node_modules is 100MB of other people's code.
+src/web/ui/node_modules/
+src/web/ui/dist/
+src/web/ui/*.tsbuildinfo
+
 **/__pycache__
 session
 version

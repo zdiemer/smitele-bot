@@ -1,0 +1,614 @@
+#!/usr/bin/env python3
+"""Everything smite.diemer.codes shows, gathered once by a CronJob.
+
+The site is public, and the two things it reports on are metered: Hi-Rez allows
+75,000 requests and 500 sessions a day, and a Cloudflare clearance cookie costs
+one of twelve daily solves to mint. A web tier that fetched on demand would put
+both budgets behind an anonymous URL, where a shared link is indistinguishable
+from an attack. So nothing public ever calls a third party. This runs on a
+schedule, writes JSON, and `serve.py` reads the file.
+
+Two modes, because the two halves cost wildly different amounts:
+
+  default    liveness. Two Hi-Rez calls plus some stat()s. Cheap enough to run
+             every fifteen minutes, which is what makes "is the crawl blocked
+             right now?" a question the page can actually answer.
+  --players  the roster's stats. About a hundred and twenty Hi-Rez calls, for
+             numbers that move over weeks. Every six hours is generous.
+
+They write separate files on purpose. One schedule must never be able to blank
+the other's data by running first.
+
+    python src/web/snapshot.py --out /matchdata/web
+    python src/web/snapshot.py --players --out /matchdata/web
+
+TWO RULES FOR ANYTHING ADDED HERE.
+
+First: read clearance state through `ClearanceStore`, never `ClearanceManager`.
+The manager mints. A monitor that spends the budget it is reporting on is worse
+than no monitor, and the two class names are one word apart.
+
+Second: every section catches its own exceptions and degrades to an `error`
+field. The corpus is on an SMB share that goes away sometimes, and a share
+wobble must cost one card on the page, not the whole page.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import datetime
+import json
+import os
+import sys
+import time
+from typing import Any, Callable, Dict, List, Optional
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "HirezAPI"))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "match_data_collector"))
+
+import manifest as manifest_module  # noqa: E402
+import match_storage  # noqa: E402
+import paths  # noqa: E402
+import roster  # noqa: E402
+from game import Game  # noqa: E402
+from god_types import GodId  # noqa: E402
+from HirezAPI import QueueId  # noqa: E402
+from queue_stats import QueueStats  # noqa: E402
+from smite2 import clearance as clearance_module  # noqa: E402
+from smite2 import cooldown as cooldown_module  # noqa: E402
+from smite2 import egress as egress_module  # noqa: E402
+from smite2 import last_run as last_run_module  # noqa: E402
+from smite2.provider import CLEARANCE_FILE  # noqa: E402
+
+SCHEMA_VERSION = 1
+
+STATUS_FILE = "status.json"
+PLAYERS_FILE = "players.json"
+
+# Where the snapshots are written, and where serve.py looks for them. The same
+# env var on both sides so a deployment sets it once.
+SNAPSHOT_DIR_ENV = "SMITELE_WEB_SNAPSHOT_DIR"
+
+# Between roster members in `--players`. Fourteen players at five batched calls
+# each is a burst Hi-Rez answers with error pages; this spreads it over half a
+# minute, which a six-hourly job does not notice.
+PLAYER_PACING_SECONDS = 2.0
+
+
+def snapshot_dir() -> str:
+    return os.environ.get(SNAPSHOT_DIR_ENV) or os.path.join(paths.MODEL_DIR, "web")
+
+
+def section(name: str, produce: Callable[[], Any]) -> Any:
+    """Run one section, or record why it could not run.
+
+    Broad by design. A section is a read of somebody else's filesystem or API,
+    and the list of ways those fail is not one worth enumerating — what matters
+    is that the failure lands in the field it belongs to instead of in the exit
+    code.
+    """
+    try:
+        return produce()
+    except Exception as error:  # noqa: BLE001
+        print(f"snapshot: {name} failed: {error}", flush=True)
+        return {"error": f"{type(error).__name__}: {error}"}
+
+
+# --- data liveness ---------------------------------------------------------
+
+
+def corpus_section(*directories: str) -> Dict[str, Any]:
+    """How deep the corpus is and when it last grew.
+
+    Only the newest file is stat()ed. `corpus_paths` already walks the tree —
+    3,300 files on a network share — and stat()ing every one of them four times
+    an hour to produce a total byte count nobody reads would turn a cheap job
+    into a slow one.
+    """
+    found = match_storage.corpus_paths(*directories)
+    if not found:
+        return {"files": 0, "newest": None, "newest_at": None}
+
+    # Sorted by basename, and a basename is `match_details_YYYY-MM-DD.parquet`,
+    # so the last one is the most recent day rather than the most recent write.
+    newest = found[-1]
+    try:
+        stat = os.stat(newest)
+        newest_at, size = stat.st_mtime, stat.st_size
+    except OSError:
+        newest_at, size = None, None
+
+    return {
+        "files": len(found),
+        "newest": os.path.basename(newest),
+        "newest_at": newest_at,
+        "newest_bytes": size,
+    }
+
+
+def aggregate_section(directory: str) -> Dict[str, Any]:
+    """What the last aggregate run folded in, from the manifest it left."""
+    stored = manifest_module.read(directory)
+    if stored is None:
+        return {"built": None, "newest": None, "files": 0, "rows": 0}
+
+    return {
+        "built": stored.built.isoformat() if stored.built else None,
+        "newest": stored.newest.isoformat() if stored.newest else None,
+        "files": len(stored.entries),
+        # UNKNOWN is -1 for a file whose footer could not be read; summing it
+        # in would quietly understate the corpus rather than admit a gap.
+        "rows": sum(e.rows for e in stored.entries if e.rows > 0),
+        "unknown_rows": sum(1 for e in stored.entries if e.rows <= 0),
+    }
+
+
+def model_section(directory: str) -> Dict[str, Any]:
+    """When the trainer last wrote a model, if it ever has."""
+    out: Dict[str, Any] = {}
+    for name in ("model.npz", "candidates.npz"):
+        try:
+            stat = os.stat(os.path.join(directory, name))
+            out[name] = {"at": stat.st_mtime, "bytes": stat.st_size}
+        except OSError:
+            out[name] = None
+    return out
+
+
+def crawl_section(state_dir: str) -> Dict[str, Any]:
+    """The Smite 2 crawl's own state: who it knows and what it has seen.
+
+    Read with `read_frame_columns` rather than whole — the frontier carries ten
+    columns and this needs three of them, and it is read every fifteen minutes.
+    """
+    out: Dict[str, Any] = {}
+
+    frontier_path = os.path.join(state_dir, "frontier.parquet")
+    if os.path.exists(frontier_path):
+        frame = match_storage.read_frame_columns(
+            frontier_path, ["last_queried", "visits", "barren_visits"]
+        )
+        queried = frame["last_queried"].dropna()
+        queried = queried[queried != ""]
+        out["frontier"] = {
+            "players": int(len(frame)),
+            "unvisited": int((frame["visits"] == 0).sum()),
+            "last_queried": str(queried.max()) if len(queried) else None,
+        }
+    else:
+        out["frontier"] = None
+
+    seen_path = os.path.join(state_dir, "seen_matches.parquet")
+    if os.path.exists(seen_path):
+        seen = match_storage.read_frame_columns(seen_path, ["date"])
+        out["matches_collected"] = int(len(seen))
+    else:
+        out["matches_collected"] = 0
+
+    return out
+
+
+# --- API liveness ----------------------------------------------------------
+
+
+async def hirez_section(provider) -> Dict[str, Any]:
+    """Hi-Rez's own two answers about itself.
+
+    `gethirezserverstatus` has been defined in the client since the beginning
+    and called by nothing. `getdataused` was reachable only through an
+    owner-only `$usage` text command. Both are one request.
+    """
+    out: Dict[str, Any] = {}
+
+    try:
+        used = await provider.get_data_used()
+        row = used[0] if isinstance(used, list) and used else used or {}
+        out["quota"] = {
+            "requests_today": int(row.get("Total_Requests_Today", 0)),
+            "requests_limit": int(row.get("Request_Limit_Daily", 0)),
+            "sessions_today": int(row.get("Total_Sessions_Today", 0)),
+            "sessions_limit": int(row.get("Session_Cap", 0)),
+            "active_sessions": int(row.get("Active_Sessions", 0)),
+            "concurrent_limit": int(row.get("Concurrent_Sessions", 0)),
+        }
+    except Exception as error:  # noqa: BLE001
+        out["quota"] = {"error": f"{type(error).__name__}: {error}"}
+
+    try:
+        status = await provider.get_hirez_server_status()
+        out["servers"] = [
+            {
+                "platform": row.get("platform"),
+                "environment": row.get("environment"),
+                "status": row.get("status"),
+                "version": row.get("version"),
+                "limited_access": bool(row.get("limited_access")),
+                "entry_datetime": row.get("entry_datetime"),
+            }
+            for row in (status or [])
+        ]
+    except Exception as error:  # noqa: BLE001
+        out["servers"] = {"error": f"{type(error).__name__}: {error}"}
+
+    return out
+
+
+def tracker_section(state_dir: str) -> Dict[str, Any]:
+    """Whether tracker.gg is currently refusing us, and why.
+
+    Two independent things, kept apart here exactly as they are kept apart on
+    disk. A stand-down is the API refusing to serve us and lifts on a deadline;
+    a clearance backoff is the challenge solver having failed too often and is
+    about cookies. Either one stops a crawl, and the fix for one is not the fix
+    for the other, so a page that merged them would send someone to the wrong
+    lever.
+
+    Every read here is a `load()`/`read()`. Nothing in this function mints.
+    """
+    identity = egress_module.identity()
+
+    cooldown = cooldown_module.Cooldown(
+        os.path.join(state_dir, cooldown_module.FILE_NAME), egress=identity
+    )
+    standdown = cooldown.read()
+
+    store = clearance_module.ClearanceStore(
+        os.path.join(state_dir, CLEARANCE_FILE), egress=identity
+    )
+    state = store.load()
+    cookie = state.clearance
+
+    now = time.time()
+    return {
+        "egress": identity,
+        "standdown": {
+            "active": standdown.active,
+            "until": standdown.until,
+            "remaining_seconds": standdown.remaining,
+            "reason": standdown.reason,
+            "armed_at": standdown.armed_at,
+        },
+        "clearance": {
+            # `mints` is already trimmed to the last 24h by the store, so this
+            # is the number the daily cap is actually compared against.
+            "mints_today": len(state.mints),
+            "mints_limit": clearance_module.MAX_MINTS_PER_DAY,
+            "blocked": state.blocked_until > now,
+            "blocked_until": state.blocked_until,
+            "cookie": (
+                {
+                    "issued_at": cookie.issued_at,
+                    "age_seconds": cookie.age_seconds,
+                    "last_ok": cookie.last_ok,
+                    "observed_ip": cookie.observed_ip,
+                }
+                if cookie
+                else None
+            ),
+        },
+    }
+
+
+# --- the two documents -----------------------------------------------------
+
+
+async def build_status() -> Dict[str, Any]:
+    smite1_model = paths.game_model_dir(Game.SMITE)
+    smite2_model = paths.game_model_dir(Game.SMITE_2)
+
+    document: Dict[str, Any] = {
+        "version": SCHEMA_VERSION,
+        "generated_at": time.time(),
+        "games": {
+            Game.SMITE.value: {
+                "corpus": section(
+                    "smite corpus",
+                    lambda: corpus_section(
+                        paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR
+                    ),
+                ),
+                "aggregate": section(
+                    "smite aggregate", lambda: aggregate_section(smite1_model)
+                ),
+                "model": section("smite model", lambda: model_section(smite1_model)),
+            },
+            Game.SMITE_2.value: {
+                "corpus": section(
+                    "smite2 corpus",
+                    lambda: corpus_section(
+                        paths.game_match_data_dir(Game.SMITE_2),
+                        paths.game_match_archive_dir(Game.SMITE_2),
+                    ),
+                ),
+                "aggregate": section(
+                    "smite2 aggregate", lambda: aggregate_section(smite2_model)
+                ),
+                "model": section("smite2 model", lambda: model_section(smite2_model)),
+                "crawl": section("smite2 crawl", lambda: crawl_section(smite2_model)),
+                "last_run": section(
+                    "smite2 last run", lambda: last_run_module.read(smite2_model)
+                ),
+            },
+        },
+        "tracker": section("tracker", lambda: tracker_section(smite2_model)),
+    }
+
+    # Last, and only this one needs credentials — so a checkout with no Hi-Rez
+    # keys still produces every other section rather than nothing.
+    try:
+        from SmiteProvider import SmiteProvider  # noqa: PLC0415
+
+        # No teardown: the client opens a ClientSession per request rather than
+        # holding one, so there is nothing here to close.
+        document["hirez"] = await hirez_section(SmiteProvider(silent=True))
+    except Exception as error:  # noqa: BLE001
+        print(f"snapshot: hirez failed: {error}", flush=True)
+        document["hirez"] = {"error": f"{type(error).__name__}: {error}"}
+
+    return document
+
+
+def _date(value) -> Optional[str]:
+    if not value or value == datetime.datetime.min:
+        return None
+    return value.isoformat()
+
+
+async def player_document(provider, username: str) -> Dict[str, Any]:
+    """One roster member's Smite 1 stats.
+
+    Walks the same path `player_stats.py` does for a `/queue_stats` with no
+    queue: resolve the name, follow the merged-account redirect, then batch the
+    per-queue god rows twenty queues at a time. Deliberately the same walk —
+    two implementations of "which account is this?" would eventually disagree.
+    """
+    ids = await provider.get_player_id_by_name(username)
+    if not any(ids):
+        return {"name": username, "found": False}
+    if ids[0].get("privacy_flag") == "y":
+        # Not an error. A hidden profile is a choice, and the page should say
+        # so rather than show a name with an exception next to it.
+        return {"name": username, "found": True, "private": True}
+
+    from player import Player, PlayerId  # noqa: PLC0415
+
+    player_id = PlayerId.from_json(ids[0], provider)
+    player = await player_id.get_player()
+    if player is not None and player.active_player_id != player.id:
+        player = await player_id.get_player(id_override=player.active_player_id)
+    if player is None:
+        return {"name": username, "found": False}
+
+    totals = QueueStats()
+    best_queue: Optional[str] = None
+    best_win_percent = -1.0
+    best_queue_matches = 0
+
+    all_queues = list(QueueId)
+    for start in range(0, len(all_queues), 20):
+        rows = await provider.get_queue_stats_batch(
+            player.id, (str(q.value) for q in all_queues[start : start + 20])
+        )
+        if not any(rows):
+            continue
+        from itertools import groupby  # noqa: PLC0415
+
+        for queue_name, group in groupby(rows, key=lambda row: row["Queue"]):
+            stats = QueueStats.from_json(group)
+            # Totals count everything the account has ever done. "Best queue"
+            # does not: the honest winner is otherwise "Training: Easy Bots" at
+            # 100%, which is true and tells a reader nothing. The same
+            # normal-or-ranked filter the `/queue_stats` command uses to build
+            # its own choice list.
+            competitive = _competitive(queue_name)
+            totals.total_kills += stats.total_kills
+            totals.total_deaths += stats.total_deaths
+            totals.total_assists += stats.total_assists
+            totals.total_gold += stats.total_gold
+            totals.total_wins += stats.total_wins
+            totals.total_losses += stats.total_losses
+            totals.total_minutes += stats.total_minutes
+            totals.last_played = max(totals.last_played, stats.last_played)
+            if (
+                competitive
+                and stats.matches >= 10
+                and (
+                    stats.win_percent > best_win_percent
+                    or (
+                        stats.win_percent == best_win_percent
+                        and stats.matches > best_queue_matches
+                    )
+                )
+            ):
+                best_win_percent = stats.win_percent
+                best_queue = queue_name
+                best_queue_matches = stats.matches
+
+    gods = await provider.get_god_ranks(player.id)
+    top_gods = sorted(
+        (
+            {
+                "god_id": int(god["god_id"]),
+                "god": _god_name(provider, int(god["god_id"])),
+                "worshippers": int(god["Worshippers"]),
+                "rank": int(god["Rank"]),
+                "wins": int(god["Wins"]),
+                "losses": int(god["Losses"]),
+                "kills": int(god["Kills"]),
+                "deaths": int(god["Deaths"]),
+                "assists": int(god["Assists"]),
+            }
+            for god in gods
+        ),
+        key=lambda row: row["worshippers"],
+        reverse=True,
+    )[:10]
+
+    return {
+        "name": player.name or username,
+        "found": True,
+        "private": False,
+        "avatar_url": player.avatar_url,
+        "level": player.level,
+        "platform": player.platform,
+        "region": player.region,
+        "clan": player.clan_name or None,
+        "created_at": _date(player.created_datetime),
+        "last_login_at": _date(player.last_login_datetime),
+        "last_played_at": _date(totals.last_played),
+        "leaves": player.leaves,
+        "total_worshippers": player.total_worshippers,
+        "totals": {
+            "kills": totals.total_kills,
+            "deaths": totals.total_deaths,
+            "assists": totals.total_assists,
+            "gold": totals.total_gold,
+            "wins": totals.total_wins,
+            "losses": totals.total_losses,
+            "matches": totals.matches,
+            "minutes": totals.total_minutes,
+            "kda": round(totals.total_avg_kda, 3),
+            "win_percent": round(totals.win_percent, 4),
+        },
+        "best_queue": (
+            {
+                "queue": best_queue,
+                "win_percent": round(best_win_percent, 4),
+                "matches": best_queue_matches,
+            }
+            if best_queue
+            else None
+        ),
+        "ranked": [
+            {
+                "queue": queue.display_name,
+                "tier": stat.tier.display_name,
+                "tier_id": stat.tier.value,
+                "mmr": round(stat.mmr, 1),
+                "points": stat.points,
+                "wins": stat.wins,
+                "losses": stat.losses,
+                "leaves": stat.leaves,
+            }
+            for queue, stat in sorted(
+                player.ranked_stats.items(), key=lambda pair: pair[0].name
+            )
+        ],
+        "top_gods": top_gods,
+    }
+
+
+# `getqueuestats` labels each row `"<category>: <mode>"` — "Normal: Conquest",
+# "Custom: Joust", "Training: Easy Bots (Solo)". The category is the whole
+# signal, and it is not the enum's `display_name` ("Conquest"), so the name
+# cannot be parsed back through `QueueId` the way a slash command option can.
+#
+# Excluded rather than allow-listed on purpose: a mode that ships next patch
+# should count toward someone's best queue without a code change, where a new
+# *bot* mode is the rarer event and shows up under one of these prefixes.
+UNCOMPETITIVE_QUEUE_PREFIXES = ("custom", "training", "practice", "tutorial", "bot")
+
+
+def _competitive(queue_name: str) -> bool:
+    """Whether a win rate in this queue means anything.
+
+    Totals count every match the account has played. "Best queue" should not:
+    left unfiltered the honest answer is "Training: Easy Bots (Solo), 100%",
+    which is true and useless.
+    """
+    category, _, _mode = (queue_name or "").partition(":")
+    return category.strip().lower() not in UNCOMPETITIVE_QUEUE_PREFIXES
+
+
+def _god_name(provider, god_id: int) -> Optional[str]:
+    try:
+        return provider.gods[GodId(god_id)].name
+    except (KeyError, ValueError):
+        return None
+
+
+async def build_players() -> Dict[str, Any]:
+    from SmiteProvider import SmiteProvider  # noqa: PLC0415
+
+    provider = SmiteProvider(silent=True)
+    # Needed for god names on the worshipper table. Two cached API calls.
+    await provider.create()
+
+    players: List[Dict[str, Any]] = []
+    for index, username in enumerate(roster.SMITE_USERNAMES):
+        # Hi-Rez fails a sustained burst of batched calls rather than queueing
+        # it — measured as an HTML error page or a null body on roughly a third
+        # of the roster when run flat out. The client retries those now, but not
+        # provoking them is cheaper than recovering from them, and a job that
+        # runs every six hours has no reason to hurry.
+        if index:
+            await asyncio.sleep(PLAYER_PACING_SECONDS)
+        try:
+            players.append(await player_document(provider, username))
+        except Exception as error:  # noqa: BLE001
+            # One bad lookup out of fourteen must not cost the other thirteen.
+            # A partial file beats yesterday's whole one.
+            print(f"snapshot: player {username} failed: {error}", flush=True)
+            players.append(
+                {
+                    "name": username,
+                    "found": False,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+            )
+
+    return {
+        "version": SCHEMA_VERSION,
+        "generated_at": time.time(),
+        "players": players,
+    }
+
+
+def write(directory: str, name: str, document: Dict[str, Any]) -> str:
+    """Atomically, because serve.py reads this file without coordinating."""
+    os.makedirs(directory, exist_ok=True)
+    target = os.path.join(directory, name)
+    partial = f"{target}.partial"
+    with open(partial, "w", encoding="utf-8") as handle:
+        json.dump(document, handle)
+    os.replace(partial, target)
+    return target
+
+
+async def run(args) -> int:
+    directory = args.out or snapshot_dir()
+
+    if args.players:
+        document = await build_players()
+        target = write(directory, PLAYERS_FILE, document)
+        found = sum(1 for p in document["players"] if p.get("found"))
+        print(f"Wrote {target} — {found}/{len(document['players'])} players", flush=True)
+        return 0
+
+    document = await build_status()
+    target = write(directory, STATUS_FILE, document)
+    print(f"Wrote {target}", flush=True)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--players",
+        action="store_true",
+        help="refresh the roster's Smite 1 stats instead of the liveness "
+        "snapshot. About 120 Hi-Rez requests, so it runs on its own, much "
+        "slower schedule and writes its own file.",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help=f"directory to write into; defaults to ${SNAPSHOT_DIR_ENV}",
+    )
+    return asyncio.run(run(parser.parse_args()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

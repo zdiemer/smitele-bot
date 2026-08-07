@@ -51,6 +51,7 @@ from smite2.clearance import (  # noqa: E402
 )
 from smite2 import cooldown as cooldown_module  # noqa: E402
 from smite2 import egress as egress_module  # noqa: E402
+from smite2 import last_run as last_run_module  # noqa: E402
 from smite2.provider import CLEARANCE_FILE, Smite2Provider  # noqa: E402
 from smite2.tracker_client import (  # noqa: E402
     DEFAULT_JITTER,
@@ -205,6 +206,24 @@ async def crawl(args) -> int:
             "  Crawling now would only confirm it. Wait it out, move to another "
             "egress, or pass --reset-cooldown if the ban is known to be over."
         )
+        # The most important run to record. Without this a night that refused
+        # to start is indistinguishable from a night that has not come yet —
+        # both leave the corpus untouched and say nothing about why.
+        if not args.dry_run:
+            last_run_module.write(
+                state_dir,
+                {
+                    "started": started,
+                    "elapsed_seconds": time.time() - started,
+                    "exit_reason": "standdown",
+                    "egress": egress_module.identity(),
+                    "standdown": {
+                        "until": standdown.until,
+                        "reason": standdown.reason,
+                        "remaining_seconds": standdown.remaining,
+                    },
+                },
+            )
         return 3
 
     # The god index comes from the wiki, and without it every row would have
@@ -213,6 +232,16 @@ async def crawl(args) -> int:
     await provider.create()
     if not provider.gods:
         print("Could not load the god catalogue; refusing to crawl.", flush=True)
+        if not args.dry_run:
+            last_run_module.write(
+                state_dir,
+                {
+                    "started": started,
+                    "elapsed_seconds": time.time() - started,
+                    "exit_reason": "no_gods",
+                    "egress": egress_module.identity(),
+                },
+            )
         return 1
     god_ids = _god_id_lookup(provider)
     print(f"  {len(provider.gods)} gods known")
@@ -242,6 +271,11 @@ async def crawl(args) -> int:
     unknown_items = 0
     item_slots = 0
     blocked = False
+    # Bound out here rather than in the try below, because the run record is
+    # written on the way out of a `seed()` that raised too — where the inner
+    # bindings would never have happened.
+    index = 0
+    discovered_total = 0
 
     async with TrackerClient(
         manager, interval=args.interval, jitter=args.jitter, cooldown=cooldown
@@ -259,8 +293,6 @@ async def crawl(args) -> int:
             print(f"  {len(pending):,} players to start with\n")
 
             visited: Set[str] = set()
-            index = 0
-            discovered_total = 0
 
             while pending:
                 if time.time() > deadline:
@@ -376,6 +408,38 @@ async def crawl(args) -> int:
     print(f"  {frontier.summary()}")
     print("\nCoverage:")
     print(tracker.report())
+
+    # Everything above, as fields. Written last so a run that died on the way
+    # here leaves the previous night's record standing rather than a half one —
+    # a stale report that says so beats a fresh report that is wrong.
+    if not args.dry_run:
+        last_run_module.write(
+            state_dir,
+            {
+                "started": started,
+                "elapsed_seconds": elapsed,
+                "exit_reason": "blocked" if blocked else "ok",
+                "egress": egress_module.identity(),
+                "egress_changed": bool(
+                    egress_at_end and egress_at_end != egress_at_start
+                ),
+                "requests": client.requests,
+                "bytes": client.bytes,
+                "budget": args.budget,
+                "new_matches": new_matches,
+                "rows_written": buffer.written,
+                "matches_known": len(seen),
+                "players_visited": index,
+                "players_discovered": discovered_total,
+                "rate_limited": client.rate_limited,
+                "final_interval": client.interval,
+                "unknown_items": unknown_items,
+                "item_slots": item_slots,
+                "frontier": frontier.counts(),
+                "coverage": tracker.snapshot(),
+                "coverage_estimate": tracker.best_estimate(),
+            },
+        )
 
     return 2 if blocked else 0
 

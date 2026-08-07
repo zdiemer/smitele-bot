@@ -6,6 +6,7 @@ by handling session tokens and other such requirements invisibly behind
 Pythonic methods.
 """
 
+import asyncio
 import hashlib
 from datetime import datetime
 from enum import Enum
@@ -105,6 +106,11 @@ class _Base:
                         )
                     raise
 
+    # Between retries of a transient failure. Hi-Rez fails a burst of batched
+    # calls rather than queueing them, so retrying immediately mostly just
+    # spends another request confirming it.
+    RETRY_DELAY_SECONDS = 1.0
+
     async def _make_request(self, route: str, *args: tuple) -> any:
         if self.__session_id is None or self.__session_id == "":
             await self.__keep_alive()
@@ -113,15 +119,35 @@ class _Base:
 
         while req_count < self.MAX_RETRIES:
             time_string = self.__get_time_string_utcnow()
-            res = await self.__make_request_base(
-                route,
-                self.__dev_id,
-                self.__create_signature(route, time_string),
-                self.__session_id,
-                time_string,
-                *args,
-            )
+            try:
+                res = await self.__make_request_base(
+                    route,
+                    self.__dev_id,
+                    self.__create_signature(route, time_string),
+                    self.__session_id,
+                    time_string,
+                    *args,
+                )
+            except (JSONDecodeError, aiohttp.ContentTypeError):
+                # Hi-Rez answers with an HTML error page rather than JSON when
+                # it is unhappy, which it routinely is partway through a run of
+                # batched calls. This used to raise straight past the retry
+                # loop, so a transient page cost the whole call.
+                req_count += 1
+                res = None
+                if req_count >= self.MAX_RETRIES:
+                    raise
+                await asyncio.sleep(self.RETRY_DELAY_SECONDS)
+                continue
+
             req_count += 1
+            if res is None:
+                # A null body, from the same burst behaviour. Worth one more
+                # attempt; if it persists the ConnectionError below is right.
+                if req_count >= self.MAX_RETRIES:
+                    break
+                await asyncio.sleep(self.RETRY_DELAY_SECONDS)
+                continue
             if self.__is_expired(res):
                 await self.__keep_alive()
                 continue
@@ -131,12 +157,17 @@ class _Base:
         return res
 
     def __is_expired(self, res: any) -> bool:
+        # A null body is not an expired session — it is no answer at all — and
+        # subscripting it here raised TypeError before the caller could react.
+        # `_make_request` handles None itself; this only has to not crash.
+        if res is None:
+            return False
         invalid = "Invalid session id."
         is_list = isinstance(res, list)
         return (
             is_list
             and any(val is not None and val["ret_msg"] == invalid for val in res)
-        ) or (not is_list and res["ret_msg"] == invalid)
+        ) or (not is_list and res.get("ret_msg") == invalid)
 
     async def __keep_alive(self):
         if self.__should_keep_alive:

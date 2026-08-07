@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.7.21"
+  tag: "1.8.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -317,6 +317,96 @@ smite2:
         memory: 2Gi
       limits:
         memory: 4Gi
+
+# --- smite.diemer.codes -------------------------------------------------------
+#
+# A public read-only site: how fresh each corpus and aggregate is, whether the
+# Hi-Rez quota is under pressure, whether the Smite 2 crawl is inside a block,
+# and cached Smite 1 stats for the roster.
+#
+# The shape is the point. Everything it shows is read from JSON that `snapshot`
+# below writes on a schedule; the web pod holds no credentials and opens no
+# connection to Hi-Rez or tracker.gg. That is what makes it safe to publish —
+# both upstreams are metered (75,000 requests and 500 sessions a day; twelve
+# Cloudflare solves) and a shared link must not be able to spend either.
+#
+# Requires matchData.enabled: the snapshots live on the share, because the
+# CronJob that writes them and the web pods that read them are different pods.
+web:
+  enabled: false
+  image:
+    repository: ghcr.io/zdiemer/smitele-bot-web
+    # Defaults to image.tag, so the site and the snapshot format agree.
+    tag: ""
+  # Two, unlike the bot's one. Nothing here is stateful — the only input is a
+  # file on a ReadWriteMany mount, read-only — so this neither needs the
+  # gateway's single-connection rule nor the Recreate strategy that the bot's
+  # ReadWriteOnce volume forces.
+  replicaCount: 2
+  port: 8080
+  ingress:
+    enabled: true
+    className: traefik
+    # The internal name, and the only one with a real certificate: DNS-01
+    # against DuckDNS via the wildcard SAN below.
+    host: smite.zachd.duckdns.org
+    # The external name, served over the shared Cloudflare tunnel. TLS for these
+    # terminates at Cloudflare's edge, so they are deliberately absent from the
+    # ACME cert list — asking the duckdns resolver for a diemer.codes cert fails
+    # DNS-01, and one failing domain can take the whole order down including the
+    # wildcard.
+    #
+    # The hostname → origin mapping is NOT in git: it is a Public Hostname entry
+    # on the shared tunnel in the Cloudflare dashboard, pointing at
+    # https://traefik.kube-system.svc.cluster.local:443 with No TLS Verify on
+    # and a blank Host header. See infra/cloudflared in the selfhosted repo.
+    cloudflareHosts:
+      - smite.diemer.codes
+    tls:
+      enabled: true
+      certResolver: duckdns
+      domain: zachd.duckdns.org
+      wildcardSan: "*.zachd.duckdns.org"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      # It parses one JSON document per snapshot write and serves ~270KB of
+      # static assets. The limit is here to bound a leak, not to fit a
+      # measurement — nothing observed has come close to it.
+      memory: 256Mi
+
+# Writes what the site serves. Two schedules over one script, because the two
+# halves cost wildly different amounts.
+snapshot:
+  enabled: false
+  # Liveness: two Hi-Rez calls plus a handful of stat()s on the share. Cheap
+  # enough to run at this cadence, which is what lets the page answer "is the
+  # crawl blocked *right now*".
+  liveness:
+    schedule: "*/15 * * * *"
+    activeDeadlineSeconds: 300
+  # The roster's Smite 1 stats: ~120 Hi-Rez requests, paced two seconds apart
+  # between players because Hi-Rez answers a sustained burst with HTML error
+  # pages rather than queueing it. These numbers move over weeks, so six-hourly
+  # is generous; at fifteen minutes it would spend 11.5k requests a day for
+  # nothing.
+  players:
+    schedule: "20 */6 * * *"
+    activeDeadlineSeconds: 900
+  timeZone: "Etc/UTC"
+  # Where both jobs write and the web pods read. On the share rather than the
+  # bot's PVC, because that one is ReadWriteOnce and private to the bot.
+  dir: /matchdata/web
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      # Reads two Parquet files by column — the frontier and the seen-match
+      # index — and never the corpus itself.
+      memory: 512Mi
 
 # The convention here is a *public* GHCR package: the cluster is multi-node and
 # anonymous pulls mean no per-namespace credential to keep alive. Until the

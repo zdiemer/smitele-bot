@@ -15,6 +15,8 @@ tracks `values.yaml` `image.tag`.
 | collector | CronJob (daily) | Walks a day of Hi-Rez match IDs across 12 queues, fetches details in batches of 10, and writes `match_details_<date>.json` to the NAS. Files older than 30 days move to `archive/`. |
 | s2collector | CronJob (nightly, **off by default**) | Crawls tracker.gg for Smite 2 matches. Snowballs from the leaderboards rather than enumerating a day, because that source has no time enumeration. Writes into `smite2/output/`. |
 | s2aggregate | CronJob (nightly, **off by default**) | The same aggregate as Smite 1's, over the Smite 2 corpus. |
+| web | Deployment (2 replicas, **off by default**) | [smite.diemer.codes](https://smite.diemer.codes) — public data and API liveness for both games, plus cached Smite 1 stats for the roster. Serves JSON off the share; calls nothing. |
+| snapshot | CronJob (15 min + 6 hourly, **off by default**) | Writes what the site serves. The only thing that talks to Hi-Rez on the site's behalf. |
 
 ### Which game a command answers for
 
@@ -153,6 +155,110 @@ The bot reads the corpus the collector writes: `SmiteProvider` loads every file
 into a pandas DataFrame and refreshes on a loop, which is what backs the
 build-from-real-matches commands.
 
+## The website
+
+[smite.diemer.codes](https://smite.diemer.codes) answers three questions without
+anyone opening a terminal: how fresh each corpus and aggregate is, whether either
+upstream is refusing us, and how the roster is doing in Smite 1.
+
+```
+                     ┌── snapshot CronJob (*/15) ──▶ Hi-Rez getdataused
+                     │      writes status.json       + gethirezserverstatus
+   /matchdata (SMB)  │      reads  tracker_cooldown.json, clearance.json,
+   ◀─────────────────┤             aggregate_manifest.parquet, frontier.parquet
+                     └── players CronJob (6h) ─────▶ Hi-Rez player API
+                            writes players.json
+
+   browser ──TLS──▶ Cloudflare edge ──tunnel──▶ cloudflared
+                                                    │
+                                          traefik (Host: smite.diemer.codes)
+                                                    │
+                                    smitele-bot-web (component: web)
+                                    aiohttp: /api/* + the SPA
+                                    mounts /matchdata READ-ONLY
+```
+
+### Why a CronJob writes it and the web pods only read
+
+Both upstreams are metered: Hi-Rez allows 75,000 requests and 500 sessions a
+day, and a Cloudflare clearance cookie costs one of twelve daily solves. A web
+tier that fetched on demand would put both budgets behind an anonymous URL,
+where a link getting shared is indistinguishable from an attack. So the web pods
+hold no credentials, open no third-party socket, and serve a file. That is the
+whole reason the site can be public with no auth in front of it.
+
+It also means adding a route that *fetches* something is a signal the fetching
+belongs in the snapshot job instead.
+
+### Why it's a separate Deployment
+
+The bot is one replica because Discord allows one gateway connection per token,
+rolls with `Recreate` because its data PVC is `ReadWriteOnce`, holds a ~2.4Gi
+aggregate under a 5Gi limit, and `upgrade.sh` refuses to restart it mid-game.
+None of that should apply to a public web page, and none of it needs to: the web
+tier's only input is a JSON file on a `ReadWriteMany` mount, so it runs two
+replicas, rolls normally, and fits in 256Mi.
+
+### What it shows
+
+- **Data liveness** — newest corpus day and file count per game, when the
+  aggregate was last built and over how many rows, when the model was trained.
+- **API liveness** — Hi-Rez requests and sessions today against their daily
+  caps, plus per-platform server status. For tracker.gg, the two *independent*
+  block signals kept apart exactly as they are on disk: a WAF stand-down
+  (`tracker_cooldown.json` — a deadline, with the `Retry-After` reason verbatim)
+  and a Cloudflare clearance backoff (`clearance.json` — solves against the
+  twelve-a-day cap, cookie age). Clearing one does not clear the other, and the
+  lever someone reaches for first is usually the wrong one.
+- **Last crawl** — requests, megabytes, new matches, rate limits, the pace it
+  finished on, and per-day capture-recapture coverage. `collect.py` always
+  computed these and printed them; now it also writes `last_run.json`, so the
+  answer to "did last night work?" outlives the Job. A night that *refused to
+  start* is recorded too — otherwise it looks identical to a night that has not
+  happened yet.
+- **Players** — the roster in `src/HirezAPI/roster.py`, Smite 1 only. Discord
+  ids never leave the server; the site only ever sees game handles.
+- **Desktop API** — `docs/desktop-api.md`, rendered. A design sketch for a
+  screen-reading build-advice client. Nothing in it is implemented.
+
+### Turning it on
+
+Needs the SMB share (the snapshots live there, because the job that writes them
+and the pods that read them are different pods — the chart fails the render with
+that message rather than deploying something broken). In `values.local.yaml`:
+
+```yaml
+web:
+  enabled: true
+snapshot:
+  enabled: true
+```
+
+Then the one step that is **not in git**: add a Public Hostname on the shared
+Cloudflare tunnel (Zero Trust → Networks → Tunnels) for `smite.diemer.codes` →
+`https://traefik.kube-system.svc.cluster.local:443`, with **No TLS Verify on**
+and a **blank** Host header. The proxied CNAME is created automatically. See
+`infra/cloudflared` in the selfhosted repo.
+
+`smite.zachd.duckdns.org` works without any of that — it rides the ACME wildcard.
+The `diemer.codes` name is deliberately absent from the Ingress's `tls:` list:
+DNS-01 for a zone DuckDNS does not control fails, and one failing domain can
+take the whole order down, wildcard included.
+
+### Working on it locally
+
+```sh
+python src/web/snapshot.py --out /tmp/snap            # liveness, 2 API calls
+python src/web/snapshot.py --players --out /tmp/snap   # roster, ~120 calls
+
+SMITELE_WEB_SNAPSHOT_DIR=/tmp/snap python src/web/serve.py
+cd src/web/ui && npm install && npm run dev            # proxies /api to :8080
+```
+
+`npm run dev` proxies to a running `serve.py` rather than mocking the API,
+because the API is same-origin in production and a dev server that invents its
+own data is one that can be wrong in ways production never is.
+
 ## Storage
 
 Two volumes, deliberately different:
@@ -166,7 +272,9 @@ Two volumes, deliberately different:
   needs `ReadWriteMany`. local-path only offers `ReadWriteOnce`, which is why
   this is a network share rather than another PVC.
 
-The bot mounts `/matchdata` read-only; only the collector writes.
+The bot and the web tier both mount `/matchdata` read-only. The collectors write
+the corpus; the snapshot job writes `web/` inside it, which is the only thing the
+web tier reads.
 
 ## Prerequisites
 

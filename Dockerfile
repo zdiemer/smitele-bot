@@ -54,6 +54,11 @@ COPY src/smite2_collector/*.py src/smite2_collector/
 # needs this package but not torch. Training runs from Dockerfile.train, which
 # layers torch on top of this image.
 COPY src/ml/*.py src/ml/
+# smite.diemer.codes. The snapshot CronJob runs from *this* image — it needs the
+# Hi-Rez client and the corpus readers and nothing else — so only the web
+# server, which additionally needs a built SPA, is layered on top in
+# Dockerfile.web. Deliberately not `src/web/ui`: node has no business here.
+COPY src/web/*.py src/web/
 
 # Adding HirezAPI and ml to PYTHONPATH
 ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
@@ -63,8 +68,15 @@ ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
 # Dockerfile copies them, so nothing before this caught a missed COPY.
 RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/ml', 'src/SmiteBot']; \
 import smite2.players, smite2.provider, smite2.tracker_client, smite2.voicelines, smite2.wikitext; \
-import providers, game, guild_settings; \
+import smite2.cooldown, smite2.clearance, smite2.last_run; \
+import providers, game, guild_settings, roster, queue_stats; \
 print('image imports ok')"
+
+# The snapshot job separately, because it reaches across three source trees —
+# HirezAPI, match_data_collector for the aggregate manifest, and its own — and
+# a missed COPY there fails a CronJob at 02:00 rather than a build.
+RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/match_data_collector', 'src/web']; \
+import snapshot, serve; print('web imports ok')"
 
 # Two volumes, with very different shapes. /data is small and private to one
 # replica — session token, patch marker, gods/items caches, downloaded art.

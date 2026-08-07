@@ -218,14 +218,22 @@ class Frontier:
 
         return chosen
 
+    def counts(self) -> Dict[str, int]:
+        """The roster's shape, as fields. What `summary` says in prose."""
+        return {
+            "total": len(self.players),
+            "unvisited": sum(1 for p in self.players.values() if p.visits == 0),
+            "dead": sum(1 for p in self.players.values() if p.dead),
+            "partied": sum(1 for p in self.players.values() if p.party_key),
+        }
+
     def summary(self) -> str:
-        total = len(self.players)
-        unvisited = sum(1 for p in self.players.values() if p.visits == 0)
-        dead = sum(1 for p in self.players.values() if p.dead)
-        partied = sum(1 for p in self.players.values() if p.party_key)
+        counts = self.counts()
         return (
-            f"{total:,} players known · {unvisited:,} never queried · "
-            f"{dead:,} written off · {partied:,} in a known party"
+            f"{counts['total']:,} players known · "
+            f"{counts['unvisited']:,} never queried · "
+            f"{counts['dead']:,} written off · "
+            f"{counts['partied']:,} in a known party"
         )
 
 

@@ -1,0 +1,124 @@
+{{- if .Values.web.enabled }}
+{{- if not .Values.matchData.enabled }}
+{{- fail "web.enabled requires matchData.enabled — the snapshots the site serves live on the share, because the job that writes them and the pods that read them are different pods" }}
+{{- end }}
+{{/*
+smite.diemer.codes.
+
+A separate Deployment from the bot, and the differences are all consequences of
+one fact: this holds no state. The only input is a JSON file on a ReadWriteMany
+mount, opened read-only.
+
+  * Two replicas where the bot has one. The bot's single replica is forced by
+    Discord allowing one gateway connection per token; nothing here has an
+    equivalent, and two means a node reboot is not an outage.
+  * RollingUpdate where the bot has Recreate. Recreate exists there because the
+    data PVC is ReadWriteOnce and two pods would fight over it. SMB is RWX.
+  * No deploy guard. `upgrade.sh` refuses to roll the bot mid-game; there is no
+    such thing here, and coupling a public page to whether someone is playing
+    Smite-le would be strange.
+
+It holds no credentials at all — no Discord token, no Hi-Rez keys, no proxy —
+because it never calls anything. That is deliberate and load-bearing: this is
+the one workload in this chart that anonymous traffic can reach.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-web
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "smitele-bot.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        {{- include "smitele-bot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+    spec:
+      {{- include "smitele-bot.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      {{/*
+        Spread across nodes where possible. Two replicas on one node buys
+        nothing against the failure this is defending against.
+      */}}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "smitele-bot.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: web
+      containers:
+        - name: web
+          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.web.port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: SMITELE_WEB_PORT
+              value: {{ .Values.web.port | quote }}
+            - name: SMITELE_WEB_SNAPSHOT_DIR
+              value: {{ .Values.snapshot.dir | quote }}
+            - name: SMITELE_WEB_VERSION
+              value: {{ .Chart.AppVersion | quote }}
+          {{/*
+            Readiness only, and deliberately not tied to the snapshot.
+
+            /healthz answers on whether the SPA bundle is present, which is a
+            fact about the image. Tying it to snapshot freshness would mean one
+            SMB blip empties the Service and takes the site down entirely —
+            where the right behaviour is a stale badge on a working page.
+
+            No liveness probe, for the same reason as the bot: there is no
+            wedged state here that a restart is the answer to.
+          */}}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            {{/*
+              Read-only. The web tier has no business writing to the corpus
+              share, and this is the mount an internet-facing process holds.
+            */}}
+            - name: matchdata
+              mountPath: /matchdata
+              readOnly: true
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+      volumes:
+        - name: matchdata
+          persistentVolumeClaim:
+            claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+            readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

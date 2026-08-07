@@ -1,7 +1,10 @@
 {{/*
-Not for users — there is no web UI. This exists so `upgrade.sh` and the
-readiness probe can reach the bot's /healthz endpoint, which reports whether
+The bot's deploy interlock, not a user surface. This exists so `upgrade.sh` and
+the readiness probe can reach the bot's /healthz endpoint, which reports whether
 any Smite-le or trivia rounds are in progress.
+
+The public site is a different Deployment behind a different Service — see
+web-service.yaml. Nothing routes here from outside the cluster.
 */}}
 apiVersion: v1
 kind: Service

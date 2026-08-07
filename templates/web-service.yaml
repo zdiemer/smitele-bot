@@ -1,0 +1,28 @@
+{{- if .Values.web.enabled }}
+{{/*
+The user-facing Service — the one the Ingress points at.
+
+Not to be confused with the chart's other Service, which is the bot's deploy
+interlock and carries `component: bot` for exactly this reason: every workload
+in this chart shares the name and instance labels, so without the component
+selector below a web pod and a bot pod would each be endpoints of the other's
+Service.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "smitele-bot.fullname" . }}-web
+  labels:
+    {{- include "smitele-bot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.web.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "smitele-bot.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+{{- end }}

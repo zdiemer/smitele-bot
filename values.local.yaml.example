@@ -20,3 +20,13 @@ matchData:
 
 collector:
   enabled: false
+
+# smite.diemer.codes. Both need matchData.enabled — the snapshots live on the
+# share, because the CronJob that writes them and the web pods that read them
+# are different pods. No secrets of their own: the web tier holds no
+# credentials at all, which is what makes a public URL safe against a metered
+# API. Remember the Cloudflare Public Hostname entry — see README §The website.
+web:
+  enabled: false
+snapshot:
+  enabled: false

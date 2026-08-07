@@ -9,6 +9,11 @@ items.json
 cache/
 # Locally-seeded historical corpus. It belongs on the NAS, not in a layer.
 matchDetails/
+# The web UI's installed dependencies and last local build. Dockerfile.web runs
+# `npm ci` and `npm run build` in its own stage; shipping a host-built dist into
+# the context would mean the image contents depend on whoever ran build.sh.
+src/web/ui/node_modules/
+src/web/ui/dist/
 templates/
 .venv/
 .git/

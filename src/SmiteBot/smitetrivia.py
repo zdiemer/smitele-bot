@@ -21,7 +21,7 @@ from game import Game
 from providers import Providers
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from player import Player, PlayerId
-from player_stats import QueueStats
+from queue_stats import QueueStats
 from SmiteProvider import SmiteProvider
 from god import God, GodId
 from item import Item, ItemType

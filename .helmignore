@@ -3,6 +3,11 @@
 .venv/
 src/
 Dockerfile
+# The layered images. `Dockerfile` above matches the exact name only, so each
+# new one needs saying — and src/web/ui/node_modules is why this matters more
+# than it used to: a chart that swept up the source tree would now be hundreds
+# of megabytes against etcd's 1MB ceiling.
+Dockerfile.*
 .dockerignore
 Pipfile
 Pipfile.lock
