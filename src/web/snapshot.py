@@ -919,32 +919,86 @@ def _god_name(provider, god_id: int) -> Optional[str]:
 
 
 async def smite2_player(provider, entry: str) -> Dict[str, Any]:
-    """One roster member's Smite 2 mode stats, from tracker.gg segments."""
+    """One roster member's Smite 2 profile, at the same depth as Smite 1's.
+
+    Two requests: the profile — which carries the display handle, the Steam
+    avatar *and* every gamemode segment — and the per-god segments. Deliberately
+    two and not three: the profile's segments are the same rows
+    `segments(kind="gamemode")` would fetch again, and tracker.gg refused this
+    address after ~300 requests in a single run, so every request spent here is
+    one the nightly crawl does not get.
+    """
     from smite2.players import parse_player  # noqa: PLC0415
 
     platform, handle = parse_player(entry)
-    modes = await provider.players.segments(platform, handle, "gamemode")
-    if not modes:
+    found = await provider.players.overview(platform, handle)
+    if not found:
         return {"id": entry, "platform": platform, "handle": handle, "found": False}
 
-    total_matches = sum(m.matches for m in modes)
-    total_wins = sum(m.wins for m in modes)
-    ranked = [m for m in modes if m.stats.get("skillRating")]
-    best = max(ranked, key=lambda m: m.stats.get("skillRating") or 0, default=None)
+    info, modes = found
+    modes = [mode for mode in modes if mode.matches]
+
+    total_matches = sum(mode.matches for mode in modes)
+    total_wins = sum(mode.wins for mode in modes)
+
+    def total(stat: str) -> int:
+        return int(sum(mode.stats.get(stat) or 0 for mode in modes))
+
+    kills, deaths, assists = total("kills"), total("deaths"), total("assists")
+
+    # Best mode on the same terms Smite 1 uses: a real win rate needs a real
+    # sample, so a mode with three games cannot win it.
+    ranked_modes = [m for m in modes if m.stats.get("skillRating")]
+    best_rated = max(
+        ranked_modes, key=lambda m: m.stats.get("skillRating") or 0, default=None
+    )
+    eligible = [mode for mode in modes if mode.matches >= 10]
+    best_mode = max(eligible, key=lambda m: m.win_rate, default=None)
+
+    gods: List[Any] = []
+    try:
+        gods = await provider.players.segments(platform, handle, "god")
+    except Exception as error:  # noqa: BLE001
+        # A missing god breakdown costs one panel, not the whole player.
+        print(f"snapshot: smite2 gods for {handle} failed: {error}", flush=True)
+
+    top_gods = sorted(
+        (god for god in gods if god.matches),
+        key=lambda god: -god.matches,
+    )[:10]
 
     return {
         "id": entry,
         "platform": platform,
         "handle": handle,
         "found": True,
+        # The only place a Smite 2 player has a readable name or a picture.
+        "name": info.get("platformUserHandle") or handle,
+        "avatar_url": info.get("avatarUrl") or None,
         "matches": total_matches,
         "wins": total_wins,
         "losses": total_matches - total_wins,
         "win_percent": round(total_wins / total_matches, 4) if total_matches else None,
-        "skill_rating": round(best.stats["skillRating"]) if best else None,
+        "kills": kills,
+        "deaths": deaths,
+        "assists": assists,
+        "kda": round((kills + assists / 2) / (deaths or 1), 3),
+        "damage": total("damage"),
+        "gold": total("goldEarned"),
+        "minutes": round(total("timePlayed") / 60) if total("timePlayed") else None,
+        "skill_rating": round(best_rated.stats["skillRating"]) if best_rated else None,
         "peak_skill_rating": (
-            round(best.stats["peakSkillRating"])
-            if best and best.stats.get("peakSkillRating")
+            round(best_rated.stats["peakSkillRating"])
+            if best_rated and best_rated.stats.get("peakSkillRating")
+            else None
+        ),
+        "best_mode": (
+            {
+                "name": best_mode.name,
+                "win_percent": round(best_mode.win_rate, 4),
+                "matches": best_mode.matches,
+            }
+            if best_mode
             else None
         ),
         "modes": [
@@ -962,6 +1016,18 @@ async def smite2_player(provider, entry: str) -> Dict[str, Any]:
                 ),
             }
             for mode in sorted(modes, key=lambda m: -m.matches)[:10]
+        ],
+        "top_gods": [
+            {
+                "god": god.name,
+                "icon": god.image_url,
+                "matches": god.matches,
+                "wins": god.wins,
+                "losses": god.losses,
+                "win_percent": round(god.win_rate, 4),
+                "kda": round(god.kda, 3),
+            }
+            for god in top_gods
         ],
     }
 

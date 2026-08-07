@@ -15,7 +15,7 @@ import { Bolt, Empty, Mark } from './components'
 import Overview from './views/Overview'
 import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
-import { PlayerDetail, PlayerList } from './views/Players'
+import { PlayerDetail, PlayerList, Smite2Detail } from './views/Players'
 import StatsView from './views/Stats'
 
 const TABS = [
@@ -65,7 +65,7 @@ function Freshness({
   )
 }
 
-function PlayersRoute({ name }: { name?: string }) {
+function PlayersRoute({ name, smite2 }: { name?: string; smite2?: string }) {
   // Its own endpoint and its own cadence — the roster refreshes every six
   // hours, so it must not ride the liveness poll or block it.
   const { data, error, loading } = useEndpoint<Players>('/api/players')
@@ -79,6 +79,7 @@ function PlayersRoute({ name }: { name?: string }) {
       </Empty>
     )
   }
+  if (smite2 !== undefined) return <Smite2Detail doc={data} handle={smite2} />
   return name === undefined ? <PlayerList doc={data} /> : <PlayerDetail doc={data} name={name} />
 }
 
@@ -112,6 +113,9 @@ function Body({ status }: { status: Status | null }) {
 
   const player = match('/players/:name', path)
   if (player) return <PlayersRoute name={player.name} />
+
+  const smite2 = match('/smite2/:handle', path)
+  if (smite2) return <PlayersRoute smite2={smite2.handle} />
 
   return <Empty>No such page.</Empty>
 }

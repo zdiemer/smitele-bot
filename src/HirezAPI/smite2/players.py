@@ -170,6 +170,30 @@ class PlayerLookups:
             return None
         return self.__store(key, data)
 
+    async def overview(
+        self, platform: str, handle: str
+    ) -> Optional[Tuple[Dict[str, Any], List[Segment]]]:
+        """Who a player is *and* their per-mode stats, from one request.
+
+        The profile response already carries every gamemode segment, so asking
+        `/profile` and then `/segments/gamemode` fetches the same rows twice.
+        That matters more here than it looks: tracker.gg refused this address
+        after ~300 requests in one run, and every request the site's player
+        refresh spends is one the nightly crawl does not get.
+
+        Returns `(platform_info, segments)` — the first carrying the display
+        handle and avatar, which is the only place either is published. Hi-Rez
+        has no equivalent worth reading: its `Avatar_URL` is a vestige of the
+        old web profile and the one populated value in this roster 403s.
+        """
+        raw = await self.profile(platform, handle)
+        if not raw:
+            return None
+        return (
+            raw.get("platformInfo") or {},
+            [_segment(row, "gamemode") for row in (raw.get("segments") or [])],
+        )
+
     async def segments(
         self, platform: str, handle: str, kind: str
     ) -> List[Segment]:

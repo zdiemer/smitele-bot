@@ -247,19 +247,41 @@ export type Smite2Mode = {
   skill_rating: number | null
 }
 
+export type Smite2God = {
+  god: string
+  icon?: string | null
+  matches: number
+  wins: number
+  losses: number
+  win_percent: number
+  kda: number
+}
+
 export type Smite2Player = {
   id: string
   platform?: string
   handle?: string
+  /** Steam display name — tracker.gg is the only source for it. */
+  name?: string
+  avatar_url?: string | null
   found: boolean
   error?: string
   matches?: number
   wins?: number
   losses?: number
   win_percent?: number | null
+  kills?: number
+  deaths?: number
+  assists?: number
+  kda?: number
+  damage?: number
+  gold?: number
+  minutes?: number | null
   skill_rating?: number | null
   peak_skill_rating?: number | null
+  best_mode?: { name: string; win_percent: number; matches: number } | null
   modes?: Smite2Mode[]
+  top_gods?: Smite2God[]
 }
 
 export type Players = {

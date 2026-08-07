@@ -37,6 +37,24 @@ function face(player: Player): string | null {
   return player.avatar_url || player.top_gods?.[0]?.icon || null
 }
 
+/**
+ * Swap a broken image for the fallback rather than leaving a torn icon.
+ *
+ * Needed because the one Hi-Rez avatar in this roster 403s — the asset was a
+ * 2017 upload to the old WordPress site and is simply gone. A URL existing is
+ * not the same as an image existing, and only the browser finds out.
+ */
+function onBrokenImage(fallback: string | null) {
+  return (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget
+    if (fallback && img.src !== fallback) {
+      img.src = fallback
+      return
+    }
+    img.style.visibility = 'hidden'
+  }
+}
+
 function sortValue(player: Player, key: SortKey): number | string {
   switch (key) {
     case 'name':
@@ -110,7 +128,13 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
                 <td>
                   <span className="who">
                     {face(player) ? (
-                      <img className="face" src={face(player)!} alt="" loading="lazy" />
+                      <img
+                        className="face"
+                        src={face(player)!}
+                        alt=""
+                        loading="lazy"
+                        onError={onBrokenImage(player.top_gods?.[0]?.icon ?? null)}
+                      />
                     ) : (
                       <span className="face face-blank" aria-hidden="true" />
                     )}
@@ -215,8 +239,26 @@ function Smite2Roster({ doc }: { doc: PlayersDoc }) {
             {rows.map((entry) => (
               <tr key={entry.id}>
                 <td>
-                  {entry.handle ?? entry.id}
-                  <span className="muted"> · {entry.platform ?? '?'}</span>
+                  <span className="who">
+                    {entry.avatar_url ? (
+                      <img
+                        className="face"
+                        src={entry.avatar_url}
+                        alt=""
+                        loading="lazy"
+                        onError={onBrokenImage(null)}
+                      />
+                    ) : (
+                      <span className="face face-blank" aria-hidden="true" />
+                    )}
+                    {entry.found ? (
+                      <Link to={`/smite2/${encodeURIComponent(entry.handle ?? entry.id)}`}>
+                        {entry.name ?? entry.handle ?? entry.id}
+                      </Link>
+                    ) : (
+                      (entry.name ?? entry.handle ?? entry.id)
+                    )}
+                  </span>
                   {!entry.found && <span className="muted"> · not found</span>}
                 </td>
                 <td data-label="matches">{count(entry.matches)}</td>
@@ -262,7 +304,13 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
       </Link>
 
       <div className="player-head">
-        {face(player) ? <img src={face(player)!} alt="" /> : null}
+        {face(player) ? (
+          <img
+            src={face(player)!}
+            alt=""
+            onError={onBrokenImage(player.top_gods?.[0]?.icon ?? null)}
+          />
+        ) : null}
         <div>
           <h1>{player.name}</h1>
           <p className="muted" style={{ margin: 0 }}>
@@ -397,6 +445,212 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
                     <td data-label="kda">
                       {((god.kills + god.assists / 2) / (god.deaths || 1)).toFixed(2)}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Band>
+      )}
+    </>
+  )
+}
+
+/**
+ * One Smite 2 player, at the depth the Smite 1 page reaches.
+ *
+ * The panels deliberately mirror the Smite 1 detail — account, lifetime totals,
+ * best mode, per-mode table, most-played gods — so the two are comparable
+ * rather than merely adjacent. Where a stat has no Smite 2 counterpart it is
+ * absent rather than blank: there are no worshippers, no account creation date
+ * and no tier, because tracker.gg publishes none of them.
+ */
+export function Smite2Detail({ doc, handle }: { doc: PlayersDoc; handle: string }) {
+  const wanted = handle.toLowerCase()
+  const player = doc.smite2?.players?.find(
+    (entry) => (entry.handle ?? entry.id).toLowerCase() === wanted,
+  )
+
+  if (!player || !player.found) {
+    return (
+      <>
+        <Link className="back" to="/players">
+          ← All players
+        </Link>
+        <Empty>No Smite 2 player by that id on the roster.</Empty>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Link className="back" to="/players">
+        ← All players
+      </Link>
+
+      <div className="player-head">
+        {player.avatar_url ? (
+          <img src={player.avatar_url} alt="" onError={onBrokenImage(null)} />
+        ) : null}
+        <div>
+          <h1>{player.name ?? player.handle}</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            Smite 2 · {player.platform} · <code>{player.handle}</code>
+          </p>
+        </div>
+      </div>
+
+      <Band label="Lifetime totals" qualifier="every mode" game="smite2" health="ok">
+        <Pair>
+          <Rows>
+            <Row label="matches" value={count(player.matches)} />
+            <Row
+              label="wins / losses"
+              value={`${count(player.wins)} / ${count(player.losses)}`}
+            />
+            <Row label="win rate" value={percent(player.win_percent)} />
+            <Row
+              label="time played"
+              value={player.minutes ? duration(player.minutes * 60) : '—'}
+              absent={!player.minutes}
+            />
+          </Rows>
+          <Rows>
+            <Row
+              label="K / D / A"
+              value={`${count(player.kills)} / ${count(player.deaths)} / ${count(player.assists)}`}
+            />
+            <Row label="KDA" value={player.kda?.toFixed(2) ?? '—'} />
+            <Row label="damage" value={count(player.damage)} />
+            <Row label="gold" value={count(player.gold)} />
+          </Rows>
+        </Pair>
+      </Band>
+
+      <Band
+        label="Ranked"
+        qualifier="skill rating · Smite 2 publishes no tier"
+        game="smite2"
+        health="ok"
+      >
+        <Pair>
+          <Rows>
+            <Row
+              label="skill rating"
+              value={player.skill_rating ?? 'never rated'}
+              absent={player.skill_rating == null}
+              hint="From the ranked mode this player has climbed highest in."
+            />
+          </Rows>
+          <Rows>
+            <Row
+              label="peak"
+              value={player.peak_skill_rating ?? '—'}
+              absent={player.peak_skill_rating == null}
+            />
+          </Rows>
+        </Pair>
+        {player.skill_rating == null && (
+          <p className="muted" style={{ marginBottom: 0 }}>
+            No ranked play recorded. Smite 2 reports a numeric rating rather than
+            a division, so there is no tier name to show in its place.
+          </p>
+        )}
+      </Band>
+
+      {player.best_mode && (
+        <Band
+          label="Best mode"
+          qualifier="ten matches minimum"
+          game="smite2"
+          health="ok"
+        >
+          <Pair>
+            <Rows>
+              <Row label="mode" value={player.best_mode.name} />
+              <Row label="win rate" value={percent(player.best_mode.win_percent)} />
+            </Rows>
+            <Rows>
+              <Row label="matches" value={count(player.best_mode.matches)} />
+            </Rows>
+          </Pair>
+        </Band>
+      )}
+
+      {player.modes && player.modes.length > 0 && (
+        <Band label="By mode" game="smite2" health="ok">
+          <div className="scroll">
+            <table className="stack-sm">
+              <thead>
+                <tr>
+                  <th>mode</th>
+                  <th>matches</th>
+                  <th>wins</th>
+                  <th>losses</th>
+                  <th>win rate</th>
+                  <th>kda</th>
+                  <th>rating</th>
+                </tr>
+              </thead>
+              <tbody>
+                {player.modes.map((mode) => (
+                  <tr key={mode.name}>
+                    <td>{mode.name}</td>
+                    <td data-label="matches">{count(mode.matches)}</td>
+                    <td data-label="wins">{count(mode.wins)}</td>
+                    <td data-label="losses">{count(mode.losses)}</td>
+                    <td data-label="win rate">{percent(mode.win_percent)}</td>
+                    <td data-label="kda">{mode.kda.toFixed(2)}</td>
+                    <td data-label="rating">{mode.skill_rating ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Band>
+      )}
+
+      {player.top_gods && player.top_gods.length > 0 && (
+        <Band
+          label="Most played"
+          qualifier="top ten by matches"
+          game="smite2"
+          health="ok"
+        >
+          <div className="scroll">
+            <table className="stack-sm">
+              <thead>
+                <tr>
+                  <th>god</th>
+                  <th>matches</th>
+                  <th>wins</th>
+                  <th>losses</th>
+                  <th>win rate</th>
+                  <th>kda</th>
+                </tr>
+              </thead>
+              <tbody>
+                {player.top_gods.map((god) => (
+                  <tr key={god.god}>
+                    <td>
+                      <span className="who">
+                        {god.icon && (
+                          <img
+                            className="face"
+                            src={god.icon}
+                            alt=""
+                            loading="lazy"
+                            onError={onBrokenImage(null)}
+                          />
+                        )}
+                        {god.god}
+                      </span>
+                    </td>
+                    <td data-label="matches">{count(god.matches)}</td>
+                    <td data-label="wins">{count(god.wins)}</td>
+                    <td data-label="losses">{count(god.losses)}</td>
+                    <td data-label="win rate">{percent(god.win_percent)}</td>
+                    <td data-label="kda">{god.kda.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
