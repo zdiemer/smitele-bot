@@ -31,6 +31,11 @@ from item import Item
 
 Scorer = Callable[[Sequence[Item]], float]
 Pricer = Callable[[Item], int]
+# Whether an item is the one you open the game on. A starter is bought first
+# whatever else the build wants, so it is pinned rather than ranked: value per
+# gold would happily bury it in the fourth slot, which reads as though you were
+# meant to buy it there.
+Opener = Callable[[Item], bool]
 
 
 class Step(NamedTuple):
@@ -67,7 +72,9 @@ class BuildPath(NamedTuple):
         return [step.item for step in self.shared + self.ahead]
 
 
-def order(items: Sequence[Item], score: Scorer, price: Pricer) -> List[Step]:
+def order(
+    items: Sequence[Item], score: Scorer, price: Pricer, opens: Opener = None
+) -> List[Step]:
     """A finished build, in the sequence it would be bought.
 
     Greedy on value per gold: at each step the item that adds the most score
@@ -77,11 +84,10 @@ def order(items: Sequence[Item], score: Scorer, price: Pricer) -> List[Step]:
     most-expensive-last either, since an expensive item can be the best purchase
     available if it is what the build is for.
 
-    Free items sort first. Nothing in either game's core slots is free, but a
-    starter is close enough to it that dividing by its price would put it last
-    on a rounding error.
+    `opens` pins the starter to the front regardless of what it scores, because
+    that is the one purchase whose position is not a judgement call.
     """
-    return order_from(items, [], 0, score, price)
+    return order_from(items, [], 0, score, price, opens)
 
 
 def fork(
@@ -90,6 +96,7 @@ def fork(
     behind: Sequence[Item],
     score: Scorer,
     price: Pricer,
+    opens: Opener = None,
 ) -> BuildPath:
     """Split three answers into what they agree on and where they diverge.
 
@@ -108,7 +115,7 @@ def fork(
         if any(other.id == item.id for other in ahead)
         and any(other.id == item.id for other in behind)
     ]
-    shared = order(shared_items, score, price)
+    shared = order(shared_items, score, price, opens)
     spent = shared[-1].spent if shared else 0
     bought = [step.item for step in shared]
 
@@ -116,7 +123,7 @@ def fork(
         rest = [
             item for item in build if not any(item.id == held.id for held in bought)
         ]
-        return order_from(rest, bought, spent, score, price) if rest else []
+        return order_from(rest, bought, spent, score, price, opens) if rest else []
 
     return BuildPath(shared, continuation(ahead), continuation(behind))
 
@@ -127,12 +134,25 @@ def order_from(
     spent: int,
     score: Scorer,
     price: Pricer,
+    opens: Opener = None,
 ) -> List[Step]:
     """`order`, continuing a build already part-bought."""
     remaining = list(items)
+    if opens is not None:
+        # Whatever opens the build goes first, in the order it was given.
+        remaining.sort(key=lambda item: not opens(item))
+        pinned = [item for item in remaining if opens(item)]
+        remaining = [item for item in remaining if not opens(item)]
+    else:
+        pinned = []
     bought = list(already)
     steps: List[Step] = []
     running = spent
+
+    for item in pinned:
+        bought.append(item)
+        running += price(item)
+        steps.append(Step(item, running))
 
     while remaining:
         current = score(bought)

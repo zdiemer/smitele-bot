@@ -914,11 +914,32 @@ class Smite2BuildOptimizer:
                     break
         return build
 
-    def best_starter(self) -> Optional[Item]:
+    def best_starter(self, build: Sequence[Item] = ()) -> Optional[Item]:
+        """The starter to open on, given what the rest of the build already is.
+
+        Scored at the margin rather than alone. On its own a defensive starter
+        wins for any lane whose profile wants protections at all, because it is
+        the only thing in the comparison supplying them — Sun Wukong opened on
+        Heroism while holding six damage items. Against the finished build the
+        question becomes what the build is *short* of, which is what choosing a
+        starter actually is.
+        """
         starters = self.starters()
         if not starters:
             return None
-        return max(starters, key=lambda item: (self.score([item]), -item.id))
+        held = list(build)
+
+        def fit(item: Item) -> tuple:
+            # Both halves matter and neither alone is right. Judged only on its
+            # own, a defensive starter wins any lane whose profile wants
+            # protections at all, because nothing else in the comparison has
+            # them — Sun Wukong opened on Heroism holding six damage items.
+            # Judged only against the finished build, it becomes whatever the
+            # build is short of, and a carry opens on Warrior's Axe. A starter
+            # is bought first, when it is all you have, and kept all game.
+            return ((self.score([item]) + self.marginal(held, item)) / 2, -item.id)
+
+        return max(starters, key=fit)
 
     def rank(self, items: Iterable[Item] = None) -> List[Tuple[Item, float]]:
         """Every candidate item with its standalone score, best first."""

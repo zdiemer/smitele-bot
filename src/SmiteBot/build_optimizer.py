@@ -314,13 +314,18 @@ class BuildArchetype(Enum):
 #
 # Guardians are deliberately absent: a support that builds like a tank is
 # correct, and their profiles are left exactly as they were.
-BRUISER_ARCHETYPE_BALANCE: Dict[BuildArchetype, float] = {
+#
+# Healers are here for a different reason. A healer that dies is not healing,
+# so it wants real bulk, but it is still the team's damage in the mid lane;
+# it sits between a bruiser and a carry rather than at either end.
+ARCHETYPE_BALANCE: Dict[BuildArchetype, float] = {
     BuildArchetype.ABILITY_BASED_WARRIOR: 0.5,
     BuildArchetype.AUTO_ATTACK_WARRIOR: 0.45,
     BuildArchetype.JUNGLE_WARRIOR: 0.35,
     BuildArchetype.HEALER_WARRIOR: 0.6,
     BuildArchetype.SOLO_ASSASSIN: 0.45,
     BuildArchetype.SOLO_MAGE: 0.45,
+    BuildArchetype.HEALER_MAGE: 0.35,
 }
 
 
@@ -437,6 +442,13 @@ class BuildOptimizer:
         GodId.BAKASURA: BuildArchetype.AUTO_ATTACK_ASSASSIN,
         GodId.BARON_SAMEDI: BuildArchetype.HEALER_MAGE,
         GodId.BELLONA: BuildArchetype.AUTO_ATTACK_WARRIOR,
+        # Sustain warriors and mages, routed to the healer archetypes that
+        # already existed and had nothing pointing at them. All three carry
+        # `HIGH_SUSTAIN` and were being built as pure damage on their role's
+        # default.
+        GodId.CHAAC: BuildArchetype.HEALER_WARRIOR,
+        GodId.HERCULES: BuildArchetype.HEALER_WARRIOR,
+        GodId.IX_CHEL: BuildArchetype.HEALER_MAGE,
         GodId.CAMAZOTZ: BuildArchetype.SOLO_ASSASSIN,
         GodId.CERBERUS: BuildArchetype.SOLO_GUARDIAN,
         GodId.CHANGE: BuildArchetype.HEALER_MAGE,
@@ -546,7 +558,7 @@ class BuildOptimizer:
         self.balance = (
             balance
             if balance is not None
-            else BRUISER_ARCHETYPE_BALANCE.get(self.__current_archetype)
+            else ARCHETYPE_BALANCE.get(self.__current_archetype)
         )
         self.context = context or team_context.TeamContext()
         # Passives a build must carry, on top of whatever the archetype wants.
@@ -1194,8 +1206,25 @@ class BuildOptimizer:
 
         # Additional Settings for Mage Archetypes
         lifesteal_mage = defaults[BuildArchetype.MID_MAGE].copy()
-        healer_mage = lifesteal_mage.copy()
         solo_mage = lifesteal_mage.copy()
+
+        # A healer is not a burst mage. This was `MID_MAGE.copy()` with nothing
+        # changed, so Aphrodite, Hel, Chang'e, Ra and Baron Samedi were all
+        # built as pure damage: Spear of Desolation, Spear of the Magus, Divine
+        # Ruin, Rod of Tahuti and nothing to keep them alive while they heal.
+        #
+        # What a healer actually wants is to cast more often and keep casting:
+        # cooldowns first, then the mana to sustain them, then enough bulk to
+        # survive being focused, with power still mattering because most healing
+        # in Smite 1 scales off it.
+        healer_mage = lifesteal_mage.copy()
+        healer_mage[ItemAttribute.COOLDOWN_REDUCTION] = 8
+        healer_mage[ItemAttribute.MP5] = 4
+        healer_mage[ItemAttribute.MANA] = 3
+        healer_mage[ItemAttribute.HP5] = 3
+        healer_mage[ItemAttribute.HEALTH] = 3
+        healer_mage[ItemAttribute.MAGICAL_PROTECTION] = 2
+        healer_mage[ItemAttribute.PHYSICAL_PROTECTION] = 2
         defaults[BuildArchetype.HEALER_MAGE] = healer_mage
         lifesteal_mage[ItemAttribute.MAGICAL_LIFESTEAL] = 10
         defaults[BuildArchetype.LIFESTEAL_MID_MAGE] = lifesteal_mage
@@ -1821,6 +1850,13 @@ class BuildOptimizer:
 
                 if met == width:
                     item_build = existing_build.union(frozenset(combo))
+                    # A set that came out short means the seed was drawn twice.
+                    # The pools exclude their own seeds now, so this should be
+                    # unreachable; it stays because a short build is not
+                    # obviously wrong when you read it, which is how five-item
+                    # builds shipped.
+                    if len(item_build) != len(existing_build) + size:
+                        continue
                     if self.__check_build_on_target(item_build, stat_targets):
                         viable_builds.append(list(item_build))
                         continue
@@ -1844,17 +1880,28 @@ class BuildOptimizer:
                         near_misses.append((met, candidate))
             return build_n
 
+        def without(pool: List[Item], seeded: FrozenSet[Item]) -> List[Item]:
+            """The pool minus whatever is already in the build.
+
+            `filter_glyph_parent` removes a glyph's *parent* and leaves the
+            glyph itself in the tier-3-and-up pool, so a combination seeded with
+            one could draw the same glyph again. The union then collapsed from
+            six items to five, and a five-item build is what came out — Hel and
+            Aphrodite both returned one.
+            """
+            ids = {item.id for item in seeded}
+            return [item for item in pool if item.id not in ids]
+
         # Five items and a starter.
         for starter in starters:
             starter_build: FrozenSet[Item] = frozenset([starter])
             for glyph in glyphs:
+                seeded = starter_build.union(frozenset([glyph]))
                 iterations += await check_combinations(
-                    starter_build.union(frozenset([glyph])),
-                    self.filter_glyph_parent(items, glyph),
-                    4,
+                    seeded, without(self.filter_glyph_parent(items, glyph), seeded), 4
                 )
             iterations += await check_combinations(
-                starter_build, all_non_glyph_items, 5
+                starter_build, without(all_non_glyph_items, starter_build), 5
             )
 
         # Six items and no starter. The glyph-free case used to be enumerated
@@ -1862,8 +1909,9 @@ class BuildOptimizer:
         # six-item set once per member of it — six times over, six times the
         # work, and six copies of every viable build in the result.
         for glyph in glyphs:
+            seeded = frozenset([glyph])
             iterations += await check_combinations(
-                frozenset([glyph]), self.filter_glyph_parent(items, glyph), 5
+                seeded, without(self.filter_glyph_parent(items, glyph), seeded), 5
             )
         iterations += await check_combinations(frozenset(), all_non_glyph_items, 6)
 

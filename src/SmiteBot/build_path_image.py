@@ -38,9 +38,11 @@ from item_tree_builder import font
 TILE = 128
 # Room under a tile for its running gold total.
 CAPTION = 26
-# Room at the left for the row labels, which are the annotation the fork needs
-# to mean anything.
+# Least room at the left for the row labels, which are the annotation the fork
+# needs to mean anything. The real gutter is measured from the labels, since a
+# long one ("STARTER + RELIC") otherwise renders straight over the first tile.
 GUTTER = 150
+LABEL_PAD = 22
 ROW_GAP = 18
 # Breathing room at the right edge, so the last tile is not flush with it.
 MARGIN = 10
@@ -54,6 +56,7 @@ _MUTED = (150, 155, 165, 255)
 _LINE = (110, 116, 130, 255)
 _TILE_BACKGROUND = (49, 51, 56, 255)
 _TILE_EDGE = (114, 118, 125, 255)
+
 
 async def render(
     path: BuildPath,
@@ -87,8 +90,12 @@ async def render(
     if extras:
         rows.append((extras_label, "", list(extras)))
 
+    # The gutter is sized to the labels rather than fixed. "STARTER + RELIC" is
+    # wider than 150px at this size and was drawn straight over the first tile.
+    gutter = _gutter_for(row[0] for row in rows)
+
     row_height = tile + CAPTION
-    width = MARGIN + GUTTER + max(len(steps) for _, _, steps in rows) * tile
+    width = MARGIN + gutter + max(len(steps) for _, _, steps in rows) * tile
     height = len(rows) * row_height + (len(rows) - 1) * ROW_GAP
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -97,9 +104,9 @@ async def render(
     for index, (label, reason, entries) in enumerate(rows):
         top = index * (row_height + ROW_GAP)
         _draw_label(draw, label, reason, top, tile)
-        await _draw_row(canvas, draw, entries, top, tile)
+        await _draw_row(canvas, draw, entries, top, gutter, tile)
 
-    _draw_connectors(draw, len(branches), row_height)
+    _draw_connectors(draw, len(branches), row_height, gutter)
 
     out = io.BytesIO()
     canvas.save(out, format="PNG")
@@ -119,10 +126,20 @@ def _draw_label(draw, label: str, reason: str, top: int, tile: int) -> None:
         )
 
 
-async def _draw_row(canvas, draw, entries, top: int, tile: int) -> None:
+def _gutter_for(labels) -> int:
+    """Wide enough for the longest label, never narrower than the default."""
+    face = font(_LABEL_SIZE)
+    measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    widest = max(
+        (measure.textlength(label, font=face) for label in labels), default=0
+    )
+    return max(GUTTER, int(widest) + LABEL_PAD + 10)
+
+
+async def _draw_row(canvas, draw, entries, top: int, gutter: int, tile: int) -> None:
     """One row of tiles. `Step`s carry a running total; bare items do not."""
     for column, entry in enumerate(entries):
-        left = GUTTER + column * tile
+        left = gutter + column * tile
         item = entry.item if isinstance(entry, Step) else entry
         await _draw_tile(canvas, item, left, top, tile)
         if isinstance(entry, Step):
@@ -175,7 +192,7 @@ def _draw_gold(draw, text: str, left: int, top: int, tile: int) -> None:
     draw.text((left + (tile - width) / 2, top + 5), text, font=face, fill=_MUTED)
 
 
-def _draw_connectors(draw, rows: int, row_height: int) -> None:
+def _draw_connectors(draw, rows: int, row_height: int, gutter: int) -> None:
     """A spine down the gutter linking the shared row to each branch.
 
     Drawn in the label gutter rather than between the tiles so it never crosses
@@ -183,10 +200,10 @@ def _draw_connectors(draw, rows: int, row_height: int) -> None:
     """
     if rows < 2:
         return
-    spine = GUTTER - 16
+    spine = gutter - 16
     first = row_height // 2
     last = (rows - 1) * (row_height + ROW_GAP) + row_height // 2
     draw.line([(spine, first), (spine, last)], fill=_LINE, width=3)
     for index in range(1, rows):
         middle = index * (row_height + ROW_GAP) + row_height // 2
-        draw.line([(spine, middle), (GUTTER - 2, middle)], fill=_LINE, width=3)
+        draw.line([(spine, middle), (gutter - 2, middle)], fill=_LINE, width=3)

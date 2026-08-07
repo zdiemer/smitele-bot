@@ -1377,6 +1377,7 @@ class GodBuilder:
             optimizer.rank_builds(builds, balance=BuildBalance.TANK.ratio)[0],
             optimizer.score_build,
             optimizer.compute_item_price,
+            opens=optimizer.is_completed_starter,
         )
 
         desc = (
@@ -1387,7 +1388,13 @@ class GodBuilder:
             f"{optimizer.get_build_stats_string(path.default)}"
         )
 
-        return GeneratedBuild(path.default, relics, desc, path=path)
+        # The starter leads the item list even when the branches disagree about
+        # which one: it is bought first either way, and a strip that opens on a
+        # tier-3 item reads as though the starter were an afterthought.
+        ordered = sorted(
+            path.default, key=lambda item: not optimizer.is_completed_starter(item)
+        )
+        return GeneratedBuild(ordered, relics, desc, path=path)
 
     def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """The best Smite 2 build this model can find for a god in a lane.
@@ -1461,7 +1468,7 @@ class GodBuilder:
         )
 
         extras: List[Item] = []
-        starter = optimizer.best_starter()
+        starter = optimizer.best_starter(build)
         if starter is not None:
             extras.append(starter)
         relic = optimizer.conventional_relic()

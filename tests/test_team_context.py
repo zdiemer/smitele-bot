@@ -312,12 +312,12 @@ class TestBalance:
         """They optimized to six defensive items before this."""
         assert (
             BuildArchetype.ABILITY_BASED_WARRIOR
-            in __import__("build_optimizer").BRUISER_ARCHETYPE_BALANCE
+            in __import__("build_optimizer").ARCHETYPE_BALANCE
         )
 
     def test_guardians_are_left_alone(self):
         """A support that builds like a tank is correct."""
-        balances = __import__("build_optimizer").BRUISER_ARCHETYPE_BALANCE
+        balances = __import__("build_optimizer").ARCHETYPE_BALANCE
         assert BuildArchetype.SUPPORT_GUARDIAN not in balances
         assert BuildArchetype.SOLO_GUARDIAN not in balances
 
