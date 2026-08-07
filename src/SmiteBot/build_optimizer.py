@@ -389,8 +389,12 @@ _LANE_ARCHETYPES.update(
 # so it wants real bulk, but it is still the team's damage in the mid lane;
 # it sits between a bruiser and a carry rather than at either end.
 ARCHETYPE_BALANCE: Dict[BuildArchetype, float] = {
-    BuildArchetype.ABILITY_BASED_WARRIOR: 0.5,
-    BuildArchetype.AUTO_ATTACK_WARRIOR: 0.45,
+    BuildArchetype.ABILITY_BASED_WARRIOR: 0.7,
+    # Measured rather than guessed: solo warriors average about 70 physical
+    # power against 770 health and 115/90 protections, which is a long way from
+    # an even split. Bellona, Osiris, Gilgamesh, Nike, Tyr, Vamana and
+    # Amaterasu all land within a few points of each other.
+    BuildArchetype.AUTO_ATTACK_WARRIOR: 0.7,
     BuildArchetype.JUNGLE_WARRIOR: 0.35,
     BuildArchetype.HEALER_WARRIOR: 0.6,
     BuildArchetype.SOLO_ASSASSIN: 0.45,
@@ -512,6 +516,11 @@ class BuildOptimizer:
         GodId.BAKASURA: BuildArchetype.AUTO_ATTACK_ASSASSIN,
         GodId.BARON_SAMEDI: BuildArchetype.HEALER_MAGE,
         GodId.BELLONA: BuildArchetype.AUTO_ATTACK_WARRIOR,
+        # Same shape as Bellona in the corpus: Qin's Sais and Berserker's
+        # Shield head every one of their solo builds, and Osiris and Erlang
+        # Shen carry HIGH_ATTACK_SPEED besides.
+        GodId.ERLANG_SHEN: BuildArchetype.AUTO_ATTACK_WARRIOR,
+        GodId.VAMANA: BuildArchetype.AUTO_ATTACK_WARRIOR,
         # Sustain warriors and mages, routed to the healer archetypes that
         # already existed and had nothing pointing at them. All three carry
         # `HIGH_SUSTAIN` and were being built as pure damage on their role's
@@ -959,15 +968,35 @@ class BuildOptimizer:
             BuildArchetype.HEALER_WARRIOR: solo,
         }
 
-        if (
+        # A wishlist is satisfied by *any one* of its passives, so adding
+        # healing to a set of a dozen solo passives made it an alternative
+        # rather than a want, and a sustain god picked one of the other eleven
+        # every time. Chaac and Hercules never bought a heal.
+        #
+        # For a god whose kit is healing, the wishlist becomes the healing set
+        # instead of absorbing it: at least one of the six has to do something
+        # with healing, and which one is still the optimizer's choice.
+        healing = {
+            PassiveAttribute.TRIGGERS_HEAL,
+            PassiveAttribute.ABILITY_HEALING,
+            PassiveAttribute.INCREASES_HEALING,
+            PassiveAttribute.SELF_BUFF_ON_HEAL,
+            PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL,
+        }
+        heals = self.__current_archetype in (
+            BuildArchetype.HEALER_MAGE,
+            BuildArchetype.HEALER_WARRIOR,
+            BuildArchetype.HEALER_GUARDIAN,
+        )
+        if heals and self.__current_archetype in defaults:
+            defaults[self.__current_archetype] = healing
+        elif (
             GodPro.HIGH_SUSTAIN in self.god.pros
             and self.__current_archetype in defaults
         ):
-            defaults[self.__current_archetype].add(
-                PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL
+            defaults[self.__current_archetype] = (
+                defaults[self.__current_archetype] | healing
             )
-            defaults[self.__current_archetype].add(PassiveAttribute.INCREASES_HEALING)
-            defaults[self.__current_archetype].add(PassiveAttribute.SELF_BUFF_ON_HEAL)
 
         self.__archetype_passive_wishlist = defaults
 

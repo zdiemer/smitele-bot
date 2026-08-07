@@ -148,7 +148,13 @@ async def score_smite1(gods, items, references, verbose, limit):
         if god is None or god.role is None:
             continue
         valid = valid_items_for_god(god, items)
-        optimizer = BuildOptimizer(god, valid, items)
+        # The lane matters now: archetype resolves from it, so a harness that
+        # omitted it would measure a path the bot never takes.
+        try:
+            lane = PlayerRole(role.strip().lower())
+        except ValueError:
+            lane = None
+        optimizer = BuildOptimizer(god, valid, items, role=lane)
         builds, _iterations = await optimizer.optimize()
         if not builds:
             continue
