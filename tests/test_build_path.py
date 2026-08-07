@@ -154,7 +154,7 @@ class TestDescribe:
         )
         text = build_path.describe(path)
         assert "Then it depends" not in text
-        assert "forks from the first item" in text
+        assert "Forks immediately" in text
 
     def test_nothing_at_all_describes_as_nothing(self):
         assert build_path.describe(build_path.fork([], [], [], score, price)) == ""

@@ -41,6 +41,13 @@ def _placeholder_font(size: int) -> ImageFont.ImageFont:
     return _font_cache[size]
 
 
+# The same lookup under a public name, for anything else that has to draw text
+# into an image. `build_path_image` uses it; keeping one candidate list means a
+# host missing DejaVu breaks or works everywhere at once rather than in one
+# picture and not the other.
+font = _placeholder_font
+
+
 class ItemTreeBuilder:
     __items: Dict[int, Item]
     trivia_item: Optional[Item] = None

@@ -325,67 +325,62 @@ BRUISER_ARCHETYPE_BALANCE: Dict[BuildArchetype, float] = {
 
 
 class BuildOptimizer:
-    JUNGLE_STARTERS = {
-        19500,  # Manikin Scepter
-        19502,  # Bumba's Dagger
-        19694,  # Eye of the Jungle
-    }
+    # Which starter each archetype opens on, by the *name* of the tier-1 base.
+    #
+    # These were item ids, and four of them had gone stale: Hi-Rez reissues
+    # starter ids between seasons, so 19490 (Bluestone Pendant), 19510 (Vampiric
+    # Shroud) and 19672 (Leather Cowl) matched nothing at all, and 20698 matched
+    # the deprecated "War Flag (OLD)" rather than the live one. A stale id is
+    # invisible: `get_preferred_starters` simply returned an empty list, the
+    # starter loop in `optimize` never ran, and every build for those archetypes
+    # came back with no starter. That is the whole reason a Chaac build had
+    # none.
+    #
+    # Names are stable where ids are not, and a name that goes stale is at least
+    # readable in a diff. Matched against the base of the upgrade chain, so
+    # naming "Warrior's Axe" covers Sundering Axe and Axe of Animosity.
+    JUNGLE_STARTERS = {"Manikin Scepter", "Bumba's Dagger", "Eye of the Jungle"}
     SOLO_STARTERS = {
-        19490,  # Bluestone Pendant
-        19496,  # Warrior's Axe
-        19640,  # Tainted Steel
-        19751,  # Warding Sigil
-        19492,  # Death's Toll
+        "Bluestone Pendant",
+        "Warrior's Axe",
+        "Tainted Steel",
+        "Warding Sigil",
+        "Death's Toll",
     }
-    SUPPORT_STARTERS = {
-        19609,  # Sentinel's Gift
-        19634,  # Benevolence
-        20698,  # War Flag
-    }
-    MID_STARTERS = {
-        19677,  # Conduit Gem
-        19510,  # Vampiric Shroud
-        19508,  # Sands of Time
-    }
-    CARRY_STARTERS = {
-        19492,  # Death's Toll
-        19494,  # Gilded Arrow
-        19672,  # Leather Cowl
-    }
+    SUPPORT_STARTERS = {"Sentinel's Gift", "Benevolence", "War Flag"}
+    MID_STARTERS = {"Conduit Gem", "Vampiric Shroud", "Sands of Time"}
+    CARRY_STARTERS = {"Death's Toll", "Gilded Arrow", "Leather Cowl"}
 
-    ARCHETYPE_PREFERRED_STARTER: Dict[BuildArchetype, Set[int]] = {
+    ARCHETYPE_PREFERRED_STARTER: Dict[BuildArchetype, Set[str]] = {
         BuildArchetype.ABILITY_BASED_ASSASSIN: JUNGLE_STARTERS,
         BuildArchetype.AUTO_ATTACK_ASSASSIN: JUNGLE_STARTERS,
         BuildArchetype.AUTO_ATTACK_WITH_CRIT_ASSASSIN: JUNGLE_STARTERS,
-        BuildArchetype.SOLO_ASSASSIN: SOLO_STARTERS.copy().difference({19492}),
+        BuildArchetype.SOLO_ASSASSIN: SOLO_STARTERS - {"Death's Toll"},
         BuildArchetype.SUPPORT_GUARDIAN: SUPPORT_STARTERS,
         BuildArchetype.HEALER_GUARDIAN: SUPPORT_STARTERS,
-        BuildArchetype.SOLO_GUARDIAN: MID_STARTERS.copy().union({19496}),
+        BuildArchetype.SOLO_GUARDIAN: MID_STARTERS | {"Warrior's Axe"},
         BuildArchetype.CARRY_HUNTER: CARRY_STARTERS,
-        BuildArchetype.ABILITY_BASED_HUNTER: {
-            19500,  # Manikin Scepter
-            19490,  # Bluestone Pendant
-        },
-        BuildArchetype.MID_MAGE: MID_STARTERS.copy().difference({19510}),
-        BuildArchetype.LIFESTEAL_MID_MAGE: {
-            19510,  # Vampiric Shroud
-        },
+        BuildArchetype.ABILITY_BASED_HUNTER: {"Manikin Scepter", "Bluestone Pendant"},
+        BuildArchetype.ATTACK_SPEED_STIM_HUNTER: CARRY_STARTERS,
+        BuildArchetype.MID_MAGE: MID_STARTERS - {"Vampiric Shroud"},
+        BuildArchetype.LIFESTEAL_MID_MAGE: {"Vampiric Shroud"},
         BuildArchetype.JUNGLE_MAGE: JUNGLE_STARTERS,
-        BuildArchetype.HEALER_MAGE: MID_STARTERS.copy().difference({19510}),
-        BuildArchetype.AUTO_ATTACK_MAGE: MID_STARTERS.copy()
-        .difference({19510})
-        .union({19500}),
-        BuildArchetype.SOLO_MAGE: MID_STARTERS.copy()
-        .union(SOLO_STARTERS.union())
-        .difference({19490, 19492}),
-        BuildArchetype.SUPPORT_MAGE: SUPPORT_STARTERS.copy().union({23048}),
+        BuildArchetype.HEALER_MAGE: MID_STARTERS - {"Vampiric Shroud"},
+        BuildArchetype.AUTO_ATTACK_MAGE: (MID_STARTERS - {"Vampiric Shroud"})
+        | {"Manikin Scepter"},
+        BuildArchetype.SOLO_MAGE: (MID_STARTERS | SOLO_STARTERS)
+        - {"Bluestone Pendant", "Death's Toll"},
+        BuildArchetype.SUPPORT_MAGE: SUPPORT_STARTERS,
         BuildArchetype.ABILITY_BASED_WARRIOR: SOLO_STARTERS,
         BuildArchetype.HEALER_WARRIOR: SOLO_STARTERS,
-        BuildArchetype.AUTO_ATTACK_WARRIOR: {
-            19492,  # Death's Toll
-        },
+        BuildArchetype.AUTO_ATTACK_WARRIOR: {"Death's Toll"},
         BuildArchetype.JUNGLE_WARRIOR: JUNGLE_STARTERS,
         BuildArchetype.SUPPORT_WARRIOR: SUPPORT_STARTERS,
+        # The three archetypes nothing maps to today still get a set, so adding
+        # a god to one cannot silently produce starterless builds.
+        BuildArchetype.SUPPORT_ASSASSIN: SUPPORT_STARTERS,
+        BuildArchetype.MID_ASSASSIN: MID_STARTERS,
+        BuildArchetype.MID_GUARDIAN: MID_STARTERS,
     }
 
     # Used for processing input to determine what stats to optimize for
@@ -1426,6 +1421,8 @@ class BuildOptimizer:
                         ].passive_properties
                     }
                 )
+        if self.__has_sibling_upgrades(build):
+            return False
         if self.__check_overcapped(stats.stats, all_passives):
             return False
         if self.__required_passives - all_passives:
@@ -1751,6 +1748,15 @@ class BuildOptimizer:
         god_weights = self.__get_weights()
         self.__compute_scores(god_weights)
         starters = self.__filter_passive_denylist(self.get_preferred_starters())
+        if not starters:
+            # The archetype's preferred set can come back empty: it may not name
+            # a starter this god can build, or the passive denylist may have
+            # removed every one it did name. An empty list silently means "no
+            # build gets a starter", so fall back to any starter the god is
+            # allowed, which is still better than opening on nothing.
+            starters = self.__filter_passive_denylist(
+                self.get_starters(self.valid_items)
+            ) or self.get_starters(self.valid_items)
 
         sorted_ids = list(
             [
@@ -1822,13 +1828,20 @@ class BuildOptimizer:
                     continue
 
                 if not viable_builds and met >= best_met:
+                    candidate = list(existing_build.union(frozenset(combo)))
+                    # A near miss is a build that fell short of the targets, not
+                    # one the game would refuse to sell. Without this the
+                    # sibling-glyph check is bypassed entirely for any god whose
+                    # targets nothing meets, which is exactly where the fallback
+                    # runs — Anubis came back holding both Perfected and
+                    # Calamitous Rod of Tahuti.
+                    if self.__has_sibling_upgrades(candidate):
+                        continue
                     if met > best_met:
                         best_met = met
                         near_misses.clear()
                     if len(near_misses) < _NEAR_MISS_LIMIT:
-                        near_misses.append(
-                            (met, list(existing_build.union(frozenset(combo))))
-                        )
+                        near_misses.append((met, candidate))
             return build_n
 
         # Five items and a starter.
@@ -1882,14 +1895,21 @@ class BuildOptimizer:
         print(f"Iterated {iterations} times...")
 
         for build in viable_builds:
-            starter_idx = 0
+            starter_idx = None
             evos = []
 
-            # Place starter first
+            # Place the starter first, since it is what you open on.
+            #
+            # This used to test `item.is_starter`, which is only ever true of a
+            # tier-1 base item and so never of anything in a build: the swap was
+            # dead code, and a starter rendered wherever the price sort below
+            # happened to put it. `starter_idx` also defaulted to 0, which made
+            # "no starter" and "starter already first" the same state.
             for idx, item in enumerate(build):
-                if item.is_starter:
+                if self.is_completed_starter(item):
                     starter_idx = idx
-            if starter_idx != 0:
+                    break
+            if starter_idx:
                 build[starter_idx], build[0] = build[0], build[starter_idx]
 
             build[1:] = sorted(
@@ -2220,15 +2240,63 @@ class BuildOptimizer:
             filter(lambda item: item.root_item_id == self.MAGIC_ACORN_ID, items)
         )
 
+    @staticmethod
+    def __has_sibling_upgrades(build) -> bool:
+        """Whether a build holds two upgrades of the same item.
+
+        A tier-3 item upgrades into one of several tier-4 glyphs, and they are
+        alternatives: Rod of Tahuti becomes Perfected *or* Calamitous, never
+        both. The search could produce both and did — `filter_glyph_parent`
+        removes a glyph's *parent* from the pool but says nothing about its
+        siblings, so any combination seeded with one glyph was free to draw
+        another from the same base, and the six-item enumeration could draw two
+        with no seed at all.
+
+        Restricted to tier 4 deliberately. Ordinary items share components all
+        the time — a dozen tier-3 items are built from the same tier-2 mace —
+        so rejecting every shared parent would throw out legal builds.
+        """
+        parents = [
+            item.parent_item_id
+            for item in build
+            if item.tier == 4 and item.parent_item_id is not None
+        ]
+        return len(parents) != len(set(parents))
+
+    def is_completed_starter(self, item: Item) -> bool:
+        """A finished starter, which is the one a real build carries.
+
+        Smite 1 starters are two steps, not three: a 650g tier-1 base and a
+        1500g tier-2 completion, usually with two completions to choose between
+        (Warrior's Axe becomes Sundering Axe or Axe of Animosity). `is_starter`
+        is set on every item in the chain rather than only the base, so tier is
+        what separates the finished article from the thing you sell it back for.
+
+        Note this is deliberately *not* a tier-3 test. A completed starter never
+        reaches tier 3, which is why `filter_tiers` excludes it from the search
+        pool entirely and why it can only enter a build through the explicit
+        starter seed in `optimize`.
+        """
+        return bool(item.is_starter) and item.tier >= 2
+
     def get_preferred_starters(self) -> List[Item]:
+        """The completed starters this archetype opens on.
+
+        Matched on the name of the chain's base, so every completion of a named
+        starter qualifies. `.get` rather than `[...]` because a missing
+        archetype should offer no starter rather than raise from inside the
+        search.
+        """
+        wanted = self.ARCHETYPE_PREFERRED_STARTER.get(self.__current_archetype, set())
+        if not wanted:
+            return []
         return self.get_starters(
-            list(
-                filter(
-                    lambda item: item.root_item_id
-                    in self.ARCHETYPE_PREFERRED_STARTER[self.__current_archetype],
-                    self.__all_items.values(),
-                )
-            )
+            [
+                item
+                for item in self.__all_items.values()
+                if (root := self.__all_items.get(item.root_item_id)) is not None
+                and root.name in wanted
+            ]
         )
 
     def get_starters(self, items: List[Item]) -> List[Item]:
@@ -2278,16 +2346,21 @@ class BuildOptimizer:
                 ItemAttribute.MAGICAL_PENETRATION,
                 ItemAttribute.PHYSICAL_PENETRATION,
             )
+            # `.rstrip()` because `get_level_stats` returns "" for any stat the
+            # god has no base value of, which left a trailing space on the end
+            # of most lines in every build embed.
             if stat.flat_value > 0:
                 desc += (
                     f'**{"Flat " if percent_prefix else ""}'
                     f"{stat.attribute.display_name}**: {int(stat.flat_value)} "
-                    f"{get_level_stats(stat.attribute, stat.flat_value)}\n"
+                    f"{get_level_stats(stat.attribute, stat.flat_value)}".rstrip()
+                    + "\n"
                 )
             if stat.percent_value > 0:
                 desc += (
                     f'**{"Percent " if percent_prefix else ""}'
                     f"{stat.attribute.display_name}**: {round(stat.percent_value * 100)}% "
-                    f"{get_level_stats(stat.attribute, stat.percent_value)}\n"
+                    f"{get_level_stats(stat.attribute, stat.percent_value)}".rstrip()
+                    + "\n"
                 )
         return desc

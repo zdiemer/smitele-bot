@@ -80,6 +80,9 @@ class GeneratedBuild(NamedTuple):
     relics: List[Item]
     description: str
     aspect: object = None
+    # Only `/optimize` produces one. It is carried rather than folded into the
+    # description because the embed draws it instead of describing it.
+    path: object = None
 
 
 # Which stats count as offence and which as defence, for `--prioritize`. Smite 1
@@ -167,22 +170,6 @@ def _context_note(context) -> str:
     return f"_{described}_\n\n" if described else ""
 
 
-def _relic_note(relics: List[Item]) -> str:
-    """Name the relics, and be honest that they were not computed.
-
-    A relic is an active, and what one is worth is a fact about the match
-    rather than about the build — a cleanse is everything against a stun and
-    nothing against a team without one. The stat model has no opinion, so
-    rather than leave the slots empty (which reads as "you need no relics") or
-    quietly fill them (which reads as "these were optimized"), it says which it
-    is.
-    """
-    if not relics:
-        return ""
-    names = ", ".join(f"**{relic.name}**" for relic in relics)
-    return f"_{names} by convention — relic value depends on who you're up against._\n\n"
-
-
 def _aspect_string(god: God, aspect) -> str:
     """The Aspect paragraph, or a note that the roll came up without one.
 
@@ -193,18 +180,13 @@ def _aspect_string(god: God, aspect) -> str:
     if aspect is None:
         if getattr(god, "aspect", None) is None:
             return ""
-        return f"Played **without an Aspect** — {god.name}'s is optional.\n\n"
+        return "No Aspect.\n\n"
 
-    detail = (aspect.description or "").strip()
-    changed = ", ".join(sorted(aspect.changed_abilities or {}))
     # Every Aspect is named "Aspect of …", so saying "the X Aspect" around it
-    # reads as a stutter.
-    lines = [f"Playing **{aspect.name}**."]
-    if detail:
-        lines.append(f"_{detail}_")
-    if changed:
-        lines.append(f"It changes {god.name}'s {changed}.")
-    return "\n".join(lines) + "\n\n"
+    # reads as a stutter. The list of changed abilities is dropped: it ran to a
+    # line of its own and the Aspect's own description already says as much.
+    detail = (aspect.description or "").strip()
+    return f"**{aspect.name}**" + (f": _{detail}_" if detail else "") + "\n\n"
 
 
 def summarise_item_properties(build: List[Item]) -> str:
@@ -1323,6 +1305,20 @@ class GodBuilder:
         if not any(builds):
             raise BuildFailedError
 
+        # A real build finishes its starter and keeps it. Nothing in the search
+        # knew that: five items plus a tier-2 starter and six items with none
+        # land in the same list, and `score_build` sums per-item scores, so six
+        # scored items beat five plus a cheap one every time. Narrowing to the
+        # builds that carry a finished starter, when there are any, is what puts
+        # Corrupted Bluestone back in a Chaac build.
+        with_starter = [
+            build
+            for build in builds
+            if any(optimizer.is_completed_starter(item) for item in build)
+        ]
+        if with_starter:
+            builds = with_starter
+
         min_ttk = sys.maxsize
         build: List[Item] = None
 
@@ -1354,11 +1350,7 @@ class GodBuilder:
                 if total_ttk < min_ttk:
                     min_ttk = total_ttk
                     build = bld
-            team_killed_str = (
-                f"This build was tested against {random_assassin.god.name}, "
-                f"{random_guardian.god.name}, {random_hunter.god.name}, "
-                f"{random_mage.god.name}, and {random_warrior.god.name}. "
-            )
+            team_killed_str = ""
         else:
             # Previously `random.choice(builds)`, which is why only hunters
             # were ever really optimized: every other role searched hundreds of
@@ -1372,18 +1364,10 @@ class GodBuilder:
 
         ttk_str = ""
         if min_ttk < sys.maxsize:
-            ttk_str = (
-                f"This build had a team total TTK "
-                f"(time to kill) of **{min_ttk:.2f} seconds**, "
-                f"beating **{len(builds):,}** other builds."
-            )
-        viable_str = (
-            f"I tried **{iterations:,}** builds and found "
-            f"**{len(builds):,}** viable builds."
-        )
+            ttk_str = f"Kills a full team in **{min_ttk:.2f}s**. "
+        viable_str = f"Best of **{len(builds):,}** viable builds. "
 
         relics = optimizer.conventional_relics()
-        relic_str = _relic_note(relics)
 
         # The same viable set, asked what it would want ahead and behind. One
         # search, three rankings — see `rank_builds`.
@@ -1396,17 +1380,14 @@ class GodBuilder:
         )
 
         desc = (
-            f"here's your number crunched build! "
-            f'{ttk_str if ttk_str != "" else viable_str} '
-            f"{team_killed_str}"
-            f"Hopefully it's a winner!\n\n"
+            f"here's your {god.name} build. "
+            f'{ttk_str if ttk_str != "" else viable_str}'
+            f"{team_killed_str}\n\n"
             f"{_context_note(optimizer.context)}"
-            f"{build_path.describe(path)}\n\n"
-            f"{relic_str}"
             f"{optimizer.get_build_stats_string(path.default)}"
         )
 
-        return GeneratedBuild(path.default, relics, desc)
+        return GeneratedBuild(path.default, relics, desc, path=path)
 
     def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """The best Smite 2 build this model can find for a god in a lane.
@@ -1492,16 +1473,13 @@ class GodBuilder:
         # the build look more expensive than the optimizer actually spent.
         priced = path.default + ([starter] if starter is not None else [])
         desc = (
-            f"here's your number crunched **{optimizer.role.value.title()}** "
-            f"build for {god.name}, built around "
-            f"**{optimizer.damage_stat.display_name}** for "
+            f"here's your **{optimizer.role.value.title()}** {god.name} build, "
+            f"built on **{optimizer.damage_stat.display_name}** for "
             f"{smite2_stats.total_cost(priced):,} gold.\n\n"
             f"{_context_note(optimizer.context)}"
-            f"{build_path.describe(path)}\n\n"
-            f"{_relic_note([relic] if relic else [])}"
             f"{smite2_stats.describe_build(god, priced)}"
         )
-        return GeneratedBuild(path.default, extras, desc)
+        return GeneratedBuild(path.default, extras, desc, path=path)
 
     async def _get_random_god_by_role(
         self, role: GodRole, queue_id: QueueId

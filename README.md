@@ -119,6 +119,17 @@ for solo laners. Their metas are built around Gladiator's Shield, Oni Hunter's
 Garb and Pridwen, whose value is almost entirely in their passives, and no
 amount of weighting stat lines reaches items like those.
 
+### What the accuracy number does not capture
+
+Smite 1 builds now keep a completed starter, which moved the mean *down* from
+1.89 to 1.81. That is a limitation of the measure rather than a worse build.
+**85.3% of winning Conquest builds in the corpus contain a completed starter**,
+so a build without one is the unusual case. The reference the harness compares
+against is the six most *frequent* items for a god, and starter choice splits
+across several options (Death's Embrace, Death's Temper, Sundering Axe), so no
+individual starter reaches the top six even when almost every build has one.
+Read the number as agreement with a frequency ranking, not as a verdict.
+
 There is also a per-item table measured straight from win rates
 (`src/tools/derive_item_value.py`). It is generated, checked in and loaded, and
 currently weighted at **zero**: it made pick-overlap worse at every weight

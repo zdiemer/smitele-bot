@@ -650,7 +650,7 @@ def describe_build(god: God, items: List[Item], level: int = 20) -> str:
         if attribute in items_only.overcapped
     ]
     if capped:
-        lines.append(f"\n_Over the cap on {_join(capped)} — those points do nothing._")
+        lines.append(f"\n_Over the cap on {_join(capped)}; those points do nothing._")
 
     lines.append(f"\n**At level {level}**:")
     health = totals.get(ItemAttribute.HEALTH)

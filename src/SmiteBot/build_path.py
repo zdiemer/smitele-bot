@@ -172,12 +172,12 @@ def describe(path: BuildPath, currency: str = "gold") -> str:
 
     if lines:
         lines.append("")
-        lines.append("_Then it depends on how the game is going:_")
+        lines.append("_Then:_")
     else:
         # Every balance wanted a different first item, so there is no opening to
         # share. Saying "then" here would be describing a step that does not
         # exist.
-        lines.append("_This one forks from the first item:_")
+        lines.append("_Forks immediately:_")
     for label, steps in (("Ahead", path.ahead), ("Behind", path.behind)):
         if not steps:
             continue

@@ -232,7 +232,9 @@ class TestAspectRoll:
                 continue
             assert "Aspect of Testing" in result.description
             assert "Changes everything." in result.description
-            assert "1st Ability" in result.description
+            # The list of changed abilities is deliberately not printed: it ran
+            # to a line of its own and the Aspect's description already says it.
+            assert "1st Ability" not in result.description
             return
         pytest.fail("never rolled an Aspect")
 
@@ -243,7 +245,7 @@ class TestAspectRoll:
             random.seed(seed)
             result = build_for(god, items)
             if result.aspect is None:
-                assert "without an Aspect" in result.description
+                assert "No Aspect" in result.description
                 return
         pytest.fail("always rolled an Aspect")
 
@@ -403,6 +405,84 @@ class TestOvercapTypes:
             )
             is False
         )
+
+
+class TestSmite1Starters:
+    """A real build finishes its starter and keeps it as one of its six slots.
+
+    Smite 1 starters are two steps, not three: a 650g tier-1 base and a 1500g
+    tier-2 completion, and `is_starter` is set on every item in the chain.
+    """
+
+    @staticmethod
+    def optimizer(items=()):
+        god = God()
+        god.name = "Starter"
+        god.id = 1
+        god.role = GodRole.WARRIOR
+        god.type = GodType.PHYSICAL
+        god.pros = []
+        god.stats = GodStats()
+        god.stats.values = {}
+        god.stats.basic_attack = _BasicAttack()
+        return BuildOptimizer(god, list(items), {i.id: i for i in items})
+
+    def test_a_finished_starter_is_recognised(self):
+        finished = make_item("Sundering Axe", tier=2, starter=True)
+        assert self.optimizer().is_completed_starter(finished)
+
+    def test_the_unfinished_base_is_not(self):
+        """Tier 1 is the thing you upgrade, not the thing you keep."""
+        base = make_item("Warrior's Axe", tier=1, starter=True)
+        assert not self.optimizer().is_completed_starter(base)
+
+    def test_an_ordinary_item_is_not(self):
+        assert not self.optimizer().is_completed_starter(make_item("Deathbringer"))
+
+    def test_every_archetype_names_a_starter(self):
+        """A missing entry silently produced starterless builds: the loop that
+        seeds a starter simply never ran."""
+        for archetype in BuildArchetype:
+            assert BuildOptimizer.ARCHETYPE_PREFERRED_STARTER.get(archetype)
+
+    def test_starters_are_named_not_numbered(self):
+        """These were item ids and four had gone stale, matching nothing at all
+        (Bluestone Pendant, Vampiric Shroud, Leather Cowl) or the deprecated
+        "War Flag (OLD)". A stale id is invisible; a stale name is reviewable."""
+        for wanted in BuildOptimizer.ARCHETYPE_PREFERRED_STARTER.values():
+            assert all(isinstance(name, str) for name in wanted)
+
+
+class TestSiblingUpgrades:
+    """Rod of Tahuti becomes Perfected *or* Calamitous, never both.
+
+    `filter_glyph_parent` removes a glyph's parent from the pool but says
+    nothing about its siblings, so the search produced builds holding two
+    upgrades of one item and the near-miss fallback returned them unchecked.
+    """
+
+    @staticmethod
+    def build(*specs):
+        out = []
+        for name, tier, parent in specs:
+            item = make_item(name, tier=tier)
+            item.parent_item_id = parent
+            out.append(item)
+        return out
+
+    def test_two_upgrades_of_one_item_are_rejected(self):
+        check = BuildOptimizer._BuildOptimizer__has_sibling_upgrades
+        assert check(self.build(("Perfected", 4, 99), ("Calamitous", 4, 99)))
+
+    def test_different_parents_are_fine(self):
+        check = BuildOptimizer._BuildOptimizer__has_sibling_upgrades
+        assert not check(self.build(("Perfected", 4, 99), ("Bewitched", 4, 100)))
+
+    def test_ordinary_items_may_share_a_component(self):
+        """A dozen tier-3 items are built from the same tier-2 mace; rejecting
+        every shared parent would throw out legal builds."""
+        check = BuildOptimizer._BuildOptimizer__has_sibling_upgrades
+        assert not check(self.build(("A", 3, 42), ("B", 3, 42)))
 
 
 class TestSmite1ArchetypeTables:

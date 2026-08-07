@@ -97,29 +97,25 @@ class TeamContext(NamedTuple):
         return self.enemy_healers > 0
 
     def describe(self) -> str:
-        """One line for the build embed, or nothing if there was no lobby."""
+        """One short clause for the build embed, or nothing if no lobby.
+
+        Deliberately terse. This is read at a glance next to a build, not
+        studied, and a sentence per fact pushed the stats off the screen.
+        """
         if not self.known:
             return ""
         parts: List[str] = []
         if self.enemy_count:
             physical = round(self.physical_share * self.enemy_count)
             magical = self.enemy_count - physical
-            parts.append(f"{physical} physical and {magical} magical")
+            parts.append(f"{physical} physical / {magical} magical")
         if self.enemy_healers:
-            parts.append(
-                f"{self.enemy_healers} healer{'s' if self.enemy_healers > 1 else ''}"
-            )
+            parts.append(f"{self.enemy_healers} healing")
         if self.enemy_crowd_control:
-            parts.append(f"{self.enemy_crowd_control} bringing crowd control")
-        line = ""
-        if parts:
-            line = f"Built against {', '.join(parts)}."
+            parts.append(f"{self.enemy_crowd_control} CC")
         if self.allied_tanks:
-            line += (
-                f" Your team already has {self.allied_tanks} front"
-                f"line{'s' if self.allied_tanks > 1 else ''}."
-            )
-        return line.strip()
+            parts.append(f"{self.allied_tanks} ally frontline")
+        return f"vs {', '.join(parts)}" if parts else ""
 
 
 def read(

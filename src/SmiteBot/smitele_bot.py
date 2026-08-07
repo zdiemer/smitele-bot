@@ -61,6 +61,7 @@ from smitetrivia import SmiteTrivia
 from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 import art_cache
+import build_path_image
 from game import Game, id_value
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
 from recommend import BuildRecommender
@@ -416,6 +417,7 @@ class Smitele(commands.Cog):
 
     ABILITY_IMAGE_FILE: str = "ability.jpg"
     BUILD_IMAGE_FILE: str = "build.jpg"
+    BUILD_PATH_IMAGE_FILE: str = "build_path.png"
     CONFIG_FILE: str = paths.CONFIG_FILE
     GOD_IMAGE_FILE: str = "god.jpg"
     GOD_CROP_IMAGE_FILE: str = "godCrop.jpg"
@@ -1129,7 +1131,7 @@ class Smitele(commands.Cog):
                 embed.add_field(
                     name="Also strong here",
                     value="\n".join(
-                        f"**{score:.0%}** — " + ", ".join(item.name for item in items)
+                        f"**{score:.0%}**: " + ", ".join(item.name for item in items)
                         for items, score in resolved[1:]
                     ),
                     inline=False,
@@ -1140,7 +1142,7 @@ class Smitele(commands.Cog):
                 # which is not the same as causing it. Saying so on the card
                 # keeps the number honest.
                 text=f"Ranked from builds players actually ran (model AUC "
-                f"{recommender.test_auc:.2f}) — correlation, not causation."
+                f"{recommender.test_auc:.2f}). Correlation, not causation."
             )
             await ctx.respond(files=files, embed=embed)
 
@@ -1739,9 +1741,25 @@ class Smitele(commands.Cog):
         no_god_specified: bool = False,
         no_god_specified_override: str = None,
     ):
-        build, relics, extended_desc, aspect = generated
+        build, relics, extended_desc, aspect, path = generated
         game = provider.game if provider is not None else Game.SMITE
         cache_parts = paths.game_cache_parts(game)
+        # A forked path is drawn rather than described. An embed has one image
+        # slot, so this replaces the grid; anything that goes wrong falls back
+        # to it, since a build without a diagram beats no build at all.
+        path_bytes = None
+        if path is not None:
+            try:
+                path_bytes = await build_path_image.render(
+                    path,
+                    relics or [],
+                    extras_label="RELICS"
+                    if game is Game.SMITE
+                    else "STARTER + RELIC",
+                )
+            except Exception as ex:  # pylint: disable=broad-except
+                print(f"Could not draw the build path: {ex}")
+
         with await self.__make_build_image(build) as build_bytes:
             desc = f"Hey {ctx.user.mention}, {extended_desc}"
             file_bytes = build_bytes
@@ -1772,8 +1790,13 @@ class Smitele(commands.Cog):
                 output_image.save(file_bytes, format="PNG")
                 file_bytes.seek(0)
 
-            files = [discord.File(file_bytes, filename=self.BUILD_IMAGE_FILE)]
-            embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
+            image_name = self.BUILD_IMAGE_FILE
+            if path_bytes is not None:
+                file_bytes = path_bytes
+                image_name = self.BUILD_PATH_IMAGE_FILE
+
+            files = [discord.File(file_bytes, filename=image_name)]
+            embed.set_image(url=f"attachment://{image_name}")
             await self.__attach_thumbnail(
                 embed,
                 files,
