@@ -132,6 +132,35 @@ def _prioritized(items: List[Item], prioritization: BuildPrioritization) -> List
     ]
 
 
+def valid_items_for_god(god: God, items: Dict[int, Item]) -> List[Item]:
+    """Every Smite 1 item this god is allowed to build.
+
+    Module-level rather than a `GodBuilder` method so the accuracy harness can
+    score the optimizer over exactly the pool the bot gives it. A harness that
+    assembles its own pool is measuring a different optimizer, and would go
+    quietly wrong the first time one of these rules changed.
+    """
+    return list(
+        filter(
+            lambda item: item.type == ItemType.ITEM and item.active and
+            # Filter out acorns from non-Ratatoskr gods
+            (item.root_item_id != 18703 or god.id == GodId.RATATOSKR) and
+            # Filter out Odysseus' Bow from non-physical gods
+            (item.id != 10482 or god.type == GodType.PHYSICAL) and
+            # Filter out any items that have restricted roles that intersect
+            # with the current god's role
+            (not any(item.restricted_roles) or god.role not in item.restricted_roles)
+            and
+            # Elucidate god type from item properties and check intersection
+            (
+                any(p.attribute.god_type == god.type for p in item.item_properties)
+                or all(p.attribute.god_type is None for p in item.item_properties)
+            ),
+            items.values(),
+        )
+    )
+
+
 def _context_note(context) -> str:
     """What the lobby changed about the build, if a lobby was given."""
     described = context.describe() if context is not None else ""
@@ -493,28 +522,7 @@ class GodBuilder:
         return smite2_stats.describe_build(god, build)
 
     def get_valid_items_for_god(self, god: God) -> List[Item]:
-        return list(
-            filter(
-                lambda item: item.type == ItemType.ITEM and item.active and
-                # Filter out acorns from non-Ratatoskr gods
-                (item.root_item_id != 18703 or god.id == GodId.RATATOSKR) and
-                # Filter out Odysseus' Bow from non-physical gods
-                (item.id != 10482 or god.type == GodType.PHYSICAL) and
-                # Filter out any items that have restricted roles that intersect
-                # with the current god's role
-                (
-                    not any(item.restricted_roles)
-                    or god.role not in item.restricted_roles
-                )
-                and
-                # Elucidate god type from item properties and check intersection
-                (
-                    any(p.attribute.god_type == god.type for p in item.item_properties)
-                    or all(p.attribute.god_type is None for p in item.item_properties)
-                ),
-                self.__items.values(),
-            )
-        )
+        return valid_items_for_god(god, self.__items)
 
     def __random_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """A random Smite 2 build: six core items, a starter, a relic, an Aspect.

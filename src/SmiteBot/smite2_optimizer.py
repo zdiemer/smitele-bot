@@ -29,7 +29,7 @@ greedy and exhaustive.
 How good is it? Against the corpus, the six items this picks share a mean of
 1.95 of 6 with the six most-won items for the same god in the same lane, over
 the 56 gods with enough recorded Conquest wins to compare — median 2, and only
-4 gods with nothing in common. `src/tools/smite2_accuracy.py` re-measures it.
+4 gods with nothing in common. `src/tools/build_accuracy.py` re-measures it.
 That is a long way from reproducing the meta, and the reason is known rather
 than mysterious: most of what separates the corpus's favourite items from their
 neighbours is passive text this does not read. See `score`.

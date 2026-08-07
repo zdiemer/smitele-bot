@@ -56,11 +56,12 @@ produces confident nonsense, which is why there are two.
 Smite 2's optimizer aims at a stat *shape* per lane and damage stat — how much
 Intelligence, penetration and cooldown rate a mid build wants, and so on. Those
 targets were calibrated once against the corpus and are static constants; the
-command itself never reads match data. `src/tools/smite2_accuracy.py` measures
+command itself never reads match data. `src/tools/build_accuracy.py` measures
 how close its picks land to what actually wins, for anyone changing the model:
 
 ```sh
-python src/tools/smite2_accuracy.py --aggregate /matchdata/smite2
+python src/tools/build_accuracy.py --game smite2 --aggregate /matchdata/smite2
+python src/tools/build_accuracy.py --game smite  --aggregate /matchdata
 ```
 
 It currently shares a mean of **2.12 of 6 items** with the six most-won items
@@ -90,13 +91,23 @@ classified passives into attributes and nothing ever *valued* them, so Divine
 Ruin's anti-heal and Titan's Bane's shred scored as though they were not there.
 `PASSIVE_VALUE` supplies the missing number per kind.
 
-Those figures are judgement rather than measurement, and the measurement so far
-does not settle them: over the fourteen most-played gods, valuing passives moved
-mean overlap from 1.93 to 2.00, which on that sample is noise — individual gods
-moved both ways. The builds do look more like real ones (Ymir picks up Pridwen,
-Gauntlet of Thebes and Contagion, which are support staples it used to ignore),
-but "looks right" is not evidence. Settling it wants the accuracy harness
-generalised to Smite 1 and run over all 130 gods rather than a sample.
+Those figures are judgement rather than measurement. Valuing passives moved the
+fourteen most-played gods from 1.93 to 2.00, which on that sample is noise —
+individual gods moved both ways — though the builds do look more like real ones
+(Ymir picks up Pridwen, Gauntlet of Thebes and Contagion, support staples it
+used to ignore).
+
+### Where the two models stand
+
+Over every god with enough Conquest data, **Smite 1 scores 1.78 of 6 and Smite 2
+scores 2.12** — the older, hand-tuned model is the worse one, which is worth
+knowing before trusting either. Smite 1's weakness is visible in its worst
+cases: Surtr, Chaac, Cu Chulainn and Vamana are four of the most-played solo
+gods, with thousands of wins each, and the optimizer hands all four the *same
+six items*. They share an archetype, and nothing downstream tells them apart, so
+for a solo laner the archetype table is the entire model. Their real builds are
+also more defensive and more utility-led than what it produces, which suggests
+the bruiser split overshoots for solo specifically.
 
 There is also a per-item table measured straight from win rates
 (`src/tools/derive_item_value.py`). It is generated, checked in and loaded, and
