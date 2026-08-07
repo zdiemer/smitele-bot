@@ -22,6 +22,14 @@ measured.
 
 Keyed by item *name* rather than id: Smite 1's ids churn between patches, and a
 stale id silently scores nothing while a stale name is visible in review.
+
+Read the output before trusting it. Smite 1's table bottoms out at exactly the
+un-upgraded starters — Bluestone Pendant, Warrior's Axe, Bumba's Dagger, Charon's
+Coin — all pinned at the clip. That is not a claim that starters lose games; it
+is that a build still *holding* an un-upgraded starter at the end is a build from
+a game that ended early or badly, so the lift measures the game rather than the
+item. Anything using these tables for Smite 1 should restrict itself to the
+tier-3 items that can actually hold a core slot.
 """
 
 from __future__ import annotations

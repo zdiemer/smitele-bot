@@ -1,6 +1,12 @@
 # Note: this also covers config.json, which holds the Discord token and the
 # Hi-Rez dev ID / auth key.
 *.json
+
+# …but the item value tables are source, not state. They are calibration —
+# generated once by src/tools/derive_item_value.py, then read and reviewed like
+# any other constant — and the blanket rule above had them silently untracked,
+# so the optimizer loaded an empty table on any fresh checkout and said nothing.
+!src/SmiteBot/item_value_*.json
 **/__pycache__
 session
 version
