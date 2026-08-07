@@ -76,7 +76,14 @@ export type LastRun = {
   standdown?: { until: number; reason: string; remaining_seconds: number }
 }
 
+export type Scheduled = {
+  /** null when the chart said nothing — "unknown", not "switched off". */
+  collector: boolean | null
+  aggregate: boolean | null
+}
+
 export type GameStatus = {
+  scheduled?: Scheduled
   corpus: Corpus | Failed
   aggregate: Aggregate | Failed
   model: Models | Failed
@@ -128,6 +135,7 @@ export type Tracker = {
 export type Status = {
   version: number
   generated_at: number
+  scheduled?: string[] | null
   stale_seconds: number | null
   games: Record<string, GameStatus>
   tracker: Tracker | Failed

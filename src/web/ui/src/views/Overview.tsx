@@ -28,10 +28,12 @@ import { Band, Empty, Meter, Pair, Row, Rows, Section } from '../components'
 
 function gameHealth(game: GameStatus | undefined): Health {
   if (!game) return 'unknown'
-  const corpus = failed(game.corpus) ? 'unknown' : corpusHealth(game.corpus.newest)
+  const corpus = failed(game.corpus)
+    ? 'unknown'
+    : corpusHealth(game.corpus.newest, game.scheduled?.collector)
   const aggregate = failed(game.aggregate)
     ? 'unknown'
-    : aggregateHealth(game.aggregate.built)
+    : aggregateHealth(game.aggregate.built, game.scheduled?.aggregate)
   return worst(corpus, aggregate)
 }
 
@@ -57,11 +59,28 @@ function GameColumn({
       <Rows>
       <Row label="newest day" value={day(corpus?.newest) ?? 'none'} absent={!corpus?.newest} />
       <Row label="corpus files" value={count(corpus?.files)} />
-      <Row label="last written" value={ago(corpus?.newest_at)} />
+      <Row
+        label="last written"
+        value={
+          game.scheduled?.collector === false
+            ? `${ago(corpus?.newest_at)} · not scheduled`
+            : ago(corpus?.newest_at)
+        }
+        absent={game.scheduled?.collector === false}
+        hint={
+          game.scheduled?.collector === false
+            ? 'No collector is scheduled for this game, so nothing is refreshing it. Age here is not a fault.'
+            : undefined
+        }
+      />
       <Row
         label="aggregate built"
-        value={aggregate?.built ?? 'never'}
-        absent={!aggregate?.built}
+        value={
+          game.scheduled?.aggregate === false
+            ? `${aggregate?.built ?? 'never'} · not scheduled`
+            : (aggregate?.built ?? 'never')
+        }
+        absent={!aggregate?.built || game.scheduled?.aggregate === false}
       />
       <Row
         label="rows folded in"

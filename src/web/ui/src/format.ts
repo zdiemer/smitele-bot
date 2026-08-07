@@ -98,7 +98,15 @@ export function daysSince(isoDate: string | null | undefined): number | null {
  * state and one day behind that is normal for most of the morning. Two days is
  * a missed run.
  */
-export function corpusHealth(newestDay: string | null | undefined): Health {
+export function corpusHealth(
+  newestDay: string | null | undefined,
+  scheduled?: boolean | null,
+): Health {
+  // Age is only a fault if something is supposed to be fixing it. A pipeline
+  // nobody scheduled is not behind; it is off, which is a different fact and
+  // needs a different mark — someone read a never-scheduled crawl's staleness
+  // as a failure, which is what this argument exists to prevent.
+  if (scheduled === false) return 'unknown'
   const days = daysSince(newestDay)
   if (days === null) return 'unknown'
   if (days < 2) return 'ok'
@@ -112,7 +120,11 @@ export function corpusHealth(newestDay: string | null | undefined): Health {
  * Looser than the corpus: the aggregate is a derived roll-up, and a day where
  * it did not rebuild costs freshness in `/build` rather than data.
  */
-export function aggregateHealth(built: string | null | undefined): Health {
+export function aggregateHealth(
+  built: string | null | undefined,
+  scheduled?: boolean | null,
+): Health {
+  if (scheduled === false) return 'unknown'
   const days = daysSince(built)
   if (days === null) return 'unknown'
   if (days < 2) return 'ok'

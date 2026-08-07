@@ -76,6 +76,20 @@ TOP_GODS = 20
 # env var on both sides so a deployment sets it once.
 SNAPSHOT_DIR_ENV = "SMITELE_WEB_SNAPSHOT_DIR"
 
+# Which scheduled jobs the chart actually rendered, as a comma-separated list.
+#
+# Without this the site can report how old data is and nothing about whether
+# anything is *supposed* to be refreshing it — so a job that was never enabled
+# looks exactly like a job that is failing. That is not hypothetical: the Smite 2
+# crawl has never been scheduled, and the first person to read the page took
+# "19h stale" to mean the crawl had broken.
+#
+# It comes from Helm rather than from the Kubernetes API on purpose. The web tier
+# and this job both run without cluster credentials, and giving a public site's
+# data path the ability to list workloads to improve a label would be a bad
+# trade. The chart already knows; it can just say so.
+SCHEDULED_ENV = "SMITELE_SCHEDULED_JOBS"
+
 # Between roster members in `--players`. Fourteen players at five batched calls
 # each is a burst Hi-Rez answers with error pages; this spreads it over half a
 # minute, which a six-hourly job does not notice.
@@ -84,6 +98,17 @@ PLAYER_PACING_SECONDS = 2.0
 
 def snapshot_dir() -> str:
     return os.environ.get(SNAPSHOT_DIR_ENV) or os.path.join(paths.MODEL_DIR, "web")
+
+
+def scheduled_jobs() -> set:
+    """The job names the chart enabled, or an empty set if it said nothing.
+
+    An empty set is reported as "unknown", never as "nothing is scheduled" —
+    running this script from a checkout sets no such variable, and a local run
+    must not make the site claim every pipeline is switched off.
+    """
+    raw = os.environ.get(SCHEDULED_ENV, "")
+    return {name.strip() for name in raw.split(",") if name.strip()}
 
 
 def section(name: str, produce: Callable[[], Any]) -> Any:
@@ -532,9 +557,23 @@ async def build_status() -> Dict[str, Any]:
     smite1_model = paths.game_model_dir(Game.SMITE)
     smite2_model = paths.game_model_dir(Game.SMITE_2)
 
+    jobs = scheduled_jobs()
+
+    def schedule_for(collector: str, aggregate: str) -> Dict[str, Any]:
+        """Whether this game's two pipelines are on a schedule at all.
+
+        None rather than False when the chart told us nothing, so "we don't
+        know" and "it is switched off" stay distinguishable — they call for
+        different reactions and the page renders them differently.
+        """
+        if not jobs:
+            return {"collector": None, "aggregate": None}
+        return {"collector": collector in jobs, "aggregate": aggregate in jobs}
+
     document: Dict[str, Any] = {
         "version": SCHEMA_VERSION,
         "generated_at": time.time(),
+        "scheduled": sorted(jobs) if jobs else None,
         "games": {
             Game.SMITE.value: {
                 "corpus": section(
@@ -547,6 +586,7 @@ async def build_status() -> Dict[str, Any]:
                     "smite aggregate", lambda: aggregate_section(smite1_model)
                 ),
                 "model": section("smite model", lambda: model_section(smite1_model)),
+                "scheduled": schedule_for("collector", "aggregate"),
             },
             Game.SMITE_2.value: {
                 "corpus": section(
@@ -564,6 +604,7 @@ async def build_status() -> Dict[str, Any]:
                 "last_run": section(
                     "smite2 last run", lambda: last_run_module.read(smite2_model)
                 ),
+                "scheduled": schedule_for("smite2.collector", "smite2.aggregate"),
             },
         },
         "tracker": section("tracker", lambda: tracker_section(smite2_model)),

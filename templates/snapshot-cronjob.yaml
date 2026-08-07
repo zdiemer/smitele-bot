@@ -124,6 +124,27 @@ spec:
                   value: /matchdata/smite2/archive
                 - name: SMITELE_CORPUS_PARQUET_ONLY
                   value: {{ $root.Values.bot.parquetOnlyCorpus | quote }}
+                {{/*
+                  Which pipelines are actually on a schedule. Without it the
+                  site can say how old data is and nothing about whether
+                  anything is meant to be refreshing it, so a job that was never
+                  enabled is indistinguishable from one that is failing — which
+                  is exactly how the never-scheduled Smite 2 crawl got read as a
+                  broken one.
+
+                  Passed from Helm rather than read from the API: neither this
+                  job nor the web tier has cluster credentials, and granting a
+                  public site's data path permission to list workloads to
+                  improve a label would be a poor trade. The chart already knows.
+                */}}
+                - name: SMITELE_SCHEDULED_JOBS
+                  value: {{ compact (list
+                      (ternary "collector" "" $root.Values.collector.enabled)
+                      (ternary "aggregate" "" $root.Values.aggregate.enabled)
+                      (ternary "trainer" "" $root.Values.trainer.enabled)
+                      (ternary "smite2.collector" "" $root.Values.smite2.collector.enabled)
+                      (ternary "smite2.aggregate" "" $root.Values.smite2.aggregate.enabled)
+                    ) | join "," | quote }}
               volumeMounts:
                 - name: matchdata
                   mountPath: /matchdata

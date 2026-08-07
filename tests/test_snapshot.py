@@ -424,6 +424,64 @@ class TestMatchesPerDay:
         assert snapshot.matches_per_day(str(tmp_path)) == []
 
 
+class TestScheduledJobs:
+    """"Nobody scheduled this" and "this is broken" must not look the same.
+
+    The Smite 2 crawl had never been enabled, so its corpus sat 19 hours old and
+    the page showed it as stale — which someone reasonably read as the crawl
+    having failed. Age is only a fault when something is supposed to be fixing
+    it, so the chart now tells the snapshot which pipelines it actually
+    rendered.
+    """
+
+    def test_nothing_set_is_unknown_not_disabled(self, monkeypatch):
+        # A local run sets no such variable, and must not make the site claim
+        # every pipeline on the cluster is switched off.
+        monkeypatch.delenv(snapshot.SCHEDULED_ENV, raising=False)
+
+        assert snapshot.scheduled_jobs() == set()
+
+    def test_the_list_is_parsed_and_trimmed(self, monkeypatch):
+        monkeypatch.setenv(
+            snapshot.SCHEDULED_ENV, "collector, aggregate ,smite2.collector,,"
+        )
+
+        assert snapshot.scheduled_jobs() == {
+            "collector",
+            "aggregate",
+            "smite2.collector",
+        }
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [("", None), ("collector,aggregate", True)],
+    )
+    def test_it_reaches_the_document(self, monkeypatch, tmp_path, value, expected):
+        import asyncio
+
+        monkeypatch.setenv(snapshot.SCHEDULED_ENV, value)
+        monkeypatch.setattr(snapshot.paths, "MATCH_DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(snapshot.paths, "MATCH_ARCHIVE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            snapshot.paths, "game_model_dir", lambda game: str(tmp_path)
+        )
+        monkeypatch.setattr(
+            snapshot.paths, "game_match_data_dir", lambda game: str(tmp_path)
+        )
+        monkeypatch.setattr(
+            snapshot.paths, "game_match_archive_dir", lambda game: str(tmp_path)
+        )
+
+        document = asyncio.run(snapshot.build_status())
+
+        assert document["games"]["smite"]["scheduled"]["collector"] is expected
+        # Smite 2's names are namespaced, so a bare "collector" must not enable
+        # it by accident.
+        assert document["games"]["smite2"]["scheduled"]["collector"] is (
+            False if expected else None
+        )
+
+
 class TestWriting:
     def test_write_is_atomic_and_leaves_no_partial(self, tmp_path):
         target = snapshot.write(str(tmp_path), snapshot.STATUS_FILE, {"version": 1})

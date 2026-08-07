@@ -46,14 +46,29 @@ function GameDetail({
   game: GameStatus
   which: 'smite' | 'smite2'
 }) {
-  const corpusMark = failed(game.corpus) ? 'unknown' : corpusHealth(game.corpus.newest)
+  const corpusMark = failed(game.corpus)
+    ? 'unknown'
+    : corpusHealth(game.corpus.newest, game.scheduled?.collector)
   const aggMark = failed(game.aggregate)
     ? 'unknown'
-    : aggregateHealth(game.aggregate.built)
+    : aggregateHealth(game.aggregate.built, game.scheduled?.aggregate)
+  const offline = game.scheduled?.collector === false
 
   return (
     <>
-      <Band label={`${title} — corpus`} health={corpusMark} game={which}>
+      <Band
+        label={`${title} — corpus`}
+        qualifier={offline ? 'no collector scheduled' : undefined}
+        health={corpusMark}
+        game={which}
+      >
+        {offline && (
+          <p className="prose">
+            Nothing is scheduled to refresh this corpus, so its age is a setting
+            rather than a fault. Turn the collector on in <code>values.local.yaml</code>{' '}
+            to change that.
+          </p>
+        )}
         <Section value={game.corpus}>
           {(corpus) => (
             <Pair>
