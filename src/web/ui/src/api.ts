@@ -151,6 +151,14 @@ export type Breakdown = {
   icon?: string
 }
 
+export type DayPoint = { date: string; matches: number }
+
+export type PerDay = {
+  all: DayPoint[]
+  by_queue: Record<string, DayPoint[]>
+  queues: { key: string; name: string; matches: number }[]
+}
+
 export type GameStats = {
   built: boolean
   total_plays?: number
@@ -163,7 +171,7 @@ export type GameStats = {
   gods_total?: number
   gods_by_queue?: Record<string, Breakdown[]>
 
-  matches_per_day?: { date: string; matches: number }[] | Failed
+  matches_per_day?: PerDay | Failed
 }
 
 export type Stats = {

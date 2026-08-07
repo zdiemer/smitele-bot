@@ -403,26 +403,92 @@ class TestCorpusBreakdown:
 
 
 class TestMatchesPerDay:
-    def test_counts_by_the_day_played(self, tmp_path):
+    """Per-day counts read from the corpus, not from the seen-match index.
+
+    The index knows the day but not the mode, and the unfiltered line is
+    dominated by whichever queue is biggest — so a change in a smaller mode is
+    invisible without a per-queue split. The corpus carries both.
+
+    The trap this guards: corpus rows are per *player*, ten to a match. Counting
+    rows instead of distinct matches inflates every number tenfold.
+    """
+
+    @staticmethod
+    def _write(directory, date, rows):
         pd = pytest.importorskip("pandas")
+        pd.DataFrame(rows, columns=["Match", "match_queue_id"]).to_parquet(
+            os.path.join(str(directory), f"match_details_{date}.parquet")
+        )
 
-        pd.DataFrame(
-            {
-                "match_id": ["a", "b", "c", "d"],
-                "date": ["2026-08-01", "2026-08-02", "2026-08-02", "2026-08-01"],
-            }
-        ).to_parquet(os.path.join(str(tmp_path), "seen_matches.parquet"))
+    def test_rows_are_deduplicated_to_matches(self, tmp_path):
+        # Two matches, ten player rows each — the shape the corpus is really in.
+        self._write(
+            tmp_path,
+            "2026-08-01",
+            [("a", 426)] * 10 + [("b", 426)] * 10,
+        )
 
-        series = snapshot.matches_per_day(str(tmp_path))
+        result = snapshot.matches_per_day(str(tmp_path), str(tmp_path), str)
 
-        # Chronological, because it is drawn as a time series.
-        assert series == [
-            {"date": "2026-08-01", "matches": 2},
-            {"date": "2026-08-02", "matches": 2},
+        assert result["all"] == [{"date": "2026-08-01", "matches": 2}], (
+            "counted player rows instead of matches"
+        )
+
+    def test_days_come_back_in_order(self, tmp_path):
+        self._write(tmp_path, "2026-08-03", [("c", 426)])
+        self._write(tmp_path, "2026-08-01", [("a", 426)])
+        self._write(tmp_path, "2026-08-02", [("b", 426)])
+
+        result = snapshot.matches_per_day(str(tmp_path), str(tmp_path), str)
+
+        # It is drawn as a time series, so order is not cosmetic.
+        assert [row["date"] for row in result["all"]] == [
+            "2026-08-01",
+            "2026-08-02",
+            "2026-08-03",
         ]
 
-    def test_no_index_is_an_empty_series_not_an_error(self, tmp_path):
-        assert snapshot.matches_per_day(str(tmp_path)) == []
+    def test_each_queue_gets_its_own_series(self, tmp_path):
+        self._write(
+            tmp_path,
+            "2026-08-01",
+            [("a", 426)] * 10 + [("b", 435)] * 10 + [("c", 435)] * 10,
+        )
+
+        result = snapshot.matches_per_day(
+            str(tmp_path), str(tmp_path), lambda key: f"queue{key}"
+        )
+
+        assert result["by_queue"]["426"] == [{"date": "2026-08-01", "matches": 1}]
+        assert result["by_queue"]["435"] == [{"date": "2026-08-01", "matches": 2}]
+        # Biggest queue first, so the filter's leading options have a line worth
+        # looking at.
+        assert [q["key"] for q in result["queues"]] == ["435", "426"]
+        assert result["queues"][0]["name"] == "queue435"
+
+    def test_the_same_directory_twice_does_not_double_count(self, tmp_path):
+        # corpus_paths dedups by real path; live and archive are normally
+        # distinct but are passed the same here on purpose.
+        self._write(tmp_path, "2026-08-01", [("a", 426)] * 10)
+
+        result = snapshot.matches_per_day(str(tmp_path), str(tmp_path), str)
+
+        assert result["all"] == [{"date": "2026-08-01", "matches": 1}]
+
+    def test_an_empty_corpus_is_an_empty_series_not_an_error(self, tmp_path):
+        assert snapshot.matches_per_day(str(tmp_path), str(tmp_path), str) == {
+            "all": [],
+            "by_queue": {},
+            "queues": [],
+        }
+
+    def test_a_file_without_a_date_in_its_name_is_skipped(self, tmp_path):
+        pd = pytest.importorskip("pandas")
+        pd.DataFrame([("a", 426)], columns=["Match", "match_queue_id"]).to_parquet(
+            os.path.join(str(tmp_path), "match_details_nodate.parquet")
+        )
+
+        assert snapshot.matches_per_day(str(tmp_path), str(tmp_path), str)["all"] == []
 
 
 class TestScheduledJobs:

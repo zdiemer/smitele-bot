@@ -13,7 +13,7 @@
  */
 
 import { useState } from 'react'
-import type { GameStats, Stats as StatsDoc } from '../api'
+import type { GameStats, PerDay, Stats as StatsDoc } from '../api'
 import { failed } from '../api'
 import { count } from '../format'
 import { Band, Empty, Pair, Row, Rows, Section } from '../components'
@@ -80,6 +80,61 @@ function GodBreakdown({
   )
 }
 
+/**
+ * Matches per day, filterable by queue.
+ *
+ * The unfiltered line is dominated by whichever mode is biggest — Arena for
+ * Smite 1, Assault for Smite 2 — so a change in a smaller queue is invisible in
+ * it. Picking one re-scales the chart to that queue, which is the only way a
+ * hundred-match mode is legible next to a thirty-thousand-match one.
+ */
+function PerDayChart({
+  title,
+  which,
+  perDay,
+}: {
+  title: string
+  which: 'smite' | 'smite2'
+  perDay: PerDay
+}) {
+  const [queue, setQueue] = useState<string | null>(null)
+
+  const points = (queue && perDay.by_queue[queue]) || perDay.all
+  const picked = perDay.queues.find((q) => q.key === queue)
+
+  return (
+    <Band
+      label={`${title} — matches collected per day`}
+      qualifier={
+        picked
+          ? `${picked.name} · by the day played`
+          : 'every queue · by the day played'
+      }
+      game={which}
+      health="ok"
+    >
+      {perDay.queues.length > 1 && (
+        <Chips
+          options={perDay.queues.map((q) => ({ key: q.key, name: q.name }))}
+          value={queue}
+          onChange={setQueue}
+        />
+      )}
+      {points.length > 1 ? (
+        <DailyArea points={points} key={queue ?? 'all'} />
+      ) : (
+        <p className="muted">Not enough days in that queue to draw a line.</p>
+      )}
+      <p className="muted" style={{ marginBottom: 0 }}>
+        Counted by the day the match was <em>played</em>, not the day it was
+        collected — one night's crawl backfills roughly three calendar days
+        rather than closing one, so a recent day keeps growing for a while after
+        it.
+      </p>
+    </Band>
+  )
+}
+
 function GameStatsView({
   title,
   which,
@@ -101,7 +156,9 @@ function GameStatsView({
   }
 
   const perDay =
-    stats.matches_per_day && !failed(stats.matches_per_day) ? stats.matches_per_day : null
+    stats.matches_per_day && !failed(stats.matches_per_day)
+      ? stats.matches_per_day
+      : null
 
   return (
     <>
@@ -165,20 +222,8 @@ function GameStatsView({
         <GodBreakdown title={title} which={which} stats={stats} />
       )}
 
-      {perDay && perDay.length > 1 && (
-        <Band
-          label={`${title} — matches collected per day`}
-          qualifier="by the day played, not the day crawled"
-          game={which}
-          health="ok"
-        >
-          <DailyArea points={perDay} />
-          <p className="muted" style={{ marginBottom: 0 }}>
-            Rows are filed under the day the match was played, so one night's
-            crawl backfills roughly three calendar days rather than closing one.
-            A recent day keeps growing for a while after it.
-          </p>
-        </Band>
+      {perDay && perDay.all.length > 1 && (
+        <PerDayChart title={title} which={which} perDay={perDay} />
       )}
     </>
   )

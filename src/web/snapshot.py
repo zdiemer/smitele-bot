@@ -441,23 +441,73 @@ def stats_section(game: Game, model_dir: str, names, icon=None) -> Dict[str, Any
     }
 
 
-def matches_per_day(state_dir: str) -> List[Dict[str, Any]]:
-    """Smite 2's collected matches, by the day they were played.
+def matches_per_day(corpus_dir: str, archive_dir: str, queue_name) -> Dict[str, Any]:
+    """Smite 2's collected matches per day, in total and per queue.
 
-    Only Smite 2 has this. Smite 1's corpus is one file per day and its manifest
-    predates row counting, so the equivalent series would be a row of blanks.
+    Read from the corpus rather than from `seen_matches.parquet`, which knows
+    the day but not the mode. Two columns per file and the date comes from the
+    filename, so this is 78 small reads rather than a scan — and the rows are
+    per *player*, so each file is deduplicated on match id before counting or
+    every match would count ten times.
+
+    Affordable for both games, which was worth measuring rather than assuming:
+    Smite 1 is 3,308 files but a two-column Parquet read never touches the rest
+    of the file, and a full pass measured **31 ms/file — 1.7 minutes**. The
+    aggregate job takes three hours over the same corpus because it reads twenty
+    columns and folds a running total; this reads two and counts.
     """
-    path = os.path.join(state_dir, "seen_matches.parquet")
-    if not os.path.exists(path):
-        return []
+    found = match_storage.corpus_paths(corpus_dir, archive_dir)
+    if not found:
+        return {"all": [], "by_queue": {}, "queues": []}
 
-    frame = match_storage.read_frame_columns(path, ["date"])
-    counts = frame["date"].value_counts().sort_index()
-    return [
-        {"date": str(day), "matches": int(n)}
-        for day, n in counts.items()
-        if day and str(day) != "nan"
-    ]
+    totals: Dict[str, int] = {}
+    per_queue: Dict[str, Dict[str, int]] = {}
+
+    for path in found:
+        date = _day_from(os.path.basename(path))
+        if not date:
+            continue
+        try:
+            frame = match_storage.read_frame_columns(
+                path, ["Match", "match_queue_id"]
+            )
+        except Exception as error:  # noqa: BLE001
+            print(f"snapshot: could not read {path}: {error}", flush=True)
+            continue
+        if frame.empty or "Match" not in frame.columns:
+            continue
+
+        unique = frame.drop_duplicates(subset="Match")
+        totals[date] = totals.get(date, 0) + int(len(unique))
+        for queue_id, count_ in unique["match_queue_id"].value_counts().items():
+            bucket = per_queue.setdefault(str(queue_id), {})
+            bucket[date] = bucket.get(date, 0) + int(count_)
+
+    def series(counts: Dict[str, int]) -> List[Dict[str, Any]]:
+        return [
+            {"date": date, "matches": counts[date]} for date in sorted(counts)
+        ]
+
+    # Ordered by how much of the corpus each queue is, so the filter's first
+    # options are the ones with a line worth looking at.
+    ordered = sorted(per_queue, key=lambda key: -sum(per_queue[key].values()))
+
+    return {
+        "all": series(totals),
+        "by_queue": {key: series(per_queue[key]) for key in ordered},
+        "queues": [
+            {"key": key, "name": queue_name(key), "matches": sum(per_queue[key].values())}
+            for key in ordered
+        ],
+    }
+
+
+def _day_from(basename: str) -> Optional[str]:
+    """`match_details_2026-08-07.parquet` → `2026-08-07`."""
+    import re  # noqa: PLC0415
+
+    found = re.search(r"(\d{4}-\d{2}-\d{2})", basename)
+    return found.group(1) if found else None
 
 
 async def build_stats() -> Dict[str, Any]:
@@ -499,7 +549,7 @@ async def build_stats() -> Dict[str, Any]:
             except (KeyError, ValueError):
                 return None
 
-        document["games"][Game.SMITE.value] = section(
+        smite_stats = section(
             "smite stats",
             lambda: stats_section(
                 Game.SMITE,
@@ -508,6 +558,14 @@ async def build_stats() -> Dict[str, Any]:
                 god_icon,
             ),
         )
+        if isinstance(smite_stats, dict) and "error" not in smite_stats:
+            smite_stats["matches_per_day"] = section(
+                "smite per-day",
+                lambda: matches_per_day(
+                    paths.MATCH_DATA_DIR, paths.MATCH_ARCHIVE_DIR, queue_name
+                ),
+            )
+        document["games"][Game.SMITE.value] = smite_stats
     except Exception as error:  # noqa: BLE001
         print(f"snapshot: smite stats failed: {error}", flush=True)
         document["games"][Game.SMITE.value] = {
@@ -547,7 +605,12 @@ async def build_stats() -> Dict[str, Any]:
         )
         if isinstance(stats, dict) and "error" not in stats:
             stats["matches_per_day"] = section(
-                "smite2 per-day", lambda: matches_per_day(state_dir)
+                "smite2 per-day",
+                lambda: matches_per_day(
+                    paths.game_match_data_dir(Game.SMITE_2),
+                    paths.game_match_archive_dir(Game.SMITE_2),
+                    queue_name2,
+                ),
             )
         document["games"][Game.SMITE_2.value] = stats
     except Exception as error:  # noqa: BLE001
