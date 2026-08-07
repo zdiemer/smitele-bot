@@ -69,6 +69,30 @@ gap is mostly item passives — an execute threshold or a cooldown refund is a
 large part of why the corpus prefers an item, and the model reads only the parts
 of a passive written as stats.
 
+### Balance, and the lobby
+
+`/optimize` takes three more options, and all of them work in both games.
+
+`balance` is the share of a build spent on staying alive: `tank`, `bruiser` or
+`damage`. Most gods are left exactly as they were without it — Smite 2's lane
+profiles already carry the right split, and a Smite 1 guardian building like a
+tank is correct. Warriors are the exception and default to a bruiser split,
+because they optimized to *six defensive items*: their stat targets demand
+protections, so every viable build was defensive, and ranking among those by
+weights that value health as highly as power picked the tankiest of them.
+
+`enemies` and `allies` take comma-separated gods and aim the build at the
+lobby. Four things change: the protection split follows where the enemy damage
+actually comes from (the two scales average 1.0, so this aims the same
+defensive budget rather than enlarging it), tenacity rises with how much crowd
+control they bring, an anti-heal item becomes *required* against a healer, and
+a team that already has a front line tilts you a little further toward damage.
+
+Anti-heal is required rather than weighted on purpose. It is capped — 25% from
+items in Smite 2, and it does not stack — so it is worth exactly one slot and no
+more, which any scoring reads as a small bonus and happily outbids. Both games
+therefore force one item rather than hoping for it.
+
 The bot reads the corpus the collector writes: `SmiteProvider` loads every file
 into a pandas DataFrame and refreshes on a loop, which is what backs the
 build-from-real-matches commands.

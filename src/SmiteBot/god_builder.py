@@ -9,6 +9,7 @@ import pandas as pd
 
 import build_ranker
 import smite2_stats
+import team_context
 from build_optimizer import BuildOptimizer
 from smite2_optimizer import Smite2BuildOptimizer
 from god import God
@@ -40,6 +41,25 @@ class BuildCommandType(Enum):
 class BuildPrioritization(Enum):
     POWER = "power"
     DEFENSE = "defense"
+
+
+class BuildBalance(Enum):
+    """How a build splits its slots between surviving and killing.
+
+    Both games take the same three points and mean the same thing by them: the
+    share of the build's value spent on defence. What differs is what they are
+    applied to — Smite 1 tilts its archetype's weights and relaxes its stat
+    targets, Smite 2 tilts the measured profile for the lane — and in both a
+    god that was already building correctly is left alone unless asked.
+    """
+
+    TANK = "tank"
+    BRUISER = "bruiser"
+    DAMAGE = "damage"
+
+    @property
+    def ratio(self) -> float:
+        return {"tank": 0.85, "bruiser": 0.5, "damage": 0.15}[self.value]
 
 
 class GeneratedBuild(NamedTuple):
@@ -111,6 +131,28 @@ def _prioritized(items: List[Item], prioritization: BuildPrioritization) -> List
     ]
 
 
+def _context_note(context) -> str:
+    """What the lobby changed about the build, if a lobby was given."""
+    described = context.describe() if context is not None else ""
+    return f"_{described}_\n\n" if described else ""
+
+
+def _relic_note(relics: List[Item]) -> str:
+    """Name the relics, and be honest that they were not computed.
+
+    A relic is an active, and what one is worth is a fact about the match
+    rather than about the build — a cleanse is everything against a stun and
+    nothing against a team without one. The stat model has no opinion, so
+    rather than leave the slots empty (which reads as "you need no relics") or
+    quietly fill them (which reads as "these were optimized"), it says which it
+    is.
+    """
+    if not relics:
+        return ""
+    names = ", ".join(f"**{relic.name}**" for relic in relics)
+    return f"_{names} by convention — relic value depends on who you're up against._\n\n"
+
+
 def _aspect_string(god: God, aspect) -> str:
     """The Aspect paragraph, or a note that the roll came up without one.
 
@@ -173,6 +215,7 @@ class BuildOptions:
     queue_id: QueueId | None
     role: PlayerRole | None
     stat: ItemAttribute | None
+    balance: BuildBalance | None
     allies: List[GodId] | None
     enemies: List[GodId] | None
     high_mmr: bool
@@ -186,6 +229,7 @@ class BuildOptions:
         queue_id: QueueId = None,
         role: PlayerRole = None,
         stat: ItemAttribute = None,
+        balance: BuildBalance = None,
         enemies: List[GodId] = None,
         allies: List[GodId] = None,
         high_mmr: bool = False,
@@ -210,6 +254,7 @@ class BuildOptions:
         self.queue_id = queue_id
         self.role = role
         self.stat = stat
+        self.balance = balance
         self.enemies = enemies
         self.allies = allies
         self.high_mmr = high_mmr
@@ -250,6 +295,8 @@ class BuildOptions:
                 self.role = PlayerRole(value.lower())
             elif option in ("-s", "--stat"):
                 self.stat = ItemAttribute(value.lower())
+            elif option in ("-b", "--balance"):
+                self.balance = BuildBalance(value.lower())
             elif option in ("-t", "--type"):
                 self.build_type = BuildCommandType(value.lower())
             elif option in ("-e", "--enemies"):
@@ -544,6 +591,22 @@ class GodBuilder:
             f"{smite2_stats.describe_build(god, build + extras)}"
         )
         return GeneratedBuild(build, extras, desc, aspect)
+
+    def __team_context(self, build_options: BuildOptions) -> team_context.TeamContext:
+        """The lobby the caller named, as gods rather than ids.
+
+        A god id that no longer resolves is dropped rather than failing the
+        build: a partial enemy team still says something useful, and three
+        known enemies all dealing physical damage is worth acting on.
+        """
+        return team_context.read(
+            enemies=[
+                self.__gods.get(god_id) for god_id in (build_options.enemies or [])
+            ],
+            allies=[
+                self.__gods.get(god_id) for god_id in (build_options.allies or [])
+            ],
+        )
 
     def __random_role(self, god: God) -> PlayerRole:
         """A lane this god is actually played in.
@@ -1244,7 +1307,17 @@ class GodBuilder:
 
         god = self.__gods[build_options.god_id]
         items_for_god = self.get_valid_items_for_god(god)
-        optimizer = BuildOptimizer(god, items_for_god, self.__items)
+        optimizer = BuildOptimizer(
+            god,
+            items_for_god,
+            self.__items,
+            context=self.__team_context(build_options),
+            balance=(
+                build_options.balance.ratio
+                if build_options.balance is not None
+                else None
+            ),
+        )
         builds, iterations = await optimizer.optimize()
 
         if not any(builds):
@@ -1309,15 +1382,20 @@ class GodBuilder:
             f"**{len(builds):,}** viable builds."
         )
 
+        relics = optimizer.conventional_relics()
+        relic_str = _relic_note(relics)
+
         desc = (
             f"here's your number crunched build! "
             f'{ttk_str if ttk_str != "" else viable_str} '
             f"{team_killed_str}"
             f"Hopefully it's a winner!\n\n"
+            f"{_context_note(optimizer.context)}"
+            f"{relic_str}"
             f"{optimizer.get_build_stats_string(build)}"
         )
 
-        return GeneratedBuild(build, [], desc)
+        return GeneratedBuild(build, relics, desc)
 
     def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """The best Smite 2 build this model can find for a god in a lane.
@@ -1339,7 +1417,17 @@ class GodBuilder:
         """
         god = self.__gods[build_options.god_id]
         role = build_options.role
-        optimizer = Smite2BuildOptimizer(god, self.__items, role=role)
+        optimizer = Smite2BuildOptimizer(
+            god,
+            self.__items,
+            role=role,
+            context=self.__team_context(build_options),
+            balance=(
+                build_options.balance.ratio
+                if build_options.balance is not None
+                else None
+            ),
+        )
 
         pool = optimizer.core_items()
         if build_options.prioritization is not None:
@@ -1364,13 +1452,22 @@ class GodBuilder:
         starter = optimizer.best_starter()
         if starter is not None:
             extras.append(starter)
+        relic = optimizer.conventional_relic()
+        if relic is not None:
+            extras.append(relic)
 
+        # The relic is not part of the stat total: it is chosen by convention
+        # rather than scored, so counting its gold against the build would make
+        # the build look more expensive than the optimizer actually spent.
+        priced = build + ([starter] if starter is not None else [])
         desc = (
             f"here's your number crunched **{optimizer.role.value.title()}** "
             f"build for {god.name}, built around "
             f"**{optimizer.damage_stat.display_name}** for "
-            f"{smite2_stats.total_cost(build + extras):,} gold.\n\n"
-            f"{smite2_stats.describe_build(god, build + extras)}"
+            f"{smite2_stats.total_cost(priced):,} gold.\n\n"
+            f"{_context_note(optimizer.context)}"
+            f"{_relic_note([relic] if relic else [])}"
+            f"{smite2_stats.describe_build(god, priced)}"
         )
         return GeneratedBuild(build, extras, desc)
 

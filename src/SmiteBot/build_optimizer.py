@@ -6,8 +6,9 @@ from typing import Dict, FrozenSet, List, Set, Tuple, Union
 
 from god import God
 from god_types import GodId, GodPro, GodRole, GodType
-from item import Item, ItemAttribute, ItemProperty
+from item import Item, ItemAttribute, ItemProperty, ItemType
 from passive_parser import PassiveAttribute
+import team_context
 from stat_calculator import BuildStatCalculator, GodBuild, _Penetration, _Stats
 from HirezAPI import QueueId
 
@@ -42,6 +43,42 @@ def compute_item_price(item: Item, all_items: Dict[int, Item]) -> int:
         total_price += parent.price
         parent_id = parent.parent_item_id
     return total_price
+
+
+# Which of Smite 1's stats buy damage and which buy survival, for the balance
+# tilt. Cooldown reduction, mana and movement are in neither: they are what both
+# kinds of build want, and scaling them would make a tank ask for fewer
+# cooldowns than the same god asks for as a bruiser.
+OFFENSIVE_STATS = frozenset(
+    {
+        ItemAttribute.PHYSICAL_POWER,
+        ItemAttribute.MAGICAL_POWER,
+        ItemAttribute.PHYSICAL_PENETRATION,
+        ItemAttribute.MAGICAL_PENETRATION,
+        ItemAttribute.ATTACK_SPEED,
+        ItemAttribute.BASIC_ATTACK_DAMAGE,
+        ItemAttribute.CRITICAL_STRIKE_CHANCE,
+        ItemAttribute.PHYSICAL_LIFESTEAL,
+        ItemAttribute.MAGICAL_LIFESTEAL,
+    }
+)
+
+DEFENSIVE_STATS = frozenset(
+    {
+        ItemAttribute.HEALTH,
+        ItemAttribute.PHYSICAL_PROTECTION,
+        ItemAttribute.MAGICAL_PROTECTION,
+        ItemAttribute.HP5,
+        ItemAttribute.DAMAGE_REDUCTION,
+        ItemAttribute.CROWD_CONTROL_REDUCTION,
+    }
+)
+
+# What a full tank's defensive share looks like, and the point the stat targets
+# were written against. Kept as a number here rather than imported from
+# `smite2_optimizer.BuildBalance`, which holds the same value: Smite 1's
+# optimizer should not depend on Smite 2's for a constant.
+_TANK_BALANCE = 0.85
 
 
 # How many combinations to check between yields to the event loop. The search
@@ -108,6 +145,28 @@ class BuildArchetype(Enum):
             return BuildArchetype.MID_MAGE
         if role == GodRole.WARRIOR:
             return BuildArchetype.ABILITY_BASED_WARRIOR
+
+
+# The archetypes meant to be bruisers rather than tanks, and the defensive share
+# they should aim at.
+#
+# Warriors optimized to six defensive items. Their stat targets demand
+# protections and health, so every viable build is defensive; ranking among
+# those by weights that value health and protections as highly as power then
+# picks the tankiest of them, and nothing pulls the other way. Achilles came
+# back with Tainted Breastplate, Prophetic Cloak, Absolution, Determination,
+# Void Doumaru and Mantle of Discord — a build with no damage in it at all.
+#
+# Guardians are deliberately absent: a support that builds like a tank is
+# correct, and their profiles are left exactly as they were.
+BRUISER_ARCHETYPE_BALANCE: Dict[BuildArchetype, float] = {
+    BuildArchetype.ABILITY_BASED_WARRIOR: 0.5,
+    BuildArchetype.AUTO_ATTACK_WARRIOR: 0.45,
+    BuildArchetype.JUNGLE_WARRIOR: 0.35,
+    BuildArchetype.HEALER_WARRIOR: 0.6,
+    BuildArchetype.SOLO_ASSASSIN: 0.45,
+    BuildArchetype.SOLO_MAGE: 0.45,
+}
 
 
 class BuildOptimizer:
@@ -305,6 +364,8 @@ class BuildOptimizer:
         valid_items: List[Item],
         all_items: Dict[int, Item],
         stat: str = None,
+        balance: float = None,
+        context: "team_context.TeamContext" = None,
     ):
         self.god = god
         self.valid_items = valid_items
@@ -330,6 +391,25 @@ class BuildOptimizer:
             or self.__current_archetype not in self.__archetype_weight_mappings
         ):
             self.__current_archetype = BuildArchetype.default_archetype(self.god.role)
+        # An explicit ask wins; otherwise the archetype's own default, which is
+        # None for everything that was already building correctly.
+        self.balance = (
+            balance
+            if balance is not None
+            else BRUISER_ARCHETYPE_BALANCE.get(self.__current_archetype)
+        )
+        self.context = context or team_context.TeamContext()
+        # Passives a build must carry, on top of whatever the archetype wants.
+        self.__required_passives: Set[PassiveAttribute] = set()
+        if balance is None and self.context.allied_tanks and self.balance is not None:
+            # A second front line is worth less than the first, so a bruiser
+            # behind a support tilts a little further toward damage. Only ever
+            # downward, and never when a balance was asked for outright.
+            self.balance = max(
+                0.0, self.balance - min(self.context.allied_tanks, 2) * 0.10
+            )
+        self.__balance_stat_targets()
+        self.__aim_at_the_lobby()
         self.__init_level_20_stats()
         self.__item_stats_cache: Dict[int, _Stats] = {}
         self.__item_scores = {}
@@ -1174,6 +1254,8 @@ class BuildOptimizer:
                 )
         if self.__check_overcapped(stats.stats, all_passives):
             return False
+        if self.__required_passives - all_passives:
+            return False
         if self.__current_archetype in self.__archetype_passive_wishlist:
             if (
                 len(
@@ -1263,7 +1345,183 @@ class BuildOptimizer:
                     god_weights[stat] = (15, 15)
                     continue
                 god_weights[stat] = 15
-        return god_weights
+        return self.__balanced(god_weights)
+
+    def __balance_stat_targets(self) -> None:
+        """Relax the defensive floor a bruiser is held to.
+
+        Weighting alone could not produce a bruiser. The stat targets are a
+        hard filter — a warrior had to reach 500 health, 150 physical and 120
+        magical protection before a build counted as viable at all — so four of
+        its six slots were spent before ranking ever ran, and re-weighting only
+        chose which two were left. Asking a bruiser for two thirds of a tank's
+        protections is what actually frees the slots.
+
+        Only the current archetype is touched, and only when a balance was
+        asked for or defaulted, so every archetype that was already building
+        correctly keeps the exact targets it had.
+        """
+        if self.balance is None:
+            return
+        targets = self.__archetype_stat_targets.get(self.__current_archetype)
+        if not targets:
+            return
+
+        defensive = sum(
+            1 for stat in targets if stat in DEFENSIVE_STATS
+        )
+        if not defensive:
+            return
+
+        # A tank archetype tilted to 0.5 halves its defensive floor; the scale
+        # is relative to the tank end of the range rather than to the
+        # archetype's own implied ratio, because a *target* is a floor rather
+        # than a share of anything.
+        scale = min(max(self.balance, 0.0), 1.0) / _TANK_BALANCE
+        for stat in list(targets):
+            if stat not in DEFENSIVE_STATS:
+                continue
+            value = targets[stat]
+            targets[stat] = (
+                tuple(part * scale for part in value)
+                if isinstance(value, tuple)
+                else value * scale
+            )
+
+    def __with_required_passives(self, pool: List[Item]) -> List[Item]:
+        """Make sure the pool can actually satisfy what the lobby demands.
+
+        The search runs over the 28 highest-scoring items, and anti-heal is
+        rarely among them: it is a passive, and the scoring only reads stat
+        lines, so Contagion and Pestilence lose to items with bigger numbers.
+        Requiring a passive no item in the pool has makes every build fail the
+        check, and the near-miss fallback then quietly returns builds without
+        it — the requirement would look applied and do nothing.
+
+        So the best two carriers of each required passive are added to the pool
+        if none is already there. Two rather than one because a single carrier
+        may be excluded later as a glyph parent.
+        """
+        if not self.__required_passives:
+            return pool
+
+        out = list(pool)
+        for required in self.__required_passives:
+            if any(required in (item.passive_properties or set()) for item in out):
+                continue
+            carriers = [
+                item
+                for item in self.valid_items
+                if required in (item.passive_properties or set())
+                and item.tier >= 3
+                and item.active
+            ]
+            carriers.sort(key=lambda item: -self.__item_scores.get(item.id, 0.0))
+            out.extend(carriers[:2])
+        return out
+
+    def __aim_at_the_lobby(self) -> None:
+        """Point the defensive budget at the damage that is actually coming.
+
+        The same three moves as Smite 2, against Smite 1's vocabulary: the
+        protection split follows the enemy's damage types, crowd-control
+        reduction rises with how much crowd control they bring, and an
+        anti-heal item is *required* against a healer rather than merely
+        preferred — Smite 1 carries anti-heal as an item passive rather than a
+        stat, so the passive wishlist is the only place to ask for it.
+
+        The protection scales average 1.0, so this aims the same budget rather
+        than quietly making every build tankier.
+        """
+        context = self.context
+        if not context.known:
+            return
+
+        targets = self.__archetype_stat_targets.get(self.__current_archetype)
+        if targets:
+            physical_scale, magical_scale = team_context.protection_scales(context)
+            for stat, scale in (
+                (ItemAttribute.PHYSICAL_PROTECTION, physical_scale),
+                (ItemAttribute.MAGICAL_PROTECTION, magical_scale),
+            ):
+                if stat in targets:
+                    targets[stat] = targets[stat] * scale
+
+            share = context.crowd_control_share
+            if share:
+                cap = self.PERCENT_ITEM_ATTRIBUTE_CAPS[
+                    ItemAttribute.CROWD_CONTROL_REDUCTION
+                ]
+                targets[ItemAttribute.CROWD_CONTROL_REDUCTION] = max(
+                    targets.get(ItemAttribute.CROWD_CONTROL_REDUCTION, 0.0),
+                    cap * share * 0.5,
+                )
+
+        if context.wants_anti_heal:
+            # Kept apart from the archetype's wishlist rather than added to it.
+            # A wishlist is satisfied by *any one* of its passives, so putting
+            # anti-heal in it would make it an alternative to what the archetype
+            # already wanted instead of a requirement alongside it.
+            self.__required_passives.add(PassiveAttribute.ANTIHEAL)
+
+    def __balanced(
+        self, weights: Dict[ItemAttribute, float]
+    ) -> Dict[ItemAttribute, float]:
+        """The archetype's weights, tilted toward damage or toward survival.
+
+        Scaling each side as a whole leaves the relative sizes within it alone,
+        so a bruiser asks for the same *kind* of damage its archetype already
+        wanted, just more of it against less protection. Stats in neither set —
+        cooldowns, mana, movement — are untouched, because a tank and a bruiser
+        want those equally.
+
+        Penetration weights are a (flat, percent) pair rather than a number,
+        which is why the scaling has to look at what it is holding.
+        """
+        balance = self.balance
+        if balance is None:
+            return weights
+
+        def side_total(stats: FrozenSet[ItemAttribute]) -> float:
+            total = 0.0
+            for stat in stats:
+                weight = weights.get(stat)
+                if weight is None:
+                    continue
+                total += sum(weight) if isinstance(weight, tuple) else weight
+            return total
+
+        defensive = side_total(DEFENSIVE_STATS)
+        offensive = side_total(OFFENSIVE_STATS)
+        total = defensive + offensive
+        if total <= 0:
+            return weights
+
+        current = defensive / total
+        wanted = min(max(balance, 0.0), 1.0)
+        defensive_scale = (wanted / current) if current > 0.01 else wanted / 0.01
+        offensive_scale = (
+            ((1 - wanted) / (1 - current)) if current < 0.99 else (1 - wanted) / 0.01
+        )
+
+        out: Dict[ItemAttribute, float] = {}
+        for stat, weight in weights.items():
+            if weight is None:
+                out[stat] = weight
+                continue
+            if stat in DEFENSIVE_STATS:
+                scale = defensive_scale
+            elif stat in OFFENSIVE_STATS:
+                scale = offensive_scale
+            else:
+                out[stat] = weight
+                continue
+            out[stat] = (
+                tuple(part * scale for part in weight)
+                if isinstance(weight, tuple)
+                else weight * scale
+            )
+        return out
 
     def __compute_scores(
         self, weights: Dict[ItemAttribute, float]
@@ -1292,6 +1550,7 @@ class BuildOptimizer:
             self.filter_evolution_parents(self.filter_tiers_with_glyphs(rated_items))
         )
         rated_items = rated_items[: int(min(len(rated_items) + 1, 28))]
+        rated_items = self.__with_required_passives(rated_items)
 
         glyphs = self.get_glyphs(rated_items)
         items = self.filter_tiers(rated_items)
@@ -1380,6 +1639,23 @@ class BuildOptimizer:
             )
         iterations += await check_combinations(frozenset(), all_non_glyph_items, 6)
 
+        if not viable_builds and near_misses and self.__required_passives:
+            # A near miss may still be a build without the anti-heal the lobby
+            # called for. Prefer the ones that carry what was required, and only
+            # fall back to the rest if nothing does.
+            carrying = [
+                (met, build)
+                for met, build in near_misses
+                if not self.__required_passives
+                - {
+                    passive
+                    for item in build
+                    for passive in (item.passive_properties or set())
+                }
+            ]
+            if carrying:
+                near_misses = carrying
+
         if not viable_builds and near_misses:
             # Nothing met every target. That is the normal outcome for several
             # archetypes rather than a rare one — the targets were written per
@@ -1421,6 +1697,45 @@ class BuildOptimizer:
             for evo in reversed(evos):
                 build.insert(1, evo)
         return (viable_builds, iterations)
+
+    # Relics are actives, and what they are worth is a question about the match
+    # rather than about the build: Beads is worth everything against a stun and
+    # nothing against a team with none, and no stat line says so. They are
+    # therefore picked by convention rather than computed, and the build says as
+    # much rather than implying a number stood behind them.
+    #
+    # Matched on name because relic ids churn between patches while these two
+    # have been the default pair for years — a cleanse and a shield.
+    CONVENTIONAL_RELICS = ("beads", "barrier", "aegis")
+
+    def conventional_relics(self, count: int = 2) -> List[Item]:
+        """The relics a player takes by default, best-known first."""
+        available = [
+            item
+            for item in self.__all_items.values()
+            if item.type is ItemType.RELIC
+            and item.active
+            and item.tier == 4
+            and item.price == 500
+            # Two relics are flagged active by the API but cannot be bought.
+            and item.id not in (21478, 21492)
+        ]
+
+        chosen: List[Item] = []
+        for wanted in self.CONVENTIONAL_RELICS:
+            for item in available:
+                if wanted in item.name.lower() and item not in chosen:
+                    chosen.append(item)
+                    break
+            if len(chosen) == count:
+                return chosen
+
+        for item in sorted(available, key=lambda relic: relic.name):
+            if item not in chosen:
+                chosen.append(item)
+            if len(chosen) == count:
+                break
+        return chosen[:count]
 
     def score_build(self, build: List[Item]) -> float:
         """How well a build serves this god's archetype.

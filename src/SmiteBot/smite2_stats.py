@@ -188,6 +188,19 @@ _PASSIVE_ALL_STATS = re.compile(
     r"\+\s*([\d.]+)%\s+of all Stats from Items", re.IGNORECASE
 )
 
+# Anti-heal is written as `Apply 25% Healing Reduction for 5s`, with no leading
+# plus, so the pattern above misses every one of the four items that have it.
+# It gets its own because there is no ambiguity to guard against: nothing in the
+# game applies healing reduction to *you*, so an unsigned number here is always
+# a gain, which is not true of the stats above — "-8% Attack Speed" is a real
+# line, and matching an unsigned percentage there would read a debuff as a buff.
+_PASSIVE_ANTI_HEAL = re.compile(r"([\d.]+)%\s+Healing Reduction", re.IGNORECASE)
+
+
+def carries_anti_heal(item: Item) -> bool:
+    """Whether this item brings healing reduction to a build."""
+    return _PASSIVE_ANTI_HEAL.search(item.passive or "") is not None
+
 
 def passive_stats(item: Item, base: "Smite2Stats" = None) -> "Smite2Stats":
     """The stats an item's passive grants, as far as they can be read.
@@ -219,6 +232,10 @@ def passive_stats(item: Item, base: "Smite2Stats" = None) -> "Smite2Stats":
         attribute = _PASSIVE_NAMES.get(name.strip().lower())
         if attribute is not None:
             stats.add_percent(attribute, float(amount) / 100.0)
+
+    anti_heal = _PASSIVE_ANTI_HEAL.search(text)
+    if anti_heal:
+        stats.add_percent(ItemAttribute.HEAL_REDUCTION, float(anti_heal.group(1)) / 100.0)
 
     if base is not None:
         for granted, ratio, source in _PASSIVE_SCALED.findall(text):

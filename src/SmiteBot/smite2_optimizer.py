@@ -38,9 +38,11 @@ neighbours is passive text this does not read. See `score`.
 from __future__ import annotations
 
 import random
+from enum import Enum
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import smite2_stats
+import team_context
 from god import God
 from god_types import GodType
 from item import Item, ItemAttribute, ItemType
@@ -335,6 +337,43 @@ _SPEC_EMPHASIS: Dict[str, Dict[ItemAttribute, float]] = {
     "stealth": {ItemAttribute.MOVEMENT_SPEED: 0.3},
 }
 
+# Which stats buy damage and which buy survival. Everything absent from both —
+# mana, the regens, cooldown rate, movement — is neither, and is left alone when
+# a build is tilted one way or the other, because a bruiser wants its cooldowns
+# just as much as a tank does.
+OFFENSIVE_STATS = frozenset(
+    {
+        ItemAttribute.STRENGTH,
+        ItemAttribute.INTELLIGENCE,
+        ItemAttribute.BASIC_ATTACK_POWER,
+        ItemAttribute.ATTACK_SPEED,
+        ItemAttribute.CRITICAL_CHANCE,
+        ItemAttribute.PENETRATION,
+        ItemAttribute.LIFESTEAL,
+        ItemAttribute.ECHO,
+    }
+)
+
+DEFENSIVE_STATS = frozenset(
+    {
+        ItemAttribute.HEALTH,
+        ItemAttribute.PHYSICAL_PROTECTION,
+        ItemAttribute.MAGICAL_PROTECTION,
+        ItemAttribute.PLATED,
+        ItemAttribute.DAMPENING,
+        ItemAttribute.TENACITY,
+        ItemAttribute.HP5,
+    }
+)
+
+
+# `balance` throughout this module is the share of a build's value spent on
+# defence — 0 is pure damage, 1 is pure tank. A lane's measured profile already
+# carries its own split, which is most of what makes a support build a support
+# build, so the default is to leave it alone; see `god_builder.BuildBalance` for
+# the named points a command can ask for.
+
+
 # Everything a build's six core slots can be filled from. Tier is the only
 # field that distinguishes them: relics, consumables, curios and god-specific
 # items have no tier at all, and starters are tier 1 or 2.
@@ -423,18 +462,147 @@ class Smite2BuildOptimizer:
         items: Dict[int, Item],
         role: PlayerRole = None,
         budget: int = DEFAULT_BUDGET,
+        balance: float = None,
+        context: team_context.TeamContext = None,
     ):
         self.god = god
         self.role = primary_role(god, role)
         self.damage_stat = damage_stat(god, self.role)
         self.budget = budget
+        self.context = context or team_context.TeamContext()
         self.__items = items
         profile = self.__profile()
-        self.flat_targets = self.__capped(profile[_FLAT], smite2_stats.FLAT_CAPS)
-        self.percent_targets = self.__capped(
-            profile[_PERCENT], smite2_stats.PERCENT_CAPS
+        flat_targets = dict(profile[_FLAT])
+        percent_targets = dict(profile[_PERCENT])
+        self.balance = self.__implied_balance(flat_targets, percent_targets)
+        wanted = balance if balance is not None else self.__context_balance()
+        if wanted is not None:
+            flat_targets, percent_targets = self.__tilt(
+                flat_targets, percent_targets, wanted
+            )
+            self.balance = wanted
+        flat_targets, percent_targets = self.__against_the_lobby(
+            flat_targets, percent_targets
         )
+        self.flat_targets = self.__capped(flat_targets, smite2_stats.FLAT_CAPS)
+        self.percent_targets = self.__capped(percent_targets, smite2_stats.PERCENT_CAPS)
         self.emphasis = self.__emphasis()
+
+    def __context_balance(self) -> Optional[float]:
+        """Less defence when the team already has a front line.
+
+        Only ever a nudge, and only downward: a second tank is worth less than
+        the first, but a solo laner behind a support is still a solo laner.
+        Never applied when the caller asked for a balance outright.
+        """
+        if not self.context.allied_tanks:
+            return None
+        # One ally front line takes a tenth off, two take a fifth, and it stops
+        # there — a team of five tanks does not make your build a carry's.
+        reduction = min(self.context.allied_tanks, 2) * 0.10
+        return max(0.0, self.balance - reduction)
+
+    def __against_the_lobby(self, flat_targets, percent_targets):
+        """Aim the defensive budget at the damage that is actually coming.
+
+        Three changes, each from something the enemy team has: the protection
+        split follows their damage types, tenacity rises with how much crowd
+        control they bring, and anti-heal appears at all only against a healer —
+        it is capped at 25% from items and does not stack, so it is one item or
+        none, which is exactly what a target at the cap asks for.
+        """
+        context = self.context
+        if not context.known:
+            return flat_targets, percent_targets
+
+        flat = dict(flat_targets)
+        percent = dict(percent_targets)
+
+        physical_scale, magical_scale = team_context.protection_scales(context)
+        for attribute, scale in (
+            (ItemAttribute.PHYSICAL_PROTECTION, physical_scale),
+            (ItemAttribute.MAGICAL_PROTECTION, magical_scale),
+        ):
+            if attribute in flat:
+                flat[attribute] = flat[attribute] * scale
+
+        share = context.crowd_control_share
+        if share:
+            # A lane that already wanted tenacity wants proportionally more;
+            # one that wanted none still buys some against a team full of it.
+            floor = smite2_stats.FLAT_CAPS[ItemAttribute.TENACITY] * share * 0.5
+            flat[ItemAttribute.TENACITY] = max(
+                flat.get(ItemAttribute.TENACITY, 0.0) * (1 + share), floor
+            )
+
+        if context.wants_anti_heal:
+            percent[ItemAttribute.HEAL_REDUCTION] = smite2_stats.PERCENT_CAPS[
+                ItemAttribute.HEAL_REDUCTION
+            ]
+
+        return flat, percent
+
+    @staticmethod
+    def __as_items_worth(targets, reference) -> Tuple[float, float]:
+        """A target set as (defensive, offensive) items' worth.
+
+        Counted in items rather than in each stat's own units, because 700
+        health and 20% attack speed are only comparable once both are expressed
+        as "about one item of it".
+        """
+        defensive = offensive = 0.0
+        for attribute, target in targets.items():
+            unit = reference.get(attribute)
+            if not unit:
+                continue
+            if attribute in DEFENSIVE_STATS:
+                defensive += target / unit
+            elif attribute in OFFENSIVE_STATS:
+                offensive += target / unit
+        return defensive, offensive
+
+    def __implied_balance(self, flat_targets, percent_targets) -> float:
+        """The defensive share this lane's own profile already asks for."""
+        defensive, offensive = self.__as_items_worth(flat_targets, _FLAT_REFERENCE)
+        extra_defensive, extra_offensive = self.__as_items_worth(
+            percent_targets, _PERCENT_REFERENCE
+        )
+        defensive += extra_defensive
+        offensive += extra_offensive
+        total = defensive + offensive
+        return defensive / total if total else 0.5
+
+    def __tilt(self, flat_targets, percent_targets, wanted: float):
+        """Rebalance a profile toward `wanted` without inventing a new shape.
+
+        Each side is scaled as a whole, so the relative sizes *within* offence
+        and within defence are untouched: a carry asked to build tanky gets more
+        of the health and protections its lane already wanted, not a support's
+        item list. Neutral stats — cooldowns, mana, movement — are not scaled at
+        all, because they are not what the trade is between.
+        """
+        current = self.__implied_balance(flat_targets, percent_targets)
+        wanted = min(max(wanted, 0.0), 1.0)
+        # A profile with no defence at all (or none but defence) has no ratio to
+        # scale; multiplying zero by anything leaves it zero, so the tilt is
+        # applied against a floor instead.
+        defensive_scale = (wanted / current) if current > 0.01 else wanted / 0.01
+        offensive_scale = (
+            ((1 - wanted) / (1 - current)) if current < 0.99 else (1 - wanted) / 0.01
+        )
+
+        def scaled(targets):
+            out = {}
+            for attribute, target in targets.items():
+                if attribute in DEFENSIVE_STATS:
+                    out[attribute] = target * defensive_scale
+                elif attribute in OFFENSIVE_STATS:
+                    out[attribute] = target * offensive_scale
+                else:
+                    out[attribute] = target
+            return out
+
+        return scaled(flat_targets), scaled(percent_targets)
 
     def __profile(self) -> Dict[str, Dict[ItemAttribute, float]]:
         """The measured shape for this lane and damage stat.
@@ -512,6 +680,25 @@ class Smite2BuildOptimizer:
             for item in self.__items.values()
             if item.type is ItemType.RELIC and item.active
         ]
+
+    # What a relic is worth is a question about the match rather than about the
+    # build — a cleanse is worth everything against a stun and nothing against a
+    # team without one — and no stat line answers it. So the relic slot is
+    # filled by convention and the build says so, rather than implying a number
+    # stood behind it. Some Smite 2 relics do carry stats, but scoring on those
+    # alone would rank them by the least important thing about them.
+    CONVENTIONAL_RELICS = ("purification", "beads", "aegis", "blink")
+
+    def conventional_relic(self) -> Optional[Item]:
+        """The relic to take by default. Smite 2 gives one slot, not two."""
+        available = self.relics()
+        if not available:
+            return None
+        for wanted in self.CONVENTIONAL_RELICS:
+            for item in available:
+                if wanted in item.name.lower():
+                    return item
+        return sorted(available, key=lambda relic: relic.name)[0]
 
     def score(self, items: Sequence[Item]) -> float:
         """What a set of items is worth to this god, saturating at the targets.
@@ -624,7 +811,46 @@ class Smite2BuildOptimizer:
             build.append(best)
 
         build = self.__improve(build, candidates)
+        build = self.__ensure_anti_heal(build, candidates)
         return sorted(build, key=self.__sort_key)
+
+    def __ensure_anti_heal(
+        self, build: List[Item], candidates: List[Item]
+    ) -> List[Item]:
+        """Force one anti-heal item into the build against a healer.
+
+        Weighting alone will not do it. Anti-heal is capped at 25% from items
+        and does not stack, so it is worth one slot and no more — which the
+        scoring reads as a small bonus, easily outbid by an item with better
+        numbers. Against a healer it is not a preference, so the cheapest slot
+        the build can spare is spent on it outright.
+
+        Nothing happens when the lobby has no healer, or when the build already
+        carries one, or when the catalogue has no anti-heal to offer.
+        """
+        if not self.context.wants_anti_heal:
+            return build
+        if any(smite2_stats.carries_anti_heal(item) for item in build):
+            return build
+
+        carriers = [
+            item
+            for item in candidates
+            if smite2_stats.carries_anti_heal(item) and item not in build
+        ]
+        if not carriers:
+            return build
+
+        # The best carrier, and the slot whose loss costs least.
+        best = max(carriers, key=lambda item: (self.score(build + [item]), -item.id))
+        without = min(
+            build,
+            key=lambda held: self.score([i for i in build if i is not held]),
+        )
+        swapped = [best if item is without else item for item in build]
+        if self.budget and self.cost(swapped) > self.budget:
+            return build
+        return swapped
 
     def __improve(self, build: List[Item], candidates: List[Item]) -> List[Item]:
         """Swap one item at a time for as long as it helps.
@@ -707,6 +933,7 @@ class Smite2BuildOptimizer:
             # eighth, and nothing in the shortlist is impossible.
             weights = list(range(len(ranked), 0, -1))
             build.append(rng.choices(ranked, weights=weights, k=1)[0])
+        build = self.__ensure_anti_heal(build, candidates)
         return sorted(build, key=self.__sort_key)
 
     @staticmethod

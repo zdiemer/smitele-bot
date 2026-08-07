@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.7.15"
+  tag: "1.7.16"
   pullPolicy: IfNotPresent
 
 nameOverride: ""

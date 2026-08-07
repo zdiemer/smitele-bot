@@ -39,6 +39,7 @@ import paths
 from build_optimizer import BuildOptimizer, compute_item_price
 from god import God
 from god_builder import (
+    BuildBalance,
     BuildCommandType,
     BuildFailedError,
     BuildPrioritization,
@@ -821,6 +822,25 @@ class Smitele(commands.Cog):
         choices=[p.value.lower() for p in list(BuildPrioritization)],
         default="",
     )
+    @discord.option(
+        name="balance",
+        type=str,
+        description="How the build splits between surviving and killing",
+        choices=[b.value for b in list(BuildBalance)],
+        default="",
+    )
+    @discord.option(
+        name="enemies",
+        type=str,
+        description="Comma-separated enemy gods, to aim the build at their damage",
+        default="",
+    )
+    @discord.option(
+        name="allies",
+        type=str,
+        description="Comma-separated allied gods, so you don't duplicate the front line",
+        default="",
+    )
     @game_option
     async def optimize(
         self,
@@ -828,6 +848,9 @@ class Smitele(commands.Cog):
         god_name: str,
         role: str,
         prioritize: str,
+        balance: str,
+        enemies: str,
+        allies: str,
         game: str,
     ):
         """A build computed from what the items do, not from what people played.
@@ -853,6 +876,22 @@ class Smitele(commands.Cog):
             build_options.set_option("-r", role)
         if prioritize:
             build_options.set_option("-p", prioritize)
+        if balance:
+            build_options.set_option("-b", balance)
+
+        for option, value, label in (
+            ("-e", enemies, "enemies"),
+            ("-a", allies, "allies"),
+        ):
+            if not value:
+                continue
+            try:
+                build_options.set_option(option, value)
+            except InvalidOptionError:
+                await self.__send_invalid(
+                    ctx, f"I don't know one of those {label}: `{value}`."
+                )
+                return
 
         god_builder = GodBuilder(provider.gods, provider.items, provider)
 
