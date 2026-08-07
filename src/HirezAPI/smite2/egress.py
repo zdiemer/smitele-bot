@@ -18,6 +18,17 @@ a cookie minted on exit A is presented from exit B and refused. The proxy has to
 hold one address for at least the cookie's useful life, which runs to six or
 seven hours — a static address, or a provider's sticky-session endpoint.
 
+**Several exits, walked in order, are a different thing and do work.** The
+distinction is who chooses and when: a pool re-chooses per connection and the
+process cannot tell, whereas `SMITELE_EGRESS_PROXY` may list several sticky
+exits and the crawl moves to the next one only when tracker.gg has banned the
+current address. Each entry keeps its own cookie, its own twelve-solves-a-day
+budget and its own stand-down deadline, because all three are already filed
+under `identity()`. That is what turns a ban from "stand down for four hours"
+into "carry on from the next address", and it is why the entries have to differ
+by host:port rather than only by credentials — same identity, same bucket, same
+refusal.
+
 The bucket key is the *configured* proxy, credentials stripped, rather than the
 address actually observed. That is deliberate. The configured value is knowable
 without a network round trip, so a cached-cookie lookup stays instant and does
@@ -36,7 +47,7 @@ diagnostic line naming the two addresses that disagreed.
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from urllib.parse import urlsplit, urlunsplit
 
 ENV_VAR = "SMITELE_EGRESS_PROXY"
@@ -63,8 +74,51 @@ _FROM_FILE: Optional[str] = None
 _READ_FILE = False
 
 
+def proxy_urls() -> List[str]:
+    """Every configured exit, in preference order.
+
+    `SMITELE_EGRESS_PROXY` may name more than one, comma-separated. One entry is
+    the ordinary case and behaves exactly as it always has; several are what lets
+    a crawl carry on after tracker.gg bans an address, by moving to the next one
+    rather than standing down for four hours.
+
+    THE ENTRIES MUST DIFFER BY host:port, not merely by credentials. Everything
+    downstream — the clearance cookie, the twelve-solves-a-day budget, the
+    stand-down deadline — is filed under `identity()`, which strips credentials
+    and keeps `scheme://host:port`. Two entries that reduce to the same identity
+    are the same bucket, so a cookie minted through one would be replayed from
+    the other and refused every time. The cluster's egress-proxy gives each exit
+    its own listener port for exactly this reason.
+
+    Returns [] when nothing is configured, which means direct.
+    """
+    value = _configured()
+    if not value:
+        return []
+    seen, out = set(), []
+    for part in value.split(","):
+        part = part.strip()
+        # Deduplicated by identity rather than by string: the same exit named
+        # twice is not two exits, and rotating onto it would only re-confirm a
+        # ban it is already serving.
+        if part and identity(part) not in seen:
+            seen.add(identity(part))
+            out.append(part)
+    return out
+
+
 def proxy_url() -> Optional[str]:
-    """The configured proxy, credentials and all, or None for direct.
+    """The preferred proxy, credentials and all, or None for direct.
+
+    The first of `proxy_urls()`. Every caller that only knows about one exit —
+    the bot, the one-shot checks — keeps working unchanged.
+    """
+    urls = proxy_urls()
+    return urls[0] if urls else None
+
+
+def _configured() -> Optional[str]:
+    """The raw configured value.
 
     Read from the environment first and `config.json` second, like every other
     secret here, so a checkout keeps working from a file while the cluster is
