@@ -24,7 +24,7 @@ from player import Player, PlayerId
 from queue_stats import QueueStats
 from SmiteProvider import SmiteProvider
 from god import God, GodId
-from item import Item, ItemType
+from item import Item, ItemAttribute, ItemType
 from skin import Skin
 from HirezAPI import QueueId
 from build_optimizer import compute_item_price
@@ -70,6 +70,45 @@ class AnswerRange:
         return f"{self.correct_value}{'%' if self.is_percent else ''}"
 
 
+# Words too common to count as having got part of a name right. "of" and "the"
+# are in almost every item in the game, so matching one says nothing.
+_HINT_STOPWORDS = frozenset({"the", "of", "a", "an", "and"})
+
+
+def _within_percent(value: int, percent: int = 10) -> AnswerRange:
+    """A range of `percent`% either side of a count.
+
+    Never narrower than one either way: `AnswerRange` refuses a range it cannot
+    bound, and ten percent of a player's four penta kills rounds to nothing.
+    """
+    tolerance = max(1, math.ceil(abs(value) * percent / 100))
+    return AnswerRange(max(value - tolerance, 0), value + tolerance, value)
+
+
+def _percent_within_five(fraction: float) -> AnswerRange:
+    """A 0-1 rate as a percentage, guessable within five points either side."""
+    value = int(fraction * 100)
+    return AnswerRange(max(value - 5, 0), min(value + 5, 100), value, is_percent=True)
+
+
+_ORDINAL_SUFFIXES = {1: "st", 2: "nd", 3: "rd"}
+
+
+def _ordinal(value: int) -> str:
+    """1 -> "1st", so that "3rd" is accepted wherever a bare "3" is."""
+    if 10 <= value % 100 <= 20:
+        return f"{value}th"
+    return f"{value}{_ORDINAL_SUFFIXES.get(value % 10, 'th')}"
+
+
+def _hint_words(text: str) -> set:
+    return {
+        word
+        for word in re.split(r"[^a-z0-9]+", text)
+        if len(word) > 2 and word not in _HINT_STOPWORDS
+    }
+
+
 class TriviaAnswer:
     valid_answers: Optional[List[str]]
     answer_range: Optional[AnswerRange]
@@ -88,11 +127,19 @@ class TriviaAnswer:
     def check_guess(self, guess: str) -> bool:
         if self.valid_answers is not None:
             for answer in self.valid_answers:
-                answer = unidecode(str(answer)).lower().replace("-", " ")
+                # The percent sign comes off the answer as well as the guess.
+                # It only ever came off the guess, so an answer stored as "20%"
+                # — which is how every percent-valued item stat is stored — had
+                # no accepted spelling at all: "20" missed on the sign and "20%"
+                # missed because the guess had been stripped and the answer had
+                # not. Being all digits, it then skipped the fuzzy match too.
+                answer = (
+                    unidecode(str(answer)).lower().replace("-", " ").replace("%", "")
+                )
                 correct = answer == unidecode(guess).lower().replace("-", " ").replace(
                     "%", ""
                 )
-                if not correct and not answer.replace("%", "").isdigit():
+                if not correct and not answer.isdigit():
                     if answer.startswith("the") and not guess.lower().startswith("the"):
                         answer = answer.replace("the ", "")
                     correct = (
@@ -108,6 +155,52 @@ class TriviaAnswer:
 
         return False
 
+    def hint_for(self, guess: str) -> Optional[str]:
+        """A nudge for a wrong free-text guess that is nearly right.
+
+        Numbers get the higher/lower hint; this is the same courtesy for names,
+        where a near miss is nearly always a spelling slip or one half of a
+        two-word item and the guesser otherwise gets nothing back to work with.
+        It says which *kind* of near miss it was and never which part is wrong,
+        so it narrows the search without handing the answer over.
+        """
+        if self.valid_answers is None:
+            return None
+
+        guess = unidecode(guess).lower().replace("-", " ").strip()
+        # A guess long enough to be a sentence is not a near miss at anything.
+        if not guess or len(guess) > 60:
+            return None
+
+        answers = [
+            unidecode(str(value)).lower().replace("-", " ").replace("%", "").strip()
+            for value in self.valid_answers
+        ]
+        answers = [answer for answer in answers if answer and not answer.isdigit()]
+        if not answers:
+            return None
+
+        # Two edits already counts as correct, so the band that earns a spelling
+        # nudge starts above it and widens with the length of the name. Short
+        # answers get no band at all, which is right — "Ymir" and "Hera" are
+        # three edits from most of the roster.
+        for answer in answers:
+            if edit_distance.SequenceMatcher(a=answer, b=guess).distance() <= max(
+                2, len(answer) // 3
+            ):
+                return "that's very nearly it, check your spelling. 🔤"
+
+        guess_words = _hint_words(guess)
+        if not guess_words:
+            return None
+        for answer in answers:
+            if guess_words < _hint_words(answer):
+                return "you have part of it, but not all of it. ➕"
+        for answer in answers:
+            if guess_words & _hint_words(answer):
+                return "you're on the right track. 🔍"
+        return None
+
     def get_answer(self) -> str:
         if self.valid_answers is not None and len(self.valid_answers) > 1:
             return f'either {", ".join(self.valid_answers[:-1])}{"," if len(self.valid_answers) > 2 else ""} or {self.valid_answers[-1]}'
@@ -120,13 +213,13 @@ class TriviaQuestion:
     answer: TriviaAnswer
     id: uuid
     question: str
-    image_url_or_bytes: str | io.BytesIO
+    image_url_or_bytes: Optional[str | io.BytesIO]
 
     def __init__(
         self,
         question: str,
         answer: str | TriviaAnswer,
-        image_url_or_bytes: str | io.BytesIO = None,
+        image_url_or_bytes: Optional[str | io.BytesIO] = None,
     ):
         self.question = question
         self.answer = (
@@ -141,12 +234,24 @@ class TriviaQuestion:
     def get_answer(self) -> str:
         return self.answer.get_answer()
 
-    def answer_is_number(self) -> bool:
-        return (
-            self.answer.valid_answers is not None
-            and len(self.answer.valid_answers) == 1
-            and all([a.isdigit() for a in self.answer.valid_answers])
-        ) or self.answer.answer_range is not None
+    def hint_for(self, guess: str) -> Optional[str]:
+        return self.answer.hint_for(guess)
+
+    def numeric_answer(self) -> Optional[float]:
+        """The number a guess is measured against for the higher/lower hint.
+
+        Replaces a check that recognised a numeric question only when its one
+        and only answer was all digits, which would have gone quiet the moment
+        a number was offered alongside the same number with its unit — "55" and
+        "55 units" — as the ability stat questions do.
+        """
+        if self.answer.answer_range is not None:
+            return self.answer.answer_range.correct_value
+        for value in self.answer.valid_answers or []:
+            text = unidecode(str(value)).replace("%", "").strip()
+            if text.isdigit():
+                return float(text)
+        return None
 
 
 class QuestionGenerator:
@@ -168,9 +273,15 @@ class ItemQuestionGenerator(QuestionGenerator):
     @property
     def question(self) -> Tuple[discord.Embed, TriviaQuestion, discord.File]:
         question_bank = self.__question_bank[self.__item.type].copy()
-        if self.__item.type == ItemType.ITEM and any(self.__item.item_properties):
-            question_bank.extend(self.__generate_properties_questions(self.__item))
-        question = random.choice(self.__question_bank[self.__item.type])
+        if self.__item.type == ItemType.ITEM:
+            if any(self.__item.item_properties):
+                question_bank.extend(self.__generate_properties_questions(self.__item))
+            question_bank.extend(self.__generate_catalogue_questions())
+        # Drawn from the extended copy, not the bank it was copied from. The
+        # stat questions have been generated and thrown away since the day they
+        # were written: "How much Intelligence does Book of Thoth give?" has
+        # never once been asked.
+        question = random.choice(question_bank)
         embed = discord.Embed(description=question.question)
         if question.image_url_or_bytes is not None:
             if isinstance(question.image_url_or_bytes, io.BytesIO):
@@ -260,10 +371,170 @@ class ItemQuestionGenerator(QuestionGenerator):
                         if item.parent_item_id is not None and item.price > 0
                         else None,
                         TriviaQuestion("What item is this?", item.name, item.icon_url),
+                        TriviaQuestion(
+                            f"What tier is **{item.name}**?",
+                            f"{item.tier}",
+                            item.icon_url,
+                        )
+                        if getattr(item, "tier", 0)
+                        else None,
+                        self.__restricted_roles_question(item),
+                        self.__components_question(item),
+                        self.__builds_into_question(item),
                     ],
                 )
             ),
         }
+
+    def __components_of(self, item: Item) -> List[Item]:
+        """What the item is built out of, in either game.
+
+        Smite 2 states every component; Smite 1 states one, because a recipe
+        there is a chain rather than a fork. Taking the chain link as a
+        one-element list is what lets the question be asked of both.
+        """
+        component_ids = list(getattr(item, "components", None) or [])
+        if not component_ids and item.parent_item_id is not None:
+            component_ids = [item.parent_item_id]
+        return [
+            self.__all_items[component_id]
+            for component_id in component_ids
+            if component_id in self.__all_items
+        ]
+
+    def __builds_into(self, item: Item) -> List[Item]:
+        """The items this one is a component of — the recipe read upwards.
+
+        Nothing stores this direction, so it is a scan. Both games point only
+        downwards, and a Smite 2 component like Circlet feeds several unrelated
+        items, which is what makes the question worth asking.
+        """
+        return [
+            other
+            for other in self.__all_items.values()
+            if other.id != item.id
+            and getattr(other, "active", True)
+            and item.id in self.__component_ids(other)
+        ]
+
+    @staticmethod
+    def __component_ids(item: Item) -> List[int]:
+        component_ids = list(getattr(item, "components", None) or [])
+        if item.parent_item_id is not None:
+            component_ids.append(item.parent_item_id)
+        return component_ids
+
+    @staticmethod
+    def __restricted_roles_question(item: Item) -> Optional[TriviaQuestion]:
+        roles = getattr(item, "restricted_roles", None) or []
+        if not any(roles):
+            return None
+        return TriviaQuestion(
+            f'Name {"a" if len(roles) > 1 else "the"} class that **cannot** '
+            f"build **{item.name}**.",
+            TriviaAnswer([f"{role.name.title()}" for role in roles]),
+            item.icon_url,
+        )
+
+    def __components_question(self, item: Item) -> Optional[TriviaQuestion]:
+        components = self.__components_of(item)
+        if not components:
+            return None
+        return TriviaQuestion(
+            f'Name {"an" if len(components) > 1 else "the"} item that '
+            f"**{item.name}** is built out of.",
+            TriviaAnswer([component.name for component in components]),
+            item.icon_url,
+        )
+
+    def __builds_into_question(self, item: Item) -> Optional[TriviaQuestion]:
+        builds_into = self.__builds_into(item)
+        if not builds_into:
+            return None
+        return TriviaQuestion(
+            f'Name {"an" if len(builds_into) > 1 else "the"} item that '
+            f"**{item.name}** builds into.",
+            TriviaAnswer([parent.name for parent in builds_into]),
+            item.icon_url,
+        )
+
+    # A superlative over a set of tied items is a fine question; over a set of
+    # thirty it is a giveaway with an unreadable answer.
+    __MAX_ANSWERS = 5
+
+    def __generate_catalogue_questions(self) -> List[TriviaQuestion]:
+        """Questions about the item list rather than about one item.
+
+        Deliberately without an image: every answer here is an item name, so
+        showing any one of the candidates' icons would be showing the answer.
+        """
+        items = [
+            item
+            for item in self.__all_items.values()
+            if getattr(item, "active", True) and item.type == ItemType.ITEM
+        ]
+        if len(items) < 2:
+            return []
+
+        questions: List[TriviaQuestion] = []
+
+        by_attribute: Dict[ItemAttribute, List[Tuple[float, Item]]] = {}
+        for item in items:
+            for prop in getattr(item, "item_properties", None) or []:
+                if prop.flat_value:
+                    by_attribute.setdefault(prop.attribute, []).append(
+                        (prop.flat_value, item)
+                    )
+        leaders: Dict[ItemAttribute, List[str]] = {}
+        for attribute, values in by_attribute.items():
+            if len(values) < 2:
+                continue
+            most = max(value for value, _ in values)
+            names = [item.name for value, item in values if value == most]
+            if len(names) <= self.__MAX_ANSWERS:
+                leaders[attribute] = names
+        if leaders:
+            attribute = random.choice(list(leaders))
+            questions.append(
+                TriviaQuestion(
+                    f"Which item gives the most **{attribute.display_name}**?",
+                    TriviaAnswer(leaders[attribute]),
+                )
+            )
+
+        priced = [(self.__compute_price(item), item) for item in items]
+        dearest = max(price for price, _ in priced)
+        most_expensive = [item.name for price, item in priced if price == dearest]
+        if len(most_expensive) <= self.__MAX_ANSWERS:
+            questions.append(
+                TriviaQuestion(
+                    "What is the most expensive item in the game?",
+                    TriviaAnswer(most_expensive),
+                )
+            )
+
+        by_passive: Dict[object, List[Item]] = {}
+        for item in items:
+            for attribute in getattr(item, "passive_properties", None) or set():
+                by_passive.setdefault(attribute, []).append(item)
+        rare = [
+            attribute
+            for attribute, matched in by_passive.items()
+            if len(matched) <= self.__MAX_ANSWERS
+        ]
+        if rare:
+            attribute = random.choice(rare)
+            matched = by_passive[attribute]
+            questions.append(
+                TriviaQuestion(
+                    f'Name {"an" if len(matched) > 1 else "the"} item with '
+                    f'{"a" if attribute.name[0] not in "AEIOU" else "an"} '
+                    f'**{attribute.name.replace("_", " ").title()}** passive.',
+                    TriviaAnswer([item.name for item in matched]),
+                )
+            )
+
+        return questions
 
     @staticmethod
     def __generate_properties_questions(item: Item) -> List[TriviaQuestion]:
@@ -315,11 +586,128 @@ class GodQuestionGenerator(QuestionGenerator):
     def question(self) -> Tuple[discord.Embed, TriviaQuestion, discord.File]:
         question_bank = self.__question_bank.copy()
         question_bank.extend(self.__generate_abilities_questions(self.__god))
+        question_bank.extend(self.__generate_stat_questions(self.__god))
         question = random.choice(question_bank)
         embed = discord.Embed(description=question.question)
         if question.image_url_or_bytes is not None:
             embed.set_image(url=question.image_url_or_bytes)
         return (embed, question, None)
+
+    # The level a god is asked about. Both games cap there, so it is the one
+    # level every stat curve is guaranteed to reach.
+    __STAT_LEVEL = 20
+
+    # Stats worth asking a number for. Attack speed is left out on purpose: it
+    # is a fraction either side of 1.0, so a plus-or-minus range around it
+    # rounds to nothing a guesser could aim at.
+    __ASKABLE_STATS = (
+        ItemAttribute.HEALTH,
+        ItemAttribute.MANA,
+        ItemAttribute.PHYSICAL_PROTECTION,
+        ItemAttribute.MAGICAL_PROTECTION,
+        ItemAttribute.HP5,
+        ItemAttribute.MP5,
+        ItemAttribute.MOVEMENT_SPEED,
+        ItemAttribute.STRENGTH,
+        ItemAttribute.INTELLIGENCE,
+        ItemAttribute.BASIC_ATTACK_POWER,
+    )
+
+    @classmethod
+    def __generate_stat_questions(cls, god: God) -> List[TriviaQuestion]:
+        """One randomly chosen base stat, and what the basic attack does with it.
+
+        Generated per question rather than banked, because banking one entry
+        per stat would leave the gods category asking about little else.
+
+        `get_stat_at_level` is asked for the value rather than the curve being
+        read directly: it is what knows that a manaless god's mana pool is
+        really extra health, and that Smite 1 stops growing movement speed at
+        level eight.
+        """
+        stats = getattr(god, "stats", None)
+        values = getattr(stats, "values", None) or {}
+        if not hasattr(god, "get_stat_at_level"):
+            return []
+
+        questions: List[TriviaQuestion] = []
+        icon = getattr(god, "icon_url", None)
+
+        askable = [
+            (stat, god.get_stat_at_level(stat, cls.__STAT_LEVEL))
+            for stat in cls.__ASKABLE_STATS
+            if stat in values
+        ]
+        # A zero is a stat the god does not have — a manaless god's mana, say —
+        # rather than a stat whose value is zero.
+        askable = [(stat, value) for stat, value in askable if value > 0]
+        if askable:
+            stat, value = random.choice(askable)
+            tolerance = max(5, int(value * 0.1))
+            questions.append(
+                TriviaQuestion(
+                    f"How much **{stat.display_name}** does **{god.name}** have "
+                    f"at level {cls.__STAT_LEVEL} (+/- {tolerance})?",
+                    TriviaAnswer(
+                        answer_range=AnswerRange(
+                            max(int(value) - tolerance, 0),
+                            int(value) + tolerance,
+                            int(value),
+                        )
+                    ),
+                    icon,
+                )
+            )
+
+        basic_attack = getattr(stats, "basic_attack", None)
+        # Smite 2 publishes no basic attack numbers at all — the wiki gives the
+        # attack its own ability block instead — so the object exists with every
+        # field zeroed and these two questions simply do not arise there.
+        scaling = getattr(basic_attack, "scaling", 0) or 0
+        if scaling > 0:
+            questions.append(
+                TriviaQuestion(
+                    f"What percent of your power does **{god.name}**'s basic "
+                    f"attack scale with?",
+                    f"{int(scaling * 100)}%",
+                    icon,
+                )
+            )
+
+        progression = getattr(basic_attack, "progression", None)
+        hits = list(getattr(progression, "damage", None) or [])
+        if len(hits) > 1:
+            questions.append(
+                TriviaQuestion(
+                    f"How many hits are in **{god.name}**'s basic attack "
+                    f"progression?",
+                    f"{len(hits)}",
+                    icon,
+                )
+            )
+            is_aoe = list(getattr(progression, "is_aoe", None) or [])
+            aoe_hits = [
+                index + 1
+                for index, aoe in enumerate(is_aoe[: len(hits)])
+                if aoe
+            ]
+            if aoe_hits:
+                questions.append(
+                    TriviaQuestion(
+                        f"Name a hit in **{god.name}**'s basic attack "
+                        f"progression that hits an area."
+                        if len(aoe_hits) > 1
+                        else f"Which hit in **{god.name}**'s basic attack "
+                        f"progression hits an area?",
+                        TriviaAnswer(
+                            [f"{hit}" for hit in aoe_hits]
+                            + [_ordinal(hit) for hit in aoe_hits]
+                        ),
+                        icon,
+                    )
+                )
+
+        return questions
 
     def __init_question_bank(self):
         """Ask only about what this god actually has.
@@ -334,6 +722,11 @@ class GodQuestionGenerator(QuestionGenerator):
         god = self.__god
         bank: List[TriviaQuestion] = []
 
+        # The god's own icon, on every question whose answer is not the god.
+        # Where the answer *is* the god it has to stay off, since the icon is
+        # the whole of the "which god is this?" question.
+        icon = getattr(god, "icon_url", None)
+
         lore = (god.lore or "").replace(god.name, "_____").replace("\\n", "\n")
         if lore.strip():
             bank.append(
@@ -341,11 +734,32 @@ class GodQuestionGenerator(QuestionGenerator):
             )
         if god.pantheon:
             bank.append(
-                TriviaQuestion(f"What pantheon is **{god.name}** a part of?", god.pantheon)
+                TriviaQuestion(
+                    f"What pantheon is **{god.name}** a part of?", god.pantheon, icon
+                )
             )
         if god.title:
             bank.append(
                 TriviaQuestion(f"Which god has the title **{god.title}**?", god.name)
+            )
+
+        god_type = getattr(god, "type", None)
+        if god_type is not None:
+            bank.append(
+                TriviaQuestion(
+                    f"Does **{god.name}** deal magical or physical damage?",
+                    god_type.value.title(),
+                    icon,
+                )
+            )
+        god_range = getattr(god, "range", None)
+        if god_range is not None:
+            bank.append(
+                TriviaQuestion(
+                    f"Is **{god.name}** melee or ranged?",
+                    god_range.value.title(),
+                    icon,
+                )
             )
 
         # Smite 1: a class, and the Pros the API lists.
@@ -355,11 +769,14 @@ class GodQuestionGenerator(QuestionGenerator):
                     f'Name {"one listed" if len(god.pros) > 1 else "the listed"} '
                     f"_pro_ for **{god.name}**.",
                     TriviaAnswer([pro.value.title() for pro in god.pros]),
+                    icon,
                 )
             )
         if god.role is not None:
             bank.append(
-                TriviaQuestion(f"What role is **{god.name}**?", god.role.name.title())
+                TriviaQuestion(
+                    f"What role is **{god.name}**?", god.role.name.title(), icon
+                )
             )
 
         # Smite 2: where a god is played, what it is for, and its Aspect.
@@ -369,6 +786,7 @@ class GodQuestionGenerator(QuestionGenerator):
                     f'Name {"a" if len(god.positions) > 1 else "the"} position '
                     f"**{god.name}** is played in.",
                     TriviaAnswer([p.value.title() for p in god.positions]),
+                    icon,
                 )
             )
         if god.specs:
@@ -377,17 +795,59 @@ class GodQuestionGenerator(QuestionGenerator):
                     f'Name {"one" if len(god.specs) > 1 else "the"} thing '
                     f"**{god.name}** is described as.",
                     TriviaAnswer(list(god.specs)),
+                    icon,
                 )
             )
+        bank.extend(self.__generate_aspect_questions(god, icon))
+
+        self.__question_bank = bank
+
+    @staticmethod
+    def __generate_aspect_questions(god: God, icon) -> List[TriviaQuestion]:
+        """An Aspect asked from three sides: name, description, and effect.
+
+        Only the first existed, and an Aspect is more than a name — it is the
+        one selection-time choice that changes how a god plays, so what it does
+        and which of the kit it touches are the parts worth knowing.
+        """
         aspect = getattr(god, "aspect", None)
-        if aspect is not None and aspect.name:
-            bank.append(
+        if aspect is None or not aspect.name:
+            return []
+
+        aspect_icon = getattr(aspect, "icon_url", None) or icon
+        questions = [
+            TriviaQuestion(f"Which god has the Aspect **{aspect.name}**?", god.name)
+        ]
+
+        description = (getattr(aspect, "description", "") or "").replace(
+            aspect.name, "_____"
+        )
+        if description.strip():
+            questions.append(
                 TriviaQuestion(
-                    f"Which god has the Aspect **{aspect.name}**?", god.name
+                    f"Name **{god.name}**'s Aspect, which does this: "
+                    f"\n\n`{description}`",
+                    aspect.name,
+                    aspect_icon,
                 )
             )
 
-        self.__question_bank = bank
+        changed = [
+            ability.name
+            for ability in (getattr(aspect, "changed_abilities", None) or {}).values()
+            if ability.name
+        ]
+        if changed:
+            questions.append(
+                TriviaQuestion(
+                    f'Name {"an" if len(changed) > 1 else "the"} ability of '
+                    f"**{god.name}**'s that **{aspect.name}** changes.",
+                    TriviaAnswer(changed),
+                    aspect_icon,
+                )
+            )
+
+        return questions
 
     async def generate_skin_question(self):
         skins = list(
@@ -442,6 +902,8 @@ class GodQuestionGenerator(QuestionGenerator):
             filter(
                 lambda q: q is not None,
                 [
+                    GodQuestionGenerator.__slot_question(god, ability),
+                    GodQuestionGenerator.__property_question(god, ability),
                     TriviaQuestion(
                         f'Name **{god.name}**\'s {ability_or_passive} with this description: \n\n`{pattern.sub("_____", ability.description)}`',
                         ability.name,
@@ -464,7 +926,9 @@ class GodQuestionGenerator(QuestionGenerator):
                     if cooldown_rank is not None
                     else None,
                     TriviaQuestion(
-                        f"What is the Mana (or Omi, Rage, etc.) cost for **{god.name}'s** **{ability.name}** at **rank {cost_rank + 1}**?",
+                        f"How much **{GodQuestionGenerator.__resource_name(god)}** "
+                        f"does **{god.name}'s {ability.name}** cost at "
+                        f"**rank {cost_rank + 1}**?",
                         TriviaAnswer(
                             list(
                                 filter(
@@ -482,6 +946,79 @@ class GodQuestionGenerator(QuestionGenerator):
                     else None,
                 ],
             )
+        )
+
+    @staticmethod
+    def __resource_name(god: God) -> str:
+        """What the god actually spends, named.
+
+        The question used to hedge — "Mana (or Omi, Rage, etc.)" — because
+        Smite 1 gives no signal beyond two hardcoded exceptions. Smite 2
+        publishes the resource as a character tag, so there it can simply be
+        asked by name, and the hedge is kept only for the pair whose resource
+        the Hi-Rez API declines to name.
+        """
+        resource = (getattr(god, "resource", None) or "mana").strip().lower()
+        if resource != "mana":
+            return resource.title()
+        if getattr(god, "is_manaless", False):
+            return "resource (Mana, Omi, Rage, etc.)"
+        return "Mana"
+
+    # Smite 1's five abilities arrive in slot order with the passive last, which
+    # is the shape this checks for rather than trusting the count: Smite 2's
+    # come off a wiki page whose ordering is the page's, not the game's.
+    __SLOTS = (["1", "1st"], ["2", "2nd"], ["3", "3rd"], ["Ultimate", "4"])
+
+    @classmethod
+    def __slot_question(cls, god: God, ability) -> Optional[TriviaQuestion]:
+        abilities = god.abilities
+        if len(abilities) != len(cls.__SLOTS) + 1 or not abilities[-1].is_passive:
+            return None
+        index = abilities.index(ability)
+        answers = ["Passive", "5"] if index == len(cls.__SLOTS) else cls.__SLOTS[index]
+        return TriviaQuestion(
+            f"Which slot is **{god.name}'s {ability.name}** in — "
+            f"1, 2, 3, Ultimate or Passive?",
+            TriviaAnswer(list(answers)),
+            ability.icon_url,
+        )
+
+    # Asked separately, and about the whole rank list rather than one value.
+    __ASKED_ELSEWHERE = ("cooldown", "cost", "mana cost")
+
+    @staticmethod
+    def __property_question(god: God, ability) -> Optional[TriviaQuestion]:
+        """A stat off the ability's own menu — radius, range, duration.
+
+        Restricted to properties with a single value. A slash-separated one is
+        a per-rank list, which has no one right answer to type; the cooldown
+        and cost questions handle those two by picking a rank first.
+        """
+        properties = [
+            prop
+            for prop in ability.ability_properties
+            if prop.value
+            and "/" not in prop.value
+            and prop.name
+            and prop.name.strip().lower() not in GodQuestionGenerator.__ASKED_ELSEWHERE
+        ]
+        if not properties:
+            return None
+
+        prop = random.choice(properties)
+        value = prop.value.strip()
+        answers = [value]
+        # "55 units" is also answered by "55" — the unit is the wiki's, not
+        # something a guesser should have to reproduce.
+        number = re.match(r"^-?\d+(?:\.\d+)?", value)
+        if number is not None and number.group(0) != value:
+            answers.append(number.group(0))
+
+        return TriviaQuestion(
+            f"What is the **{prop.name}** of **{god.name}'s {ability.name}**?",
+            TriviaAnswer(answers),
+            ability.icon_url,
         )
 
 
@@ -576,6 +1113,79 @@ class FriendQuestionGenerator(QuestionGenerator):
                         ),
                         player.avatar_url,
                     ),
+                    TriviaQuestion(
+                        f"What year did {player_display_name} make their account?",
+                        f"{player.created_datetime.year}",
+                        player.avatar_url,
+                    ),
+                    TriviaQuestion(
+                        f"What platform does {player_display_name} play on?",
+                        player.platform,
+                        player.avatar_url,
+                    )
+                    if (player.platform or "").strip()
+                    else None,
+                    TriviaQuestion(
+                        f"What region does {player_display_name} play in?",
+                        player.region,
+                        player.avatar_url,
+                    )
+                    if (player.region or "").strip()
+                    else None,
+                    TriviaQuestion(
+                        f"What mastery level (+/- 5) is {player_display_name}?",
+                        TriviaAnswer(
+                            answer_range=AnswerRange(
+                                max(player.mastery_level - 5, 0),
+                                player.mastery_level + 5,
+                                player.mastery_level,
+                            )
+                        ),
+                        player.avatar_url,
+                    )
+                    if player.mastery_level > 0
+                    else None,
+                    TriviaQuestion(
+                        f"How many achievements (+/- 5) does {player_display_name} have?",
+                        TriviaAnswer(
+                            answer_range=AnswerRange(
+                                max(player.total_achievements - 5, 0),
+                                player.total_achievements + 5,
+                                player.total_achievements,
+                            )
+                        ),
+                        player.avatar_url,
+                    )
+                    if player.total_achievements > 0
+                    else None,
+                    TriviaQuestion(
+                        f"How many worshippers (+/- 10%) does {player_display_name} "
+                        f"have in total?",
+                        TriviaAnswer(
+                            answer_range=_within_percent(player.total_worshippers)
+                        ),
+                        player.avatar_url,
+                    )
+                    if player.total_worshippers > 0
+                    else None,
+                    TriviaQuestion(
+                        f"How many games (+/- 10%) has {player_display_name} won?",
+                        TriviaAnswer(answer_range=_within_percent(player.wins)),
+                        player.avatar_url,
+                    )
+                    if player.wins > 0
+                    else None,
+                    TriviaQuestion(
+                        f"What is {player_display_name}'s overall win percent (+/- 5%)?",
+                        TriviaAnswer(
+                            answer_range=_percent_within_five(
+                                player.wins / (player.wins + player.losses)
+                            )
+                        ),
+                        player.avatar_url,
+                    )
+                    if player.wins + player.losses > 0
+                    else None,
                 ],
             )
         )
@@ -630,35 +1240,63 @@ class FriendQuestionGenerator(QuestionGenerator):
         }
 
         for god_id in random.choices(list(stats.keys()), k=2):
+            god = self.__gods[god_id]
             god_win_percent = stats[god_id]["wins"] / (
                 stats[god_id]["wins"] + stats[god_id]["losses"]
             )
+            # The god's icon rather than the player's avatar: the question names
+            # the player already, and the god is the part worth picturing.
+            god_icon = getattr(god, "icon_url", None) or player.avatar_url
             self.__question_bank.extend(
-                [
-                    TriviaQuestion(
-                        f"How many worshippers (+/- 30) does {player_display_name} have on **{self.__gods[god_id].name}**?",
-                        TriviaAnswer(
-                            answer_range=AnswerRange(
-                                max(stats[god_id]["worshippers"] - 30, 0),
-                                stats[god_id]["worshippers"] + 30,
-                                stats[god_id]["worshippers"],
+                list(
+                    filter(
+                        lambda q: q is not None,
+                        [
+                            TriviaQuestion(
+                                f"How many worshippers (+/- 30) does {player_display_name} have on **{god.name}**?",
+                                TriviaAnswer(
+                                    answer_range=AnswerRange(
+                                        max(stats[god_id]["worshippers"] - 30, 0),
+                                        stats[god_id]["worshippers"] + 30,
+                                        stats[god_id]["worshippers"],
+                                    )
+                                ),
+                                god_icon,
+                            ),
+                            TriviaQuestion(
+                                f"What is {player_display_name}'s overall win percent (+/- 5%) on **{god.name}**?",
+                                TriviaAnswer(
+                                    answer_range=_percent_within_five(god_win_percent)
+                                ),
+                                god_icon,
+                            ),
+                            TriviaQuestion(
+                                f"What mastery rank (+/- 1) is {player_display_name} "
+                                f"on **{god.name}**?",
+                                TriviaAnswer(
+                                    answer_range=AnswerRange(
+                                        max(stats[god_id]["rank"] - 1, 0),
+                                        stats[god_id]["rank"] + 1,
+                                        stats[god_id]["rank"],
+                                    )
+                                ),
+                                god_icon,
                             )
-                        ),
-                        player.avatar_url,
-                    ),
-                    TriviaQuestion(
-                        f"What is {player_display_name}'s overall win percent (+/- 5%) on **{self.__gods[god_id].name}**?",
-                        TriviaAnswer(
-                            answer_range=AnswerRange(
-                                int(max(god_win_percent - 0.05, 0) * 100),
-                                int(min(god_win_percent + 0.05, 1) * 100),
-                                int(god_win_percent * 100),
-                                is_percent=True,
+                            if stats[god_id]["rank"] > 0
+                            else None,
+                            TriviaQuestion(
+                                f"How many kills (+/- 10%) does {player_display_name} "
+                                f"have on **{god.name}**?",
+                                TriviaAnswer(
+                                    answer_range=_within_percent(stats[god_id]["kills"])
+                                ),
+                                god_icon,
                             )
-                        ),
-                        player.avatar_url,
-                    ),
-                ]
+                            if stats[god_id]["kills"] > 0
+                            else None,
+                        ],
+                    )
+                )
             )
 
         for queue_id in random.choices(list(QueueId), k=2):
@@ -753,9 +1391,21 @@ class FriendQuestionGenerator(QuestionGenerator):
             ("Wild Juggernauts", player_achievements.wild_juggernaut_kills),
         ]
 
+        # The lifetime tallies that are not a spree, a multi-kill or an
+        # objective, and so had nowhere to be asked from.
+        tallies = [
+            ("First Bloods", "drawn", player_achievements.first_bloods),
+            ("Shutdown Sprees", "ended", player_achievements.shutdown_spree),
+            ("god kills", "gotten", player_achievements.player_kills),
+            ("assists", "gotten", player_achievements.assisted_kills),
+            ("minion kills", "gotten", player_achievements.minion_kills),
+            ("deaths", "suffered", player_achievements.deaths),
+        ]
+
         multi_kill_name, multi_kill_count = random.choice(multi_kills)
         spree_name, spree_count = random.choice(sprees)
         objective_name, objective_count = random.choice(objectives)
+        tally_name, tally_verb, tally_count = random.choice(tallies)
 
         self.__question_bank.extend(
             list(
@@ -765,54 +1415,35 @@ class FriendQuestionGenerator(QuestionGenerator):
                         TriviaQuestion(
                             f"How many **{multi_kill_name}** (within +/- 5%) has {player_display_name} gotten?",
                             TriviaAnswer(
-                                answer_range=AnswerRange(
-                                    max(
-                                        math.ceil(
-                                            multi_kill_count - (multi_kill_count * 0.05)
-                                        ),
-                                        0,
-                                    ),
-                                    math.ceil(
-                                        multi_kill_count + (multi_kill_count * 0.05)
-                                    ),
-                                    multi_kill_count,
-                                )
+                                answer_range=_within_percent(multi_kill_count, 5)
                             ),
+                            player.avatar_url,
                         )
                         if multi_kill_count > 0
                         else None,
                         TriviaQuestion(
                             f"How many **{spree_name}** (within +/- 5%) has {player_display_name} been on?",
-                            TriviaAnswer(
-                                answer_range=AnswerRange(
-                                    max(
-                                        math.ceil(spree_count - (spree_count * 0.05)), 0
-                                    ),
-                                    math.ceil(spree_count + (spree_count * 0.05)),
-                                    spree_count,
-                                )
-                            ),
+                            TriviaAnswer(answer_range=_within_percent(spree_count, 5)),
+                            player.avatar_url,
                         )
                         if spree_count > 0
                         else None,
                         TriviaQuestion(
                             f"How many **{objective_name}** (within +/- 5%) has {player_display_name} killed?",
                             TriviaAnswer(
-                                answer_range=AnswerRange(
-                                    max(
-                                        math.ceil(
-                                            objective_count - (objective_count * 0.05)
-                                        ),
-                                        0,
-                                    ),
-                                    math.ceil(
-                                        objective_count + (objective_count * 0.05)
-                                    ),
-                                    objective_count,
-                                )
+                                answer_range=_within_percent(objective_count, 5)
                             ),
+                            player.avatar_url,
                         )
                         if objective_count > 0
+                        else None,
+                        TriviaQuestion(
+                            f"How many **{tally_name}** (within +/- 5%) has "
+                            f"{player_display_name} {tally_verb}?",
+                            TriviaAnswer(answer_range=_within_percent(tally_count, 5)),
+                            player.avatar_url,
+                        )
+                        if tally_count > 0
                         else None,
                     ],
                 )
@@ -954,6 +1585,22 @@ class SmiteTrivia(commands.Cog):
     async def scores(self, ctx: discord.ApplicationContext):
         await self.__scores(ctx)
 
+    @staticmethod
+    def __hint(question: TriviaQuestion, guess: str) -> Optional[str]:
+        """What to say back to a wrong guess, if anything.
+
+        A number that is too low has always been told so. A name got nothing at
+        all, which is a poor deal for the guesser who typed "Rod of Asclepius"
+        as "Rod of Asclepious" and cannot tell a spelling slip from being wrong
+        about the item.
+        """
+        answer_number = question.numeric_answer()
+        if answer_number is not None and guess.replace("%", "").strip().isdigit():
+            if int(guess.replace("%", "")) < answer_number:
+                return "try a higher guess. ↗️"
+            return "try a lower guess. ↘️"
+        return question.hint_for(guess)
+
     def __check_message(
         self,
         message: discord.Message,
@@ -981,31 +1628,14 @@ class SmiteTrivia(commands.Cog):
             attempted_answers[message.author]["answered"] += 1
 
         correct = question.check_guess(message.content)
-        if (
-            not correct
-            and question.answer_is_number()
-            and message.content.replace("%", "").isdigit()
-            and attempted_answers[message.author]["answered"] < 3
-        ):
-            guess = int(message.content.replace("%", ""))
-            answer_number = int(question.get_answer().replace("%", ""))
-            loop = asyncio.get_running_loop()
-
-            if guess < answer_number:
-                loop.create_task(
+        if not correct and attempted_answers[message.author]["answered"] < 3:
+            hint = self.__hint(question, message.content)
+            if hint is not None:
+                asyncio.get_running_loop().create_task(
                     message.channel.send(
                         embed=discord.Embed(
                             color=discord.Color.blue(),
-                            description=f"Not quite, {message.author.mention}, try a higher guess. ↗️",
-                        )
-                    )
-                )
-            else:
-                loop.create_task(
-                    message.channel.send(
-                        embed=discord.Embed(
-                            color=discord.Color.blue(),
-                            description=f"Not quite, {message.author.mention}, try a lower guess. ↘️",
+                            description=f"Not quite, {message.author.mention}, {hint}",
                         )
                     )
                 )
