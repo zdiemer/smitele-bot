@@ -36,6 +36,7 @@ cooldown_module = pytest.importorskip("smite2.cooldown")
 clearance_module = pytest.importorskip("smite2.clearance")
 egress = pytest.importorskip("smite2.egress")
 last_run = pytest.importorskip("smite2.last_run")
+roster = pytest.importorskip("roster")
 
 
 @pytest.fixture(autouse=True)
@@ -480,6 +481,93 @@ class TestScheduledJobs:
         assert document["games"]["smite2"]["scheduled"]["collector"] is (
             False if expected else None
         )
+
+
+class TestSmite2PlayersRespectTheStandDown:
+    """The player refresh must never fire into a live tracker.gg ban.
+
+    This job and the nightly crawl leave from one address and share one
+    reputation, and the crawl already refuses to start inside a recorded
+    stand-down because doing otherwise can extend it. A refresh that ignored the
+    same deadline would take the crawl down with it — the site would lose ten
+    player cards and the corpus would lose a night, which is the worse half.
+
+    Not theoretical: the first manual crawl was 429'd for an hour after 309
+    requests, and the players job runs every six hours regardless.
+    """
+
+    def test_an_active_standdown_skips_the_whole_half(self, tmp_path, monkeypatch):
+        import asyncio
+
+        cooldown_module = pytest.importorskip("smite2.cooldown")
+        monkeypatch.setattr(
+            snapshot.paths, "game_model_dir", lambda game: str(tmp_path)
+        )
+        cooldown_module.Cooldown(
+            str(tmp_path / cooldown_module.FILE_NAME), egress=egress.DIRECT
+        ).arm(3600, "429 on /matches asking for 3600s")
+
+        # If the guard fails, this is what it would reach for.
+        def forbidden(*args, **kwargs):
+            raise AssertionError("asked tracker.gg while standing down")
+
+        monkeypatch.setattr(clearance_module.ClearanceManager, "__init__", forbidden)
+
+        result = asyncio.run(snapshot.build_smite2_players())
+
+        assert result["players"] == []
+        assert "stand-down" in result["skipped"]
+        # The reason verbatim, so the page can say which ban and for how long.
+        assert "3600s" in result["reason"]
+
+    def test_an_empty_roster_is_skipped_without_touching_the_network(
+        self, tmp_path, monkeypatch
+    ):
+        import asyncio
+
+        monkeypatch.setattr(roster, "DISCORD_TO_SMITE2", {})
+        monkeypatch.setattr(
+            snapshot.paths, "game_model_dir", lambda game: str(tmp_path)
+        )
+
+        result = asyncio.run(snapshot.build_smite2_players())
+
+        assert result["players"] == []
+        assert "roster" in result["skipped"]
+
+
+class TestTimestampsCarryTheirOffset:
+    """A naive ISO string is read as *local* by JavaScript, not as UTC.
+
+    Hi-Rez publishes UTC and `strptime` hands back a naive datetime, so emitting
+    `value.isoformat()` produced "2014-11-18T04:54:00" — which every browser
+    rendered as the reader's own 4:54 AM. The whole roster looked like it had
+    signed up in the middle of the night.
+    """
+
+    def test_a_naive_hirez_timestamp_is_marked_utc(self):
+        import datetime
+
+        result = snapshot._date(datetime.datetime(2014, 11, 18, 4, 54))
+
+        assert result.endswith("+00:00"), "no offset means the browser guesses local"
+        assert result == "2014-11-18T04:54:00+00:00"
+
+    def test_an_aware_timestamp_is_left_alone(self):
+        import datetime
+
+        aware = datetime.datetime(
+            2014, 11, 18, 4, 54, tzinfo=datetime.timezone.utc
+        )
+
+        assert snapshot._date(aware) == "2014-11-18T04:54:00+00:00"
+
+    def test_the_never_played_sentinel_is_still_none(self):
+        import datetime
+
+        # QueueStats starts `last_played` at datetime.min for "never".
+        assert snapshot._date(datetime.datetime.min) is None
+        assert snapshot._date(None) is None
 
 
 class TestWriting:

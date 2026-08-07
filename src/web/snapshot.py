@@ -13,16 +13,20 @@ Two modes, because the two halves cost wildly different amounts:
   default    liveness. Two Hi-Rez calls plus some stat()s. Cheap enough to run
              every fifteen minutes, which is what makes "is the crawl blocked
              right now?" a question the page can actually answer.
-  --players  the roster's stats. About a hundred and twenty Hi-Rez calls, for
-             numbers that move over weeks. Every six hours is generous.
+  --players  the roster's stats, both games. About a hundred and twenty Hi-Rez
+             calls plus one tracker.gg request per Smite 2 member, for numbers
+             that move over weeks. Every six hours is generous.
+  --stats    the corpus broken down by queue, god and role. Two small Parquet
+             tables and a god catalogue per game.
 
 They write separate files on purpose. One schedule must never be able to blank
 the other's data by running first.
 
     python src/web/snapshot.py --out /matchdata/web
     python src/web/snapshot.py --players --out /matchdata/web
+    python src/web/snapshot.py --stats --out /matchdata/web
 
-TWO RULES FOR ANYTHING ADDED HERE.
+THREE RULES FOR ANYTHING ADDED HERE.
 
 First: read clearance state through `ClearanceStore`, never `ClearanceManager`.
 The manager mints. A monitor that spends the budget it is reporting on is worse
@@ -31,6 +35,11 @@ than no monitor, and the two class names are one word apart.
 Second: every section catches its own exceptions and degrades to an `error`
 field. The corpus is on an SMB share that goes away sometimes, and a share
 wobble must cost one card on the page, not the whole page.
+
+Third: check the tracker.gg stand-down before making a tracker.gg request. This
+job and the nightly crawl leave from one address and share one reputation, so a
+refresh that fires into a live ban can extend it — and the cost lands on the
+crawl, which loses a night, rather than here, which loses ten player cards.
 """
 
 from __future__ import annotations
@@ -626,8 +635,19 @@ async def build_status() -> Dict[str, Any]:
 
 
 def _date(value) -> Optional[str]:
+    """A Hi-Rez timestamp as ISO 8601 *with* its offset.
+
+    Hi-Rez publishes UTC and `strptime` produces a naive datetime, so the offset
+    has to be attached here — and it matters, because JavaScript reads a naive
+    date-time as *local*. Emitting "2014-11-18T04:54:00" meant every browser
+    rendered the raw UTC clock as though it were the reader's own, which is how
+    a roster of account-creation times ended up looking like everyone signed up
+    in the middle of the night.
+    """
     if not value or value == datetime.datetime.min:
         return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.timezone.utc)
     return value.isoformat()
 
 
@@ -809,6 +829,112 @@ def _god_name(provider, god_id: int) -> Optional[str]:
         return None
 
 
+async def smite2_player(provider, entry: str) -> Dict[str, Any]:
+    """One roster member's Smite 2 mode stats, from tracker.gg segments."""
+    from smite2.players import parse_player  # noqa: PLC0415
+
+    platform, handle = parse_player(entry)
+    modes = await provider.players.segments(platform, handle, "gamemode")
+    if not modes:
+        return {"id": entry, "platform": platform, "handle": handle, "found": False}
+
+    total_matches = sum(m.matches for m in modes)
+    total_wins = sum(m.wins for m in modes)
+    ranked = [m for m in modes if m.stats.get("skillRating")]
+    best = max(ranked, key=lambda m: m.stats.get("skillRating") or 0, default=None)
+
+    return {
+        "id": entry,
+        "platform": platform,
+        "handle": handle,
+        "found": True,
+        "matches": total_matches,
+        "wins": total_wins,
+        "losses": total_matches - total_wins,
+        "win_percent": round(total_wins / total_matches, 4) if total_matches else None,
+        "skill_rating": round(best.stats["skillRating"]) if best else None,
+        "peak_skill_rating": (
+            round(best.stats["peakSkillRating"])
+            if best and best.stats.get("peakSkillRating")
+            else None
+        ),
+        "modes": [
+            {
+                "name": mode.name,
+                "matches": mode.matches,
+                "wins": mode.wins,
+                "losses": mode.losses,
+                "win_percent": round(mode.win_rate, 4),
+                "kda": round(mode.kda, 3),
+                "skill_rating": (
+                    round(mode.stats["skillRating"])
+                    if mode.stats.get("skillRating")
+                    else None
+                ),
+            }
+            for mode in sorted(modes, key=lambda m: -m.matches)[:10]
+        ],
+    }
+
+
+async def build_smite2_players() -> Dict[str, Any]:
+    """The roster's Smite 2 stats, or the reason there aren't any.
+
+    THE GUARD BELOW IS THE IMPORTANT PART. This job and the nightly crawl leave
+    from the same address and draw on the same reputation, and the crawl already
+    refuses to start inside a recorded stand-down for good reason: firing into a
+    live ban collects nothing and can extend it. A player refresh that ignored
+    the same deadline would do exactly that, and the damage would land on the
+    crawl rather than here — the site would lose ten player cards and the corpus
+    would lose a night.
+
+    So it reads the stand-down first, and skips rather than asks.
+    """
+    if not roster.DISCORD_TO_SMITE2:
+        return {"skipped": "no Smite 2 roster configured", "players": []}
+
+    state_dir = paths.game_model_dir(Game.SMITE_2)
+    cooldown = cooldown_module.Cooldown(
+        os.path.join(state_dir, cooldown_module.FILE_NAME)
+    )
+    standdown = cooldown.read()
+    if standdown.active:
+        message = (
+            f"tracker.gg stand-down, "
+            f"{cooldown_module.describe(standdown.remaining)} left"
+        )
+        print(f"snapshot: skipping Smite 2 players — {message}", flush=True)
+        return {
+            "skipped": message,
+            "reason": standdown.reason,
+            "until": standdown.until,
+            "players": [],
+        }
+
+    from smite2.provider import Smite2Provider  # noqa: PLC0415
+
+    provider = Smite2Provider(silent=True)
+    await provider.create()
+
+    players: List[Dict[str, Any]] = []
+    for index, entry in enumerate(roster.SMITE2_PLAYERS):
+        if index:
+            await asyncio.sleep(PLAYER_PACING_SECONDS)
+        try:
+            players.append(await smite2_player(provider, entry))
+        except Exception as error:  # noqa: BLE001
+            print(
+                f"snapshot: smite2 player {entry} failed: "
+                f"{type(error).__name__}: {error}",
+                flush=True,
+            )
+            players.append(
+                {"id": entry, "found": False, "error": f"{type(error).__name__}: {error}"}
+            )
+
+    return {"skipped": None, "players": players}
+
+
 async def build_players() -> Dict[str, Any]:
     from SmiteProvider import SmiteProvider  # noqa: PLC0415
 
@@ -847,10 +973,17 @@ async def build_players() -> Dict[str, Any]:
                 }
             )
 
+    try:
+        smite2 = await build_smite2_players()
+    except Exception as error:  # noqa: BLE001
+        print(f"snapshot: smite2 players failed: {error}", flush=True)
+        smite2 = {"skipped": f"{type(error).__name__}: {error}", "players": []}
+
     return {
         "version": SCHEMA_VERSION,
         "generated_at": time.time(),
         "players": players,
+        "smite2": smite2,
     }
 
 

@@ -13,7 +13,7 @@ from player import Player, PlayerId, StatusId
 import smite2_player_embeds as smite2_embeds
 from game import Game
 from queue_stats import QueueStats
-from roster import DISCORD_TO_SMITE
+import roster
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from smite2.clearance import ClearanceUnavailable
 from smite2.players import parse_player
@@ -28,11 +28,6 @@ class PlayerPrivacyError(Exception):
 
 class PlayerStats(commands.Cog):
     __provider: SmiteProvider
-
-    # The list itself lives in `roster`, because the web snapshot's CronJob
-    # needs it too and has no Discord. Bound here so the `member.id not in ...`
-    # checks below read the same as they always did.
-    __user_id_to_smite_username: Dict[int, str] = DISCORD_TO_SMITE
 
     def __init__(self, providers):
         self.providers = providers
@@ -90,6 +85,30 @@ class PlayerStats(commands.Cog):
             await ctx.respond(embed=smite2_embeds.not_found(platform, handle))
             return None
         return provider, platform, handle, segments
+
+    async def __member_lookup(self, ctx, member):
+        """Which game this server is set to, and that member's handle in it.
+
+        The five user commands are context-menu entries on a Discord member, and
+        a context menu cannot carry a `game:` option — so unlike the slash
+        commands there is nothing for the user to pass and the server's own
+        setting decides. That makes the roster lookup game-dependent: the same
+        member is a Hi-Rez name in one server and a `platform:handle` in another.
+
+        Returns `(provider, handle)`, or None having already said why not.
+        """
+        provider = self.providers.for_ctx(ctx, "")
+        handle = roster.for_game(provider.game).get(member.id)
+        if handle is None:
+            await self.__send_invalid(
+                ctx,
+                error_info=(
+                    f"{member.display_name} isn't on the "
+                    f"{provider.game.display_name} roster."
+                ),
+            )
+            return None
+        return provider, handle
 
     async def __send_invalid(
         self,
@@ -295,16 +314,24 @@ class PlayerStats(commands.Cog):
     async def livematch_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
     ):
-        if member.id not in self.__user_id_to_smite_username:
-            await self.__send_invalid(
-                ctx,
-                error_info="Unable to find that player.",
+        found = await self.__member_lookup(ctx, member)
+        if found is None:
+            return
+        provider, handle = found
+
+        if provider.game is Game.SMITE_2:
+            # Same limit the /live_match slash command reports: tracker.gg's
+            # sessions route is not implemented and the profile carries only a
+            # liveMatch boolean, which says whether but never what.
+            await ctx.respond(
+                embed=smite2_embeds.unavailable(
+                    "Live match details aren't available for Smite 2 — "
+                    "tracker.gg doesn't expose the lobby."
+                )
             )
             return
 
-        player = await self.__get_player_or_return_invalid(
-            self.__user_id_to_smite_username[member.id], ctx
-        )
+        player = await self.__get_player_or_return_invalid(handle, ctx)
         await self.__livematch_lookup(
             player,
             ctx,
@@ -317,16 +344,21 @@ class PlayerStats(commands.Cog):
     async def queue_stats_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
     ):
-        if member.id not in self.__user_id_to_smite_username:
-            await self.__send_invalid(
-                ctx,
-                error_info="Unable to find that player.",
-            )
+        found = await self.__member_lookup(ctx, member)
+        if found is None:
+            return
+        provider, handle = found
+
+        if provider.game is Game.SMITE_2:
+            s2 = await self.__smite2_lookup(ctx, "", handle, "gamemode")
+            if s2 is not None:
+                _, platform, name, modes = s2
+                await ctx.respond(
+                    embed=smite2_embeds.queue_stats(platform, name, modes)
+                )
             return
 
-        player = await self.__get_player_or_return_invalid(
-            self.__user_id_to_smite_username[member.id], ctx
-        )
+        player = await self.__get_player_or_return_invalid(handle, ctx)
 
         if player is None:
             return
@@ -688,16 +720,19 @@ class PlayerStats(commands.Cog):
     async def rank_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
     ) -> None:
-        if member.id not in self.__user_id_to_smite_username:
-            await self.__send_invalid(
-                ctx,
-                error_info="Unable to find that player.",
-            )
+        found = await self.__member_lookup(ctx, member)
+        if found is None:
+            return
+        provider, handle = found
+
+        if provider.game is Game.SMITE_2:
+            s2 = await self.__smite2_lookup(ctx, "", handle, "gamemode")
+            if s2 is not None:
+                _, platform, name, modes = s2
+                await ctx.respond(embed=smite2_embeds.rank(platform, name, modes))
             return
 
-        player = await self.__get_player_or_return_invalid(
-            self.__user_id_to_smite_username[member.id], ctx
-        )
+        player = await self.__get_player_or_return_invalid(handle, ctx)
         await self.__rank_lookup(player, ctx)
 
     @commands.slash_command(
@@ -935,16 +970,23 @@ class PlayerStats(commands.Cog):
     async def worshipper_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
     ) -> None:
-        if member.id not in self.__user_id_to_smite_username:
-            await self.__send_invalid(
-                ctx,
-                error_info="Unable to find that player.",
-            )
+        found = await self.__member_lookup(ctx, member)
+        if found is None:
+            return
+        provider, handle = found
+
+        if provider.game is Game.SMITE_2:
+            # Smite 2 has no worshippers; the nearest thing tracker.gg publishes
+            # is per-god play counts, which is what this embed shows.
+            s2 = await self.__smite2_lookup(ctx, "", handle, "god")
+            if s2 is not None:
+                _, platform, name, gods = s2
+                await ctx.respond(
+                    embed=smite2_embeds.worshippers(platform, name, gods, None)
+                )
             return
 
-        player = await self.__get_player_or_return_invalid(
-            self.__user_id_to_smite_username[member.id], ctx
-        )
+        player = await self.__get_player_or_return_invalid(handle, ctx)
 
         if player is None:
             return
@@ -1010,16 +1052,16 @@ class PlayerStats(commands.Cog):
     async def match_history_lookup(
         self, ctx: discord.ApplicationContext, member: discord.Member
     ) -> None:
-        if member.id not in self.__user_id_to_smite_username:
-            await self.__send_invalid(
-                ctx,
-                error_info="Unable to find that player.",
-            )
+        found = await self.__member_lookup(ctx, member)
+        if found is None:
+            return
+        provider, handle = found
+
+        if provider.game is Game.SMITE_2:
+            await self.__smite2_match_history(ctx, provider, handle)
             return
 
-        player = await self.__get_player_or_return_invalid(
-            self.__user_id_to_smite_username[member.id], ctx
-        )
+        player = await self.__get_player_or_return_invalid(handle, ctx)
 
         await self.__match_history_lookup(ctx, player)
 

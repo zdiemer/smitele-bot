@@ -70,7 +70,7 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
   return (
     <>
       <div className="scroll">
-        <table>
+        <table className="stack-sm">
           <thead>
             <tr>
               {COLUMNS.map((column) => (
@@ -106,11 +106,13 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
                   {player.private && <span className="muted"> · hidden profile</span>}
                   {!player.found && <span className="muted"> · not found</span>}
                 </td>
-                <td>{count(player.level)}</td>
-                <td>{count(player.totals?.matches)}</td>
-                <td>{percent(player.totals?.win_percent)}</td>
-                <td>{player.totals ? player.totals.kda.toFixed(2) : '—'}</td>
-                <td>
+                <td data-label="level">{count(player.level)}</td>
+                <td data-label="matches">{count(player.totals?.matches)}</td>
+                <td data-label="win rate">{percent(player.totals?.win_percent)}</td>
+                <td data-label="kda">
+                  {player.totals ? player.totals.kda.toFixed(2) : '—'}
+                </td>
+                <td data-label="last played">
                   {player.last_played_at
                     ? new Date(player.last_played_at).toLocaleDateString(undefined, {
                         dateStyle: 'medium',
@@ -123,11 +125,97 @@ export function PlayerList({ doc }: { doc: PlayersDoc }) {
         </table>
       </div>
       <p className="muted">
-        Smite 1 only, refreshed every six hours. Totals count every queue the account has
+        Smite 1, refreshed every six hours. Totals count every queue the account has
         played; “best queue” excludes bot and custom matches, where a 100% win rate is true
         and means nothing.
       </p>
+
+      <Smite2Roster doc={doc} />
     </>
+  )
+}
+
+/**
+ * The same people in Smite 2, keyed on `platform:handle` rather than a name.
+ *
+ * A separate table rather than more columns on the one above, because the two
+ * games share no numbers: Smite 2 has a skill rating and no tier, no
+ * worshippers, and a different set of modes. Merging them would mean a row of
+ * blanks wherever one game has a stat the other doesn't.
+ */
+function Smite2Roster({ doc }: { doc: PlayersDoc }) {
+  const smite2 = doc.smite2
+  if (!smite2) return null
+
+  if (smite2.skipped) {
+    return (
+      <Band
+        label="Smite 2"
+        qualifier="not refreshed this run"
+        game="smite2"
+        health="warn"
+      >
+        <p className="prose" style={{ marginBottom: 0 }}>
+          {smite2.skipped}. This job and the nightly crawl leave from the same
+          address, so it stands down rather than firing into a live ban and
+          costing the crawl a night.
+          {smite2.reason && (
+            <>
+              {' '}
+              <code>{smite2.reason}</code>
+            </>
+          )}
+        </p>
+      </Band>
+    )
+  }
+
+  const rows = smite2.players ?? []
+  if (!rows.length) return null
+
+  return (
+    <Band
+      label="Smite 2"
+      qualifier="from tracker.gg · skill rating, no tier"
+      game="smite2"
+      health="ok"
+    >
+      <div className="scroll">
+        <table className="stack-sm">
+          <thead>
+            <tr>
+              <th>player</th>
+              <th>matches</th>
+              <th>win rate</th>
+              <th>rating</th>
+              <th>peak</th>
+              <th>modes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((entry) => (
+              <tr key={entry.id}>
+                <td>
+                  {entry.handle ?? entry.id}
+                  <span className="muted"> · {entry.platform ?? '?'}</span>
+                  {!entry.found && <span className="muted"> · not found</span>}
+                </td>
+                <td data-label="matches">{count(entry.matches)}</td>
+                <td data-label="win rate">{percent(entry.win_percent)}</td>
+                <td data-label="rating">{count(entry.skill_rating)}</td>
+                <td data-label="peak">{count(entry.peak_skill_rating)}</td>
+                <td data-label="modes">{count(entry.modes?.length)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ marginBottom: 0 }}>
+        Smite 2 publishes a numeric skill rating and no tier name, so that is
+        what this shows rather than inventing a division for it. Rating is from
+        the ranked mode the player has climbed highest in.
+      </p>
+    </Band>
   )
 }
 
@@ -227,7 +315,7 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
       {player.ranked && player.ranked.length > 0 && (
         <Band label="Ranked" health="ok">
           <div className="scroll">
-            <table>
+            <table className="stack-sm">
               <thead>
                 <tr>
                   <th>queue</th>
@@ -243,12 +331,14 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
                 {player.ranked.map((entry) => (
                   <tr key={entry.queue}>
                     <td>{entry.queue}</td>
-                    <td>{entry.tier}</td>
-                    <td>{Math.round(entry.mmr).toLocaleString()}</td>
-                    <td>{entry.tier_id < 25 ? `${entry.points}/100` : '—'}</td>
-                    <td>{count(entry.wins)}</td>
-                    <td>{count(entry.losses)}</td>
-                    <td>{count(entry.leaves)}</td>
+                    <td data-label="tier">{entry.tier}</td>
+                    <td data-label="mmr">{Math.round(entry.mmr).toLocaleString()}</td>
+                    <td data-label="tp">
+                      {entry.tier_id < 25 ? `${entry.points}/100` : '—'}
+                    </td>
+                    <td data-label="wins">{count(entry.wins)}</td>
+                    <td data-label="losses">{count(entry.losses)}</td>
+                    <td data-label="disconnects">{count(entry.leaves)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -260,7 +350,7 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
       {player.top_gods && player.top_gods.length > 0 && (
         <Band label="Most worshipped" qualifier="top ten by worshippers" health="ok">
           <div className="scroll">
-            <table>
+            <table className="stack-sm">
               <thead>
                 <tr>
                   <th>god</th>
@@ -276,16 +366,16 @@ export function PlayerDetail({ doc, name }: { doc: PlayersDoc; name: string }) {
                 {player.top_gods.map((god) => (
                   <tr key={god.god_id}>
                     <td>{god.god ?? `#${god.god_id}`}</td>
-                    <td>{count(god.worshippers)}</td>
-                    <td>{count(god.rank)}</td>
-                    <td>{count(god.wins)}</td>
-                    <td>{count(god.losses)}</td>
-                    <td>
+                    <td data-label="worshippers">{count(god.worshippers)}</td>
+                    <td data-label="rank">{count(god.rank)}</td>
+                    <td data-label="wins">{count(god.wins)}</td>
+                    <td data-label="losses">{count(god.losses)}</td>
+                    <td data-label="win rate">
                       {god.wins + god.losses
                         ? percent(god.wins / (god.wins + god.losses))
                         : '—'}
                     </td>
-                    <td>
+                    <td data-label="kda">
                       {((god.kills + god.assists / 2) / (god.deaths || 1)).toFixed(2)}
                     </td>
                   </tr>

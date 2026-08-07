@@ -228,9 +228,41 @@ export type Player = {
   top_gods?: GodEntry[]
 }
 
+export type Smite2Mode = {
+  name: string
+  matches: number
+  wins: number
+  losses: number
+  win_percent: number
+  kda: number
+  skill_rating: number | null
+}
+
+export type Smite2Player = {
+  id: string
+  platform?: string
+  handle?: string
+  found: boolean
+  error?: string
+  matches?: number
+  wins?: number
+  losses?: number
+  win_percent?: number | null
+  skill_rating?: number | null
+  peak_skill_rating?: number | null
+  modes?: Smite2Mode[]
+}
+
 export type Players = {
   version: number
   generated_at: number
   stale_seconds: number | null
   players: Player[]
+  smite2?: {
+    /** Why there is no Smite 2 data, when there isn't. Null means it ran. */
+    skipped: string | null
+    reason?: string
+    until?: number
+    players: Smite2Player[]
+  }
 }
