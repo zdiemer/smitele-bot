@@ -8,6 +8,8 @@ control.
 
 from __future__ import annotations
 
+import zlib
+
 import pytest
 
 import smite2_stats
@@ -18,6 +20,19 @@ from god_types import GodPro, GodRole, GodType
 from item import Item, ItemAttribute, ItemProperty, ItemType
 from HirezAPI import PlayerRole
 from smite2_optimizer import Smite2BuildOptimizer
+
+
+def _stable_id(name: str) -> int:
+    """A deterministic id for a fake item or god.
+
+    Not `hash()`: Python randomises string hashing per process, so ids
+    built from it differ between runs. Scoring breaks ties on id, and a
+    fake catalogue hits ties often — every item past the point a target
+    saturates scores identically — so hash-derived ids made these tests
+    pass or fail depending on the seed the interpreter happened to start
+    with."""
+    return zlib.crc32(name.encode()) % 10_000_000
+
 
 
 class _BasicAttack:
@@ -35,7 +50,7 @@ class _BasicAttack:
 def smite2_god(name="S2", specs=None, god_type=GodType.MAGICAL):
     god = God()
     god.name = name
-    god.id = abs(hash(name)) % 100_000
+    god.id = _stable_id(name)
     god.type = god_type
     god.role = None
     god.scaling = "int"
@@ -51,7 +66,7 @@ def smite2_god(name="S2", specs=None, god_type=GodType.MAGICAL):
 def smite1_god(name="S1", pros=None, role=GodRole.GUARDIAN, god_type=GodType.MAGICAL):
     god = God()
     god.name = name
-    god.id = abs(hash(name)) % 100_000
+    god.id = _stable_id(name)
     god.type = god_type
     god.role = role
     god.pros = pros or []
@@ -64,7 +79,7 @@ def smite1_god(name="S1", pros=None, role=GodRole.GUARDIAN, god_type=GodType.MAG
 def item(name, properties=None, passive=None):
     made = Item()
     made.name = name
-    made.id = abs(hash(name)) % 10_000_000
+    made.id = _stable_id(name)
     made.tier = 3
     made.price = made.total_cost = 2500
     made.active = True

@@ -8,6 +8,8 @@ the penetration cap, a build costing more gold than a game hands out.
 
 from __future__ import annotations
 
+import zlib
+
 import pytest
 
 import smite2_stats
@@ -18,10 +20,23 @@ from HirezAPI import PlayerRole
 from smite2_optimizer import Smite2BuildOptimizer, damage_stat, primary_role
 
 
+def _stable_id(name: str) -> int:
+    """A deterministic id for a fake item or god.
+
+    Not `hash()`: Python randomises string hashing per process, so ids
+    built from it differ between runs. Scoring breaks ties on id, and a
+    fake catalogue hits ties often — every item past the point a target
+    saturates scores identically — so hash-derived ids made these tests
+    pass or fail depending on the seed the interpreter happened to start
+    with."""
+    return zlib.crc32(name.encode()) % 10_000_000
+
+
+
 def make_item(name, properties=None, tier=3, cost=2500, starter=False, relic=False):
     item = Item()
     item.name = name
-    item.id = abs(hash(name)) % 10_000_000
+    item.id = _stable_id(name)
     item.tier = tier
     item.price = cost
     item.total_cost = cost
@@ -46,7 +61,7 @@ def make_god(
 ):
     god = God()
     god.name = name
-    god.id = abs(hash(name)) % 100_000
+    god.id = _stable_id(name)
     god.type = god_type
     god.role = None
     god.scaling = scaling

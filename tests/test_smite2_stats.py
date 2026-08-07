@@ -9,6 +9,8 @@ to whatever the code currently returns.
 
 from __future__ import annotations
 
+import zlib
+
 import pytest
 
 import smite2_stats as stats
@@ -17,10 +19,23 @@ from god_types import GodType
 from item import Item, ItemAttribute, ItemProperty, ItemType
 
 
+def _stable_id(name: str) -> int:
+    """A deterministic id for a fake item or god.
+
+    Not `hash()`: Python randomises string hashing per process, so ids
+    built from it differ between runs. Scoring breaks ties on id, and a
+    fake catalogue hits ties often — every item past the point a target
+    saturates scores identically — so hash-derived ids made these tests
+    pass or fail depending on the seed the interpreter happened to start
+    with."""
+    return zlib.crc32(name.encode()) % 10_000_000
+
+
+
 def make_item(name="Test", properties=None, passive=None, tier=3, cost=2500):
     item = Item()
     item.name = name
-    item.id = abs(hash(name)) % 10_000_000
+    item.id = _stable_id(name)
     item.tier = tier
     item.price = cost
     item.total_cost = cost

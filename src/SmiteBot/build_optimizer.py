@@ -1764,9 +1764,32 @@ class BuildOptimizer:
             total += score
         return total
 
-    def rank_builds(self, builds: List[List[Item]]) -> List[List[Item]]:
-        """Viable builds, best for this archetype first."""
-        return sorted(builds, key=self.score_build, reverse=True)
+    def rank_builds(
+        self, builds: List[List[Item]], balance: float = None
+    ) -> List[List[Item]]:
+        """Viable builds, best for this archetype first.
+
+        `balance` re-ranks the same builds as though the god wanted a different
+        tank:damage split, without searching again. That is what makes the
+        power curve's fork affordable: one search produces every viable build,
+        and asking "which of these is best if I am ahead" is then a re-sort
+        rather than another two minutes of combinations.
+
+        It re-ranks rather than re-searches on purpose, so the fork can only
+        ever choose among builds that were already viable — a branch is a
+        different emphasis, not a different set of rules.
+        """
+        if balance is None:
+            return sorted(builds, key=self.score_build, reverse=True)
+
+        held = self.balance
+        try:
+            self.balance = balance
+            self.__item_scores = {}
+            return sorted(builds, key=self.score_build, reverse=True)
+        finally:
+            self.balance = held
+            self.__item_scores = {}
 
     def compute_build_stats(
         self, items: List[Item]

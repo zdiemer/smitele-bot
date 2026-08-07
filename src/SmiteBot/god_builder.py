@@ -7,6 +7,7 @@ from typing import Dict, List, NamedTuple, Set, Tuple
 
 import pandas as pd
 
+import build_path
 import build_ranker
 import smite2_stats
 import team_context
@@ -524,22 +525,27 @@ class GodBuilder:
         those is a Smite 1 fact, none matches anything in Smite 2's catalogue,
         and it raised on an empty sequence.
 
-        Random, but not arbitrary. The lane is rolled first, out of the lanes
-        the god is actually played in, and everything else follows from it: the
-        optimizer's shortlist for that lane is sampled rather than its single
-        best answer, so a jungle Thor and a solo Thor come back looking like a
-        jungler and a solo laner respectively, and neither looks the same twice.
+        Actually random, which is the point of the command. It draws uniformly
+        from everything the game would let you build and applies no judgement at
+        all — the same contract as Smite 1's randomiser, which picks six items
+        out of a hat and only ever enforces what the store enforces.
 
-        Rolling the lane is the part that makes this worth doing. A Smite 2 god
-        is far less pinned down than a Smite 1 one — no class, one or two
-        published lanes, and a damage stat that can differ between them — so
-        "which lane" is the biggest real choice available, and the previous
-        version made none of it.
+        An earlier version sampled the optimizer's shortlist for a rolled lane.
+        That produced sensible builds, which is the one thing a randomiser must
+        not do: it is `/optimize` with extra steps, and the joke of a random
+        build is that it might be terrible. The rules below are the store's, not
+        an opinion about what is good.
+
+        Smite 2's rules are simply shorter than Smite 1's. Six distinct tier-3
+        items, one starter, one relic. There are no glyphs to keep one of per
+        parent, no acorn to special-case, and god-specific items carry no tier
+        at all, so the tier filter already keeps another god's item out of your
+        build.
         """
         god = self.__gods[build_options.god_id]
 
-        role = build_options.role or self.__random_role(god)
-        optimizer = Smite2BuildOptimizer(god, self.__items, role=role)
+        # Only for the pools, not for any scoring — nothing here ranks.
+        optimizer = Smite2BuildOptimizer(god, self.__items)
 
         pool = optimizer.core_items()
         if build_options.prioritization is not None:
@@ -556,17 +562,14 @@ class GodBuilder:
         if len(pool) < 6:
             raise BuildFailedError
 
-        build = optimizer.sample(6, pool=pool)
-        if len(build) < 6:
-            raise BuildFailedError
+        build = random.sample(pool, 6)
 
-        # Starter and relic are rolled the same way — shortlisted by the same
-        # scoring, then picked from — so a support does not open on a carry's
-        # starter.
+        # Nor is there a gold budget. A random build is allowed to be one no
+        # game would ever pay for; `/optimize` is where affordability lives.
         extras: List[Item] = []
-        starter = optimizer.sample(1, pool=optimizer.starters())
-        if starter:
-            extras.extend(starter)
+        starters = optimizer.starters()
+        if starters:
+            extras.append(random.choice(starters))
         relics = optimizer.relics()
         if relics:
             extras.append(random.choice(relics))
@@ -584,9 +587,11 @@ class GodBuilder:
         elif build_options.prioritization is not None:
             stat_line = f", leaning {build_options.prioritization.value}"
 
+        # No lane is claimed. An earlier version rolled one and said so, which
+        # was true when the items were chosen for that lane and would be a
+        # straight lie now that they are drawn at random.
         desc = (
-            f"here's a random **{role.value.title()}** build for {god.name}"
-            f"{stat_line}!\n\n"
+            f"here's your random build{stat_line}!\n\n"
             f"{_aspect_string(god, aspect)}"
             f"{smite2_stats.describe_build(god, build + extras)}"
         )
@@ -607,19 +612,6 @@ class GodBuilder:
                 self.__gods.get(god_id) for god_id in (build_options.allies or [])
             ],
         )
-
-    def __random_role(self, god: God) -> PlayerRole:
-        """A lane this god is actually played in.
-
-        The article's published positions first, then the lanes the in-game item
-        store offers this god a filter for, which covers gods too new to have
-        been written up. Mid last of all, as a neutral answer rather than no
-        answer.
-        """
-        positions = list(getattr(god, "positions", None) or [])
-        if not positions:
-            positions = list((getattr(god, "role_scaling", None) or {}).keys())
-        return random.choice(positions) if positions else PlayerRole.MID
 
     def random(self, build_options: BuildOptions) -> GeneratedBuild:
         if self.__provider.game is not Game.SMITE:
@@ -1385,17 +1377,28 @@ class GodBuilder:
         relics = optimizer.conventional_relics()
         relic_str = _relic_note(relics)
 
+        # The same viable set, asked what it would want ahead and behind. One
+        # search, three rankings — see `rank_builds`.
+        path = build_path.fork(
+            build,
+            optimizer.rank_builds(builds, balance=BuildBalance.DAMAGE.ratio)[0],
+            optimizer.rank_builds(builds, balance=BuildBalance.TANK.ratio)[0],
+            optimizer.score_build,
+            optimizer.compute_item_price,
+        )
+
         desc = (
             f"here's your number crunched build! "
             f'{ttk_str if ttk_str != "" else viable_str} '
             f"{team_killed_str}"
             f"Hopefully it's a winner!\n\n"
             f"{_context_note(optimizer.context)}"
+            f"{build_path.describe(path)}\n\n"
             f"{relic_str}"
-            f"{optimizer.get_build_stats_string(build)}"
+            f"{optimizer.get_build_stats_string(path.default)}"
         )
 
-        return GeneratedBuild(build, relics, desc)
+        return GeneratedBuild(path.default, relics, desc)
 
     def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """The best Smite 2 build this model can find for a god in a lane.
@@ -1448,6 +1451,26 @@ class GodBuilder:
         if len(build) < 6:
             raise BuildFailedError
 
+        # The same question at two other balances. Smite 2's optimizer is cheap
+        # enough — a few thousand evaluations — to simply ask again, where
+        # Smite 1 has to re-rank a search it already paid for.
+        def at(ratio: float) -> List[Item]:
+            return Smite2BuildOptimizer(
+                god,
+                self.__items,
+                role=role,
+                context=optimizer.context,
+                balance=ratio,
+            ).optimize(6, pool=pool)
+
+        path = build_path.fork(
+            build,
+            at(BuildBalance.DAMAGE.ratio),
+            at(BuildBalance.TANK.ratio),
+            optimizer.score,
+            optimizer.price,
+        )
+
         extras: List[Item] = []
         starter = optimizer.best_starter()
         if starter is not None:
@@ -1459,17 +1482,18 @@ class GodBuilder:
         # The relic is not part of the stat total: it is chosen by convention
         # rather than scored, so counting its gold against the build would make
         # the build look more expensive than the optimizer actually spent.
-        priced = build + ([starter] if starter is not None else [])
+        priced = path.default + ([starter] if starter is not None else [])
         desc = (
             f"here's your number crunched **{optimizer.role.value.title()}** "
             f"build for {god.name}, built around "
             f"**{optimizer.damage_stat.display_name}** for "
             f"{smite2_stats.total_cost(priced):,} gold.\n\n"
             f"{_context_note(optimizer.context)}"
+            f"{build_path.describe(path)}\n\n"
             f"{_relic_note([relic] if relic else [])}"
             f"{smite2_stats.describe_build(god, priced)}"
         )
-        return GeneratedBuild(build, extras, desc)
+        return GeneratedBuild(path.default, extras, desc)
 
     async def _get_random_god_by_role(
         self, role: GodRole, queue_id: QueueId

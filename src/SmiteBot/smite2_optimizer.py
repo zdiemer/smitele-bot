@@ -817,7 +817,7 @@ class Smite2BuildOptimizer:
         if remaining > 0:
             picked = {item.id for item in chosen}
             cheapest = sorted(
-                self.__price(item) for item in pool if item.id not in picked
+                self.price(item) for item in pool if item.id not in picked
             )[:remaining]
             spent += sum(cheapest)
         return spent <= self.budget
@@ -971,12 +971,18 @@ class Smite2BuildOptimizer:
         return sorted(build, key=self.__sort_key)
 
     @staticmethod
-    def __price(item: Item) -> int:
+    def price(item: Item) -> int:
+        """What one item costs, components included.
+
+        Public because `build_path` prices every step of a build order with it,
+        and because Smite 1's optimizer exposes the same thing under the same
+        name for the same reason.
+        """
         return item.total_cost if item.total_cost is not None else (item.price or 0)
 
     def __sort_key(self, item: Item) -> Tuple[int, str]:
         """Cheapest first, which is the order a build is actually bought in."""
-        return (self.__price(item), item.name)
+        return (self.price(item), item.name)
 
 
 def _merge(

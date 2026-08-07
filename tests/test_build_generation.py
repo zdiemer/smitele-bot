@@ -9,6 +9,8 @@ coming back.
 
 from __future__ import annotations
 
+import zlib
+
 import random
 
 import pytest
@@ -29,6 +31,18 @@ from god_builder import (
 )
 
 
+def _stable_id(name: str) -> int:
+    """A deterministic id for a fake item or god.
+
+    Not `hash()`: Python randomises string hashing per process, so ids
+    built from it differ between runs. Scoring breaks ties on id, and a
+    fake catalogue hits ties often — every item past the point a target
+    saturates scores identically — so hash-derived ids made these tests
+    pass or fail depending on the seed the interpreter happened to start
+    with."""
+    return zlib.crc32(name.encode()) % 10_000_000
+
+
 class _BasicAttack:
     """The shape `God.get_stat_at_level` expects for BASIC_ATTACK_DAMAGE."""
 
@@ -44,7 +58,7 @@ class _BasicAttack:
 def make_item(name, properties=None, tier=3, cost=2500, starter=False, relic=False):
     item = Item()
     item.name = name
-    item.id = abs(hash(name)) % 10_000_000
+    item.id = _stable_id(name)
     item.tier = tier
     item.price = cost
     item.total_cost = cost
@@ -62,7 +76,7 @@ def make_item(name, properties=None, tier=3, cost=2500, starter=False, relic=Fal
 def make_god(name="Test", aspect=None, positions=None, scaling="int"):
     god = God()
     god.name = name
-    god.id = abs(hash(name)) % 100_000
+    god.id = _stable_id(name)
     god.type = GodType.MAGICAL
     god.role = None
     god.scaling = scaling
@@ -125,20 +139,36 @@ class TestSmite2Randomizer:
             result = build_for(make_god(), items)
             assert len({item.id for item in result.build}) == 6
 
-    def test_rolls_a_lane_the_god_is_played_in(self):
-        """The lane is the biggest real choice a Smite 2 build has, and the
-        previous randomizer made none of it."""
-        god = make_god(positions=[PlayerRole.SOLO, PlayerRole.JUNGLE])
+    def test_draws_uniformly_rather_than_sensibly(self):
+        """The one thing a randomiser must not do is produce good builds.
+
+        An earlier version sampled the optimizer's shortlist, which made it
+        `/optimize` with extra steps: the tank items never appeared for a
+        damage god, because they scored badly. Every legal item has to be
+        reachable.
+        """
+        god = make_god()
         items = smite2_catalogue()
         seen = set()
-        for seed in range(30):
+        for seed in range(60):
             random.seed(seed)
-            description = build_for(god, items).description
-            for role in (PlayerRole.SOLO, PlayerRole.JUNGLE):
-                if role.value.title() in description:
-                    seen.add(role)
-        assert seen == {PlayerRole.SOLO, PlayerRole.JUNGLE}
-        assert "Carry" not in description
+            seen.update(item.name for item in build_for(god, items).build)
+
+        core = {
+            item.name
+            for item in items.values()
+            if item.tier == 3 and not item.is_starter and item.type is ItemType.ITEM
+        }
+        # Including the ones a scoring optimizer would never pick for a mage.
+        assert {name for name in core if name.startswith("Tank")} <= seen
+        assert len(seen) == len(core)
+
+    def test_claims_no_lane_it_did_not_build_for(self):
+        god = make_god(positions=[PlayerRole.SOLO, PlayerRole.JUNGLE])
+        random.seed(1)
+        description = build_for(god, smite2_catalogue()).description
+        for role in PlayerRole:
+            assert role.value.title() not in description
 
     def test_does_not_always_return_the_same_build(self):
         items = smite2_catalogue()
