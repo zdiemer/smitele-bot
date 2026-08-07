@@ -23,6 +23,9 @@ from smitetrivia import (  # noqa: E402
     ItemQuestionGenerator,
     TriviaAnswer,
     TriviaQuestion,
+    _ChoiceView,
+    _offer_choices,
+    _with_choices,
 )
 from HirezAPI import PlayerRole  # noqa: E402
 
@@ -323,6 +326,299 @@ class TestNumericAnswers:
         question answered by "55" or "55 units" got no higher/lower hint."""
         question = TriviaQuestion("How far?", TriviaAnswer(["55 units", "55"]))
         assert question.numeric_answer() == 55
+
+
+class FakeRoster(FakeProvider):
+    """A provider with a roster, which is where god distractors come from."""
+
+    def __init__(self, gods):
+        self.gods = {god.name: god for god in gods}
+
+
+def a_roster():
+    return [
+        smite1_god(name=name, pantheon=pantheon, title=f"The {name}")
+        for name, pantheon in (
+            ("Anubis", "Egyptian"),
+            ("Ra", "Egyptian"),
+            ("Thoth", "Egyptian"),
+            ("Geb", "Egyptian"),
+            ("Thor", "Norse"),
+            ("Odin", "Norse"),
+            ("Zeus", "Greek"),
+        )
+    ]
+
+
+def asked_with_roster(god, roster, rounds=300):
+    asked = {}
+    for _ in range(rounds):
+        _e, question, _f = GodQuestionGenerator(god, FakeRoster(roster)).question
+        asked[question.question] = question
+    return asked
+
+
+class TestGodChoiceQuestions:
+    def test_distractors_come_from_the_same_pantheon(self):
+        """Four Egyptians is a question; an Egyptian, a Norse and a Greek is one
+        you can reason your way out of without knowing the god."""
+        roster = a_roster()
+        asked = asked_with_roster(roster[0], roster)
+        titled = [q for text, q in asked.items() if "has the title" in text]
+        assert titled and titled[0].choices
+        egyptians = {"Anubis", "Ra", "Thoth", "Geb"}
+        assert set(titled[0].choices) <= egyptians
+
+    def test_the_odd_one_out_has_exactly_one_outsider(self):
+        roster = a_roster()
+        asked = asked_with_roster(roster[0], roster)
+        odd = [q for text, q in asked.items() if "not** part of" in text]
+        assert odd
+        for question in odd:
+            assert len(question.choices) == 4
+            assert sum(question.check_guess(c) for c in question.choices) == 1
+            assert question.get_answer() in ("Thor", "Odin", "Zeus")
+
+    def test_a_lane_question_comes_out_of_role_scaling(self):
+        """Smite 2 only, and unaskable as free text — but a list of lanes is
+        exactly a row of buttons."""
+        roster = a_roster()
+        roster[0].role_scaling = {
+            PlayerRole.MID: ItemAttribute.INTELLIGENCE,
+            PlayerRole.CARRY: ItemAttribute.STRENGTH,
+        }
+        asked = asked_with_roster(roster[0], roster)
+        lanes = [q for text, q in asked.items() if "Which lane" in text]
+        assert lanes
+        for question in lanes:
+            assert question.choices
+            correct = [c for c in question.choices if question.check_guess(c)]
+            assert len(correct) == 1
+            wanted = "Mid" if "Intelligence" in question.question else "Carry"
+            assert correct[0] == wanted
+
+    def test_ability_distractors_are_the_gods_own_abilities(self):
+        """The hardest set there is: it means recognising the icon rather than
+        recognising the god."""
+        roster = a_roster()
+        kit = ["Plague of Locusts", "Mummify", "Grasping Hands", "Death Gaze", "Sorrow"]
+        roster[0].abilities = [fake_ability(name) for name in kit]
+        roster[1].abilities = [fake_ability("Celestial Beam")]
+        asked = asked_with_roster(roster[0], roster)
+        icons = [q for text, q in asked.items() if text == "What **ability** is this?"]
+        assert icons and icons[0].choices
+        assert set(icons[0].choices) <= set(kit)
+
+    def test_abilities_too_alike_to_tell_apart_are_not_offered(self):
+        """The fuzzy match accepts anything within two edits, so a kit whose
+        names differ by a letter has to fall back to being typed."""
+        roster = a_roster()
+        roster[0].abilities = [fake_ability(f"Anubis {n}") for n in "ABCDE"]
+        asked = asked_with_roster(roster[0], roster)
+        icons = [q for text, q in asked.items() if text == "What **ability** is this?"]
+        assert icons and icons[0].choices is None
+
+    def test_a_god_without_a_roster_stays_typed(self):
+        """Nothing but `__get_next_question` builds these with a real provider."""
+        asked = asked_of(smite1_god())
+        titled = [q for text, q in asked.items() if "has the title" in text]
+        assert titled and titled[0].choices is None
+
+
+class TestItemChoiceQuestions:
+    def catalogue(self):
+        items = {}
+        for index, (name, price) in enumerate(
+            [
+                ("Rod of Tahuti", 3000),
+                ("Book of Thoth", 2800),
+                ("Soul Reaver", 2650),
+                ("Spear of Desolation", 2600),
+                ("Gem of Isolation", 2500),
+            ],
+            start=1,
+        ):
+            items[index] = make_item(
+                ItemType.ITEM,
+                name=name,
+                id=index,
+                price=price,
+                total_cost=price,
+                active=True,
+                tier=3,
+                item_properties=[
+                    ItemProperty(ItemAttribute.INTELLIGENCE, flat_value=20 * index),
+                    ItemProperty(ItemAttribute.MANA, flat_value=100 + index),
+                ],
+            )
+        return items
+
+    def asked(self, target=2, rounds=300):
+        items = self.catalogue()
+        asked = {}
+        for _ in range(rounds):
+            _e, question, _f = ItemQuestionGenerator(items[target], items).question
+            asked[question.question] = question
+        return asked
+
+    def test_an_invented_name_is_offered_beside_the_real_one(self):
+        """Real names are "<thing> of <somebody>", so swapping halves produces
+        something that sounds exactly like an item and is not one."""
+        asked = self.asked()
+        real = [q for text, q in asked.items() if "a real item" in text]
+        assert real
+        question = real[0]
+        assert question.get_answer() == "Book of Thoth"
+        invented = [c for c in question.choices if c != "Book of Thoth"]
+        assert invented and all(" of " in name for name in invented)
+        assert not any(
+            name in {"Rod of Tahuti", "Gem of Isolation", "Spear of Desolation"}
+            for name in invented
+        )
+
+    def test_a_comparison_names_both_items_and_offers_both(self):
+        asked = self.asked()
+        compared = [q for text, q in asked.items() if "Which costs more" in text]
+        assert compared
+        for question in compared:
+            assert len(question.choices) == 2
+            assert sum(question.check_guess(c) for c in question.choices) == 1
+            assert all(f"**{c}**" in question.question for c in question.choices)
+
+    def test_the_odd_stat_out_offers_stats_the_item_does_have(self):
+        items = self.catalogue()
+        # A third attribute somewhere in the catalogue, so there is an outsider.
+        items[1].item_properties = [
+            ItemProperty(ItemAttribute.PHYSICAL_POWER, flat_value=40)
+        ]
+        asked = {}
+        for _ in range(300):
+            _e, question, _f = ItemQuestionGenerator(items[2], items).question
+            asked[question.question] = question
+
+        odd = [q for text, q in asked.items() if "**not** give" in text]
+        assert odd
+        question = odd[0]
+        assert question.get_answer() == "Physical Power"
+        assert set(question.choices) - {"Physical Power"} <= {"Intelligence", "Mana"}
+
+
+class TestChoices:
+    def question(self):
+        return TriviaQuestion("Which item?", TriviaAnswer(["Book of Thoth"]))
+
+    def test_a_distractor_the_question_would_accept_is_refused(self):
+        """The fuzzy match takes anything within two edits, so an option that
+        looks wrong can be scored right. Two right answers is not a question."""
+        question = _with_choices(
+            self.question(), ["Mana Tome", "Book of Thot", "Soul Reaver", "Doom Orb"]
+        )
+        assert "Book of Thot" not in question.choices
+        assert sum(question.check_guess(c) for c in question.choices) == 1
+
+    def test_a_second_correct_answer_is_never_offered_as_a_distractor(self):
+        """"Name an item that builds into Circlet" has several right answers,
+        and every one of them but the displayed one has to stay off the buttons."""
+        question = TriviaQuestion("Builds into?", TriviaAnswer(["Thoth", "Reaver"]))
+        _with_choices(question, ["Reaver", "Tome", "Staff", "Orb"])
+        assert sum(question.check_guess(c) for c in question.choices) == 1
+        # The reveal names the button that was actually there.
+        assert question.get_answer() in question.choices
+
+    def test_a_thin_pool_leaves_the_question_typed(self):
+        question = self.question()
+        assert _with_choices(question, ["Mana Tome"]) is None
+        assert question.choices is None
+        assert _offer_choices(question, ["Mana Tome"]) is question
+        assert question.choices is None
+
+    def test_the_correct_answer_is_not_always_in_the_same_place(self):
+        pool = ["Mana Tome", "Soul Reaver", "Doom Orb", "Rod of Tahuti"]
+        positions = set()
+        for _ in range(60):
+            question = _with_choices(self.question(), pool)
+            positions.add(
+                next(i for i, c in enumerate(question.choices) if question.check_guess(c))
+            )
+        assert len(positions) > 1
+
+    def test_choices_are_capped_and_include_the_answer(self):
+        question = _with_choices(
+            self.question(), [f"Item {i}" for i in range(20)], count=4
+        )
+        assert len(question.choices) == 4
+        assert "Book of Thoth" in question.choices
+
+
+class FakeResponse:
+    def __init__(self):
+        self.sent = []
+        self.edited = False
+
+    async def send_message(self, content, ephemeral=False):
+        self.sent.append((content, ephemeral))
+
+    async def edit_message(self, **_kwargs):
+        self.edited = True
+
+
+class FakeInteraction:
+    def __init__(self, user_id: int):
+        self.user = types.SimpleNamespace(id=user_id, display_name=f"user{user_id}")
+        self.response = FakeResponse()
+
+
+class TestChoiceView:
+    def view(self):
+        question = TriviaQuestion(
+            "Which item?",
+            TriviaAnswer(["Book of Thoth"]),
+            choices=["Book of Thoth", "Soul Reaver", "Doom Orb", "Mana Tome"],
+        )
+        return _ChoiceView(question, timeout=20)
+
+    async def test_a_correct_press_wins_and_closes_the_buttons(self):
+        view = self.view()
+        interaction = FakeInteraction(1)
+        await view.press(interaction, "Book of Thoth")
+        assert view.winner.result() is interaction.user
+        assert interaction.response.edited
+        assert all(item.disabled for item in view.children)
+
+    async def test_a_wrong_press_is_answered_privately(self):
+        """The whole reason this is buttons and not a poll: nobody learns
+        anything from watching somebody else be wrong."""
+        view = self.view()
+        interaction = FakeInteraction(1)
+        await view.press(interaction, "Soul Reaver")
+        assert not view.winner.done()
+        assert interaction.response.sent == [("Not **Soul Reaver**. ❌", True)]
+
+    async def test_one_press_each(self):
+        view = self.view()
+        await view.press(FakeInteraction(1), "Soul Reaver")
+        second = FakeInteraction(1)
+        await view.press(second, "Book of Thoth")
+        assert not view.winner.done(), "a second guess is a coin flip, not trivia"
+        assert "already had your guess" in second.response.sent[0][0]
+
+    async def test_a_press_after_the_answer_does_not_overwrite_the_winner(self):
+        view = self.view()
+        first = FakeInteraction(1)
+        await view.press(first, "Book of Thoth")
+        late = FakeInteraction(2)
+        await view.press(late, "Book of Thoth")
+        assert view.winner.result() is first.user
+        assert "already got this one" in late.response.sent[0][0]
+
+    async def test_a_cancelled_round_does_not_raise_on_a_late_press(self):
+        """The round cancels the future when it is called off; a press landing
+        after that must not blow up in the callback."""
+        view = self.view()
+        view.winner.cancel()
+        late = FakeInteraction(3)
+        await view.press(late, "Book of Thoth")
+        assert late.response.sent
 
 
 def make_item(kind: ItemType, **overrides):

@@ -9,7 +9,7 @@ import uuid
 from enum import Enum
 from json.decoder import JSONDecodeError
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import discord
 import edit_distance
@@ -26,7 +26,7 @@ from SmiteProvider import SmiteProvider
 from god import God, GodId
 from item import Item, ItemAttribute, ItemType
 from skin import Skin
-from HirezAPI import QueueId
+from HirezAPI import PlayerRole, QueueId
 from build_optimizer import compute_item_price
 from item_tree_builder import ItemTreeBuilder
 
@@ -214,12 +214,14 @@ class TriviaQuestion:
     id: uuid
     question: str
     image_url_or_bytes: Optional[str | io.BytesIO]
+    choices: Optional[List[str]]
 
     def __init__(
         self,
         question: str,
         answer: str | TriviaAnswer,
         image_url_or_bytes: Optional[str | io.BytesIO] = None,
+        choices: Optional[List[str]] = None,
     ):
         self.question = question
         self.answer = (
@@ -227,6 +229,9 @@ class TriviaQuestion:
         )
         self.id = uuid.uuid4()
         self.image_url_or_bytes = image_url_or_bytes
+        # Set means the round shows buttons and takes no typed answer. Left
+        # None means the question is typed, which is still most of them.
+        self.choices = list(choices) if choices else None
 
     def check_guess(self, guess: str) -> bool:
         return self.answer.check_guess(guess)
@@ -252,6 +257,138 @@ class TriviaQuestion:
             if text.isdigit():
                 return float(text)
         return None
+
+
+def _with_choices(
+    question: TriviaQuestion,
+    pool: Iterable[str],
+    count: int = 4,
+    minimum: int = 3,
+) -> Optional[TriviaQuestion]:
+    """The question as multiple choice, or None if the pool was too thin.
+
+    Returns None rather than raising because the two kinds of caller want
+    different things from a pool that cannot fill the buttons. A question that
+    is meaningless without options — "which of these is *not* on this item?" —
+    drops the None and is never asked. One that reads fine either way passes it
+    through `or question` and stays typed.
+
+    A candidate the question would *accept* is not a distractor, and this is
+    the only place that can tell: several questions hold more than one right
+    answer, and the fuzzy match accepts anything within two edits of one. So
+    "Mana Tomb" is refused as an option beside "Mana Tome", and so is the
+    second correct answer to "name an item that builds into Circlet".
+    """
+    answers = question.answer.valid_answers
+    if not answers:
+        return None
+
+    correct = random.choice(answers)
+    seen = {unidecode(str(correct)).lower().strip()}
+    candidates: List[str] = []
+    for value in pool:
+        text = str(value).strip()
+        key = unidecode(text).lower()
+        if not text or key in seen or question.check_guess(text):
+            continue
+        seen.add(key)
+        candidates.append(text)
+
+    if len(candidates) < minimum - 1:
+        return None
+
+    choices = random.sample(candidates, min(count - 1, len(candidates)))
+    choices.append(str(correct))
+    random.shuffle(choices)
+
+    # Narrowed to the option actually on screen, so the reveal names the button
+    # that was there rather than "either X or Y" of which only one was offered.
+    question.answer = TriviaAnswer([str(correct)])
+    question.choices = choices
+    return question
+
+
+def _offer_choices(
+    question: TriviaQuestion,
+    pool: Iterable[str],
+    count: int = 4,
+    minimum: int = 3,
+) -> TriviaQuestion:
+    """Multiple choice where the pool allows it, typed where it does not.
+
+    For the questions that read fine either way — an icon, a passive, a piece
+    of lore — where buttons only make an unfair question fair.
+    """
+    return _with_choices(question, pool, count, minimum) or question
+
+
+class _ChoiceButton(discord.ui.Button):
+    """One option. The view it belongs to owns the answering."""
+
+    choice: str
+
+    def __init__(self, choice: str, row: int):
+        # Discord truncates past 80 characters; keep the full text for matching.
+        super().__init__(
+            label=choice[:80], style=discord.ButtonStyle.secondary, row=row
+        )
+        self.choice = choice
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.view.press(interaction, self.choice)
+
+
+class _ChoiceView(discord.ui.View):
+    """The buttons for a multiple-choice question, and its one winner.
+
+    A wrong press is answered privately. That is the whole reason this is
+    buttons rather than a Discord poll: a poll's tally is public as it fills
+    in, so the first person to vote hands the answer to everybody else.
+    """
+
+    # One press each. With four options in front of you a second guess is a
+    # coin flip, which is not a trivia question.
+    GUESSES_PER_USER = 1
+
+    def __init__(self, question: TriviaQuestion, timeout: float):
+        super().__init__(timeout=timeout, disable_on_timeout=False)
+        self.__question = question
+        self.__pressed: Dict[int, int] = {}
+        self.winner: asyncio.Future = asyncio.get_running_loop().create_future()
+        choices = question.choices or []
+        # Two to a row once there are more than three, so long item names are
+        # not squeezed into slivers.
+        per_row = len(choices) if len(choices) <= 3 else 2
+        for index, choice in enumerate(choices):
+            self.add_item(_ChoiceButton(choice, row=index // per_row))
+
+    async def press(self, interaction: discord.Interaction, choice: str):
+        if self.winner.done():
+            await interaction.response.send_message(
+                "Someone already got this one! <:mleh:472905075208093717>",
+                ephemeral=True,
+            )
+            return
+
+        pressed = self.__pressed.get(interaction.user.id, 0)
+        if pressed >= self.GUESSES_PER_USER:
+            await interaction.response.send_message(
+                "You've already had your guess on this one. "
+                "<:noshot:782396496104128573>",
+                ephemeral=True,
+            )
+            return
+        self.__pressed[interaction.user.id] = pressed + 1
+
+        if not self.__question.check_guess(choice):
+            await interaction.response.send_message(
+                f"Not **{choice}**. ❌", ephemeral=True
+            )
+            return
+
+        self.winner.set_result(interaction.user)
+        self.disable_all_items()
+        await interaction.response.edit_message(view=self)
 
 
 class QuestionGenerator:
@@ -305,15 +442,20 @@ class ItemQuestionGenerator(QuestionGenerator):
         )
 
         self.__question_bank[ItemType.ITEM].append(
-            TriviaQuestion(
-                "What item has been replaced by a question mark in this tree?",
-                tree_builder.trivia_item.name,
-                tree_image,
+            _offer_choices(
+                TriviaQuestion(
+                    "What item has been replaced by a question mark in this tree?",
+                    tree_builder.trivia_item.name,
+                    tree_image,
+                ),
+                self.__names(ItemType.ITEM),
             )
         )
 
     def __init_question_bank(self):
         item = self.__item
+        consumables = self.__names(ItemType.CONSUMABLE)
+        relics = self.__names(ItemType.RELIC)
         self.__question_bank = {
             ItemType.CONSUMABLE: [
                 q
@@ -323,14 +465,20 @@ class ItemQuestionGenerator(QuestionGenerator):
                         f'{"an" if item.name[0].lower() in "aeiou" else "a"} **{item.name}** cost?',
                         f"{item.price}",
                     ),
-                    TriviaQuestion(
-                        f"Name the consumable with this description: \n\n`{item.passive}`",
-                        item.name,
+                    _offer_choices(
+                        TriviaQuestion(
+                            f"Name the consumable with this description: \n\n`{item.passive}`",
+                            item.name,
+                        ),
+                        consumables,
                     )
                     if (item.passive or "").strip()
                     else None,
-                    TriviaQuestion(
-                        "What consumable is this?", item.name, item.icon_url
+                    _offer_choices(
+                        TriviaQuestion(
+                            "What consumable is this?", item.name, item.icon_url
+                        ),
+                        consumables,
                     ),
                 ]
                 if q is not None
@@ -338,13 +486,19 @@ class ItemQuestionGenerator(QuestionGenerator):
             ItemType.RELIC: [
                 q
                 for q in [
-                    TriviaQuestion(
-                        f"Name the relic with this description: \n\n`{item.passive}`",
-                        item.name,
+                    _offer_choices(
+                        TriviaQuestion(
+                            f"Name the relic with this description: \n\n`{item.passive}`",
+                            item.name,
+                        ),
+                        relics,
                     )
                     if (item.passive or "").strip()
                     else None,
-                    TriviaQuestion("What relic is this?", item.name, item.icon_url),
+                    _offer_choices(
+                        TriviaQuestion("What relic is this?", item.name, item.icon_url),
+                        relics,
+                    ),
                 ]
                 if q is not None
             ],
@@ -356,10 +510,13 @@ class ItemQuestionGenerator(QuestionGenerator):
                             f"How much does **{item.name}** cost?",
                             f"{self.__compute_price(item)}",
                         ),
-                        TriviaQuestion(
-                            f'Name the item with this {"passive" if item.passive is not None and item.passive.strip() != "" else "aura"}'
-                            f':\n\n`{item.passive if item.passive is not None and item.passive.strip() != "" else item.aura.strip()}`',
-                            item.name,
+                        _offer_choices(
+                            TriviaQuestion(
+                                f'Name the item with this {"passive" if item.passive is not None and item.passive.strip() != "" else "aura"}'
+                                f':\n\n`{item.passive if item.passive is not None and item.passive.strip() != "" else item.aura.strip()}`',
+                                item.name,
+                            ),
+                            self.__names(ItemType.ITEM),
                         )
                         if (item.passive is not None and item.passive.strip() != "")
                         or (item.aura is not None and item.aura.strip() != "")
@@ -370,7 +527,17 @@ class ItemQuestionGenerator(QuestionGenerator):
                         )
                         if item.parent_item_id is not None and item.price > 0
                         else None,
-                        TriviaQuestion("What item is this?", item.name, item.icon_url),
+                        _offer_choices(
+                            TriviaQuestion(
+                                "What item is this?", item.name, item.icon_url
+                            ),
+                            # Same tier first: an icon question between four
+                            # tier 3s is a real question, and between a tier 3
+                            # and three starters it is not.
+                            self.__names(ItemType.ITEM, tier=getattr(item, "tier", None))
+                            or self.__names(ItemType.ITEM),
+                        ),
+                        *self.__generate_choice_questions(item),
                         TriviaQuestion(
                             f"What tier is **{item.name}**?",
                             f"{item.tier}",
@@ -385,6 +552,134 @@ class ItemQuestionGenerator(QuestionGenerator):
                 )
             ),
         }
+
+    def __active(self, item_type: ItemType) -> List[Item]:
+        return [
+            other
+            for other in self.__all_items.values()
+            if getattr(other, "active", True) and other.type == item_type
+        ]
+
+    def __names(self, item_type: ItemType, tier: int = None) -> List[str]:
+        """Names to draw distractors from, optionally narrowed to one tier."""
+        return [
+            other.name
+            for other in self.__active(item_type)
+            if other.id != self.__item.id
+            and (tier is None or getattr(other, "tier", None) == tier)
+        ]
+
+    def __generate_choice_questions(self, item: Item) -> List[TriviaQuestion]:
+        """The questions that only exist because there are buttons.
+
+        None of these can be typed. "Which of these is *not* on this item?" has
+        no answer without the other three in front of you, and "which costs
+        more?" is a coin flip nobody would type a name into.
+        """
+        return list(
+            filter(
+                lambda q: q is not None,
+                [
+                    self.__odd_stat_out(item),
+                    self.__comparison(item),
+                    self.__real_name_question(item),
+                ],
+            )
+        )
+
+    def __odd_stat_out(self, item: Item) -> Optional[TriviaQuestion]:
+        mine = {prop.attribute for prop in getattr(item, "item_properties", None) or []}
+        if len(mine) < 2:
+            return None
+        elsewhere = {
+            prop.attribute
+            for other in self.__active(ItemType.ITEM)
+            for prop in getattr(other, "item_properties", None) or []
+        } - mine
+        if not elsewhere:
+            return None
+        return _with_choices(
+            TriviaQuestion(
+                f"Which of these does **{item.name}** **not** give?",
+                random.choice(sorted(elsewhere, key=lambda a: a.value)).display_name,
+                item.icon_url,
+            ),
+            [attribute.display_name for attribute in mine],
+            count=min(4, len(mine) + 1),
+            minimum=3,
+        )
+
+    def __comparison(self, item: Item) -> Optional[TriviaQuestion]:
+        """This item against one other, on price or on a shared stat."""
+        others = [
+            other for other in self.__active(ItemType.ITEM) if other.id != item.id
+        ]
+        if not others:
+            return None
+        other = random.choice(others)
+
+        shared = [
+            (prop, match)
+            for prop in getattr(item, "item_properties", None) or []
+            for match in getattr(other, "item_properties", None) or []
+            if prop.attribute == match.attribute
+            and prop.flat_value
+            and match.flat_value
+            and prop.flat_value != match.flat_value
+        ]
+        if shared and random.choice((True, False)):
+            prop, match = random.choice(shared)
+            winner = item if prop.flat_value > match.flat_value else other
+            return _with_choices(
+                TriviaQuestion(
+                    f"Which gives more **{prop.attribute.display_name}** — "
+                    f"**{item.name}** or **{other.name}**?",
+                    winner.name,
+                ),
+                [(other if winner is item else item).name],
+                count=2,
+                minimum=2,
+            )
+
+        mine, theirs = self.__compute_price(item), self.__compute_price(other)
+        if mine == theirs:
+            return None
+        winner = item if mine > theirs else other
+        return _with_choices(
+            TriviaQuestion(
+                f"Which costs more — **{item.name}** or **{other.name}**?",
+                winner.name,
+            ),
+            [(other if winner is item else item).name],
+            count=2,
+            minimum=2,
+        )
+
+    # Real names are mostly "<thing> of <somebody>", so swapping the halves
+    # produces something that sounds exactly like an item and is not one.
+    __NAME_JOINER = " of "
+
+    def __real_name_question(self, item: Item) -> Optional[TriviaQuestion]:
+        names = [other.name for other in self.__active(ItemType.ITEM)]
+        halves = [name.split(self.__NAME_JOINER, 1) for name in names]
+        heads = [half[0] for half in halves if len(half) == 2]
+        tails = [half[1] for half in halves if len(half) == 2]
+        if len(heads) < 4 or self.__NAME_JOINER not in item.name:
+            return None
+
+        real = set(names)
+        invented = {
+            f"{head}{self.__NAME_JOINER}{tail}"
+            for head in random.sample(heads, min(8, len(heads)))
+            for tail in random.sample(tails, min(8, len(tails)))
+        } - real
+        if len(invented) < 3:
+            return None
+
+        return _with_choices(
+            TriviaQuestion("Which of these is a real item?", item.name),
+            sorted(invented),
+        )
 
     def __components_of(self, item: Item) -> List[Item]:
         """What the item is built out of, in either game.
@@ -730,18 +1025,37 @@ class GodQuestionGenerator(QuestionGenerator):
         lore = (god.lore or "").replace(god.name, "_____").replace("\\n", "\n")
         if lore.strip():
             bank.append(
-                TriviaQuestion(f"Name the god with this lore: \n\n```{lore}```", god.name)
+                _offer_choices(
+                    TriviaQuestion(
+                        f"Name the god with this lore: \n\n```{lore}```", god.name
+                    ),
+                    self.__other_gods(god.pantheon),
+                )
             )
         if god.pantheon:
             bank.append(
-                TriviaQuestion(
-                    f"What pantheon is **{god.name}** a part of?", god.pantheon, icon
+                _offer_choices(
+                    TriviaQuestion(
+                        f"What pantheon is **{god.name}** a part of?", god.pantheon, icon
+                    ),
+                    self.__other_pantheons(),
                 )
             )
+            odd_one_out = self.__odd_pantheon_out()
+            if odd_one_out is not None:
+                bank.append(odd_one_out)
         if god.title:
             bank.append(
-                TriviaQuestion(f"Which god has the title **{god.title}**?", god.name)
+                _offer_choices(
+                    TriviaQuestion(
+                        f"Which god has the title **{god.title}**?", god.name
+                    ),
+                    self.__other_gods(god.pantheon),
+                )
             )
+        lane = self.__lane_question()
+        if lane is not None:
+            bank.append(lane)
 
         god_type = getattr(god, "type", None)
         if god_type is not None:
@@ -801,6 +1115,98 @@ class GodQuestionGenerator(QuestionGenerator):
         bank.extend(self.__generate_aspect_questions(god, icon))
 
         self.__question_bank = bank
+
+    def __roster(self) -> List[God]:
+        """Every god of this game, for distractors. Empty is a valid answer.
+
+        Only `__get_next_question` builds these generators with a real
+        provider; the ability and stat questions carry a round on their own
+        where there is none.
+        """
+        return list((getattr(self.__provider, "gods", None) or {}).values())
+
+    def __other_gods(self, pantheon: str = None) -> List[str]:
+        """Names to draw distractors from, from the same pantheon if it can.
+
+        Four Egyptians is a question. An Egyptian, a Norse, a Greek and a Mayan
+        is a question you can reason your way out of without knowing the god.
+        """
+        names = [g.name for g in self.__roster() if g.name != self.__god.name]
+        if pantheon:
+            same = [
+                g.name
+                for g in self.__roster()
+                if g.name != self.__god.name
+                and getattr(g, "pantheon", None) == pantheon
+            ]
+            if len(same) >= 3:
+                return same
+        return names
+
+    def __other_pantheons(self) -> List[str]:
+        return sorted(
+            {
+                g.pantheon
+                for g in self.__roster()
+                if getattr(g, "pantheon", None)
+                and g.pantheon != getattr(self.__god, "pantheon", None)
+            }
+        )
+
+    def __odd_pantheon_out(self) -> Optional[TriviaQuestion]:
+        pantheon = self.__god.pantheon
+        same = [
+            g.name for g in self.__roster() if getattr(g, "pantheon", None) == pantheon
+        ]
+        elsewhere = [
+            g.name
+            for g in self.__roster()
+            if getattr(g, "pantheon", None) and g.pantheon != pantheon
+        ]
+        if len(same) < 3 or not elsewhere:
+            return None
+        return _with_choices(
+            TriviaQuestion(
+                f"Which of these gods is **not** part of the "
+                f"**{pantheon}** pantheon?",
+                random.choice(elsewhere),
+            ),
+            same,
+            minimum=4,
+        )
+
+    def __lane_question(self) -> Optional[TriviaQuestion]:
+        """Where the god builds which damage stat.
+
+        Smite 2 only, and out of the tags the in-game item store filters
+        itself by — which makes it the only published answer for a god like
+        Danzaburou, who is Strength in the carry lane and Intelligence in mid.
+        Unaskable as free text; a list of five lanes is exactly five buttons.
+        """
+        by_lane = getattr(self.__god, "role_scaling", None) or {}
+        lanes_by_stat: Dict[ItemAttribute, List] = {}
+        for lane, stat in by_lane.items():
+            if stat is not None:
+                lanes_by_stat.setdefault(stat, []).append(lane)
+        if not lanes_by_stat:
+            return None
+
+        stat = random.choice(list(lanes_by_stat))
+        lanes = lanes_by_stat[stat]
+        elsewhere = [role for role in PlayerRole if role not in lanes]
+        if not elsewhere:
+            return None
+
+        return _with_choices(
+            TriviaQuestion(
+                f"Which lane does **{self.__god.name}** build "
+                f"**{stat.display_name}** in?",
+                TriviaAnswer([lane.value.title() for lane in lanes]),
+                getattr(self.__god, "icon_url", None),
+            ),
+            [role.value.title() for role in elsewhere],
+            count=min(4, len(elsewhere) + 1),
+        )
 
     @staticmethod
     def __generate_aspect_questions(god: God, icon) -> List[TriviaQuestion]:
@@ -866,13 +1272,35 @@ class GodQuestionGenerator(QuestionGenerator):
         skin = random.choice(skins)
 
         self.__question_bank.append(
-            TriviaQuestion(
-                "Which god is this a skin for?", self.__god.name, skin.card_url
+            _offer_choices(
+                TriviaQuestion(
+                    "Which god is this a skin for?", self.__god.name, skin.card_url
+                ),
+                self.__other_gods(getattr(self.__god, "pantheon", None)),
             )
         )
 
-    @staticmethod
-    def __generate_abilities_questions(god: God) -> List[TriviaQuestion]:
+    def __other_abilities(self, ability) -> List[str]:
+        """Distractors for an ability question.
+
+        The god's *own* other abilities first, which is the hardest set there
+        is: it means recognising this icon rather than recognising the god.
+        """
+        names = [
+            other.name
+            for other in self.__god.abilities
+            if other is not ability and other.name
+        ]
+        if len(names) >= 3:
+            return names
+        return names + [
+            other.name
+            for god in self.__roster()
+            for other in getattr(god, "abilities", None) or []
+            if other.name
+        ]
+
+    def __generate_abilities_questions(self, god: God) -> List[TriviaQuestion]:
         # A god whose abilities failed to parse would otherwise take down the
         # round on random.choice of an empty list. Smite 1 always has five;
         # Smite 2's come from a wiki page that could change shape.
@@ -902,16 +1330,22 @@ class GodQuestionGenerator(QuestionGenerator):
             filter(
                 lambda q: q is not None,
                 [
-                    GodQuestionGenerator.__slot_question(god, ability),
-                    GodQuestionGenerator.__property_question(god, ability),
-                    TriviaQuestion(
-                        f'Name **{god.name}**\'s {ability_or_passive} with this description: \n\n`{pattern.sub("_____", ability.description)}`',
-                        ability.name,
+                    self.__slot_question(god, ability),
+                    self.__property_question(god, ability),
+                    _offer_choices(
+                        TriviaQuestion(
+                            f'Name **{god.name}**\'s {ability_or_passive} with this description: \n\n`{pattern.sub("_____", ability.description)}`',
+                            ability.name,
+                        ),
+                        self.__other_abilities(ability),
                     ),
-                    TriviaQuestion(
-                        f"What {ability_or_passive} is this?",
-                        ability.name,
-                        ability.icon_url,
+                    _offer_choices(
+                        TriviaQuestion(
+                            f"What {ability_or_passive} is this?",
+                            ability.name,
+                            ability.icon_url,
+                        ),
+                        self.__other_abilities(ability),
                     ),
                     TriviaQuestion(
                         f"What is the cooldown (in seconds) for **{god.name}'s {ability.name}** at **rank {cooldown_rank + 1}**?",
@@ -926,7 +1360,7 @@ class GodQuestionGenerator(QuestionGenerator):
                     if cooldown_rank is not None
                     else None,
                     TriviaQuestion(
-                        f"How much **{GodQuestionGenerator.__resource_name(god)}** "
+                        f"How much **{self.__resource_name(god)}** "
                         f"does **{god.name}'s {ability.name}** cost at "
                         f"**rank {cost_rank + 1}**?",
                         TriviaAnswer(
@@ -987,8 +1421,8 @@ class GodQuestionGenerator(QuestionGenerator):
     # Asked separately, and about the whole rank list rather than one value.
     __ASKED_ELSEWHERE = ("cooldown", "cost", "mana cost")
 
-    @staticmethod
-    def __property_question(god: God, ability) -> Optional[TriviaQuestion]:
+    @classmethod
+    def __property_question(cls, god: God, ability) -> Optional[TriviaQuestion]:
         """A stat off the ability's own menu — radius, range, duration.
 
         Restricted to properties with a single value. A slash-separated one is
@@ -1001,7 +1435,7 @@ class GodQuestionGenerator(QuestionGenerator):
             if prop.value
             and "/" not in prop.value
             and prop.name
-            and prop.name.strip().lower() not in GodQuestionGenerator.__ASKED_ELSEWHERE
+            and prop.name.strip().lower() not in cls.__ASKED_ELSEWHERE
         ]
         if not properties:
             return None
@@ -1035,6 +1469,12 @@ class FriendQuestionGenerator(QuestionGenerator):
         self.__provider = provider
         self.__gods = gods
         self.__question_bank = []
+
+    def __god_names(self) -> List[str]:
+        """Every god, for distractors. "Who is their worst god?" is unguessable
+        as free text against a hundred-god roster and a coin flip against four.
+        """
+        return [god.name for god in self.__gods.values()]
 
     async def __get_random_friend(self) -> Tuple[int, Player | None]:
         discord_user_id, smite_user_name = random.choice(list(self.__friends.items()))
@@ -1344,17 +1784,23 @@ class FriendQuestionGenerator(QuestionGenerator):
                                 ),
                                 player.avatar_url,
                             ),
-                            TriviaQuestion(
-                                f"What is {player_display_name}'s best god in {queue_id.display_name}?",
-                                self.__gods[queue_stats.best_god].name,
-                                player.avatar_url,
+                            _offer_choices(
+                                TriviaQuestion(
+                                    f"What is {player_display_name}'s best god in {queue_id.display_name}?",
+                                    self.__gods[queue_stats.best_god].name,
+                                    player.avatar_url,
+                                ),
+                                self.__god_names(),
                             )
                             if queue_stats.best_god is not None
                             else None,
-                            TriviaQuestion(
-                                f"What is {player_display_name}'s worst god in {queue_id.display_name}?",
-                                self.__gods[queue_stats.worst_god].name,
-                                player.avatar_url,
+                            _offer_choices(
+                                TriviaQuestion(
+                                    f"What is {player_display_name}'s worst god in {queue_id.display_name}?",
+                                    self.__gods[queue_stats.worst_god].name,
+                                    player.avatar_url,
+                                ),
+                                self.__god_names(),
                             )
                             if queue_stats.worst_god is not None
                             else None,
@@ -1673,11 +2119,73 @@ class SmiteTrivia(commands.Cog):
                 name="Time Remaining:",
                 value=f'_{rem} second{"s" if rem != 1 else ""}_',
             )
-            if isinstance(message, discord.Interaction):
-                interaction_message = await message.original_response()
-                await interaction_message.edit(embed=embed)
-                continue
-            await message.edit(embed=embed)
+            # No `view=` here on purpose: leaving it out of the payload keeps
+            # whatever components the message already has, so a multiple-choice
+            # question does not lose its buttons once a second.
+            await self.__edit_response(message, embed=embed)
+
+    @staticmethod
+    async def __edit_response(response, **kwargs):
+        """Edit whichever of the two things `ctx.respond` returned."""
+        message = (
+            await response.original_response()
+            if isinstance(response, discord.Interaction)
+            else response
+        )
+        await message.edit(**kwargs)
+
+    async def __close_choices(self, response, view: _ChoiceView):
+        """Stop taking presses, however the question ended."""
+        view.stop()
+        if view.winner.done() and not view.winner.cancelled():
+            # The winning press disabled them already, through its own
+            # interaction, which is both faster and one fewer API call.
+            return
+        view.disable_all_items()
+        try:
+            await self.__edit_response(response, view=view)
+        except discord.HTTPException:
+            pass
+
+    async def __await_choice(
+        self, ctx: discord.ApplicationContext, view: _ChoiceView, exp: float
+    ) -> discord.User:
+        """The first correct button press, or the round being called off.
+
+        `$stoptrivia` is still typed, so a multiple-choice question has to keep
+        listening for messages even though it accepts no typed answers — losing
+        the ability to stop a round on the questions that show buttons would be
+        a worse trade than the extra listener.
+        """
+        stopped = asyncio.get_running_loop().create_task(
+            self.__bot.wait_for(
+                "message",
+                check=lambda message: message.author != self.__bot.user
+                and message.content.startswith("$stoptrivia"),
+            )
+        )
+        done, pending = await asyncio.wait(
+            {stopped, view.winner},
+            timeout=max(exp - time.time(), 0),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            # Everything but the winner, which the caller reads to decide
+            # whether the buttons still need closing out. Cancelling it would
+            # make an unanswered question indistinguishable from an answered one.
+            if task is not view.winner:
+                task.cancel()
+
+        if stopped in done:
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.red(), description="Trivia round canceled!"
+                )
+            )
+            raise StoppedError
+        if view.winner in done:
+            return view.winner.result()
+        raise asyncio.TimeoutError
 
     def categories_for(self, provider) -> List[TriviaCategory]:
         """Which categories can be asked about for one game.
@@ -1824,23 +2332,35 @@ class SmiteTrivia(commands.Cog):
             embed.add_field(name="Time Remaining:", value="_20 seconds_")
 
             exp = time.time() + 20
-            response = (
-                await ctx.respond(embed=embed)
-                if file is None
-                else await ctx.respond(file=file, embed=embed)
-            )
+            view = _ChoiceView(question, 20) if question.choices else None
+            sent = {"embed": embed}
+            if file is not None:
+                sent["file"] = file
+            if view is not None:
+                sent["view"] = view
+            response = await ctx.respond(**sent)
             task = asyncio.get_running_loop().create_task(
                 self.__countdown_loop(response, exp, embed)
             )
             try:
-                msg: discord.Message = await self.__bot.wait_for(
-                    "message",
-                    check=lambda msg: self.__check_message(msg, answers, question),
-                    timeout=20,
-                )
+                if view is not None:
+                    # Closed out here rather than at the end of the question, so
+                    # the options stop being pressable the moment the answer is
+                    # known — not five seconds later, after the reveal.
+                    try:
+                        author = await self.__await_choice(ctx, view, exp)
+                    finally:
+                        await self.__close_choices(response, view)
+                else:
+                    msg: discord.Message = await self.__bot.wait_for(
+                        "message",
+                        check=lambda msg: self.__check_message(msg, answers, question),
+                        timeout=20,
+                    )
+                    author = msg.author
                 answer_time = time.time() - (exp - 20)
                 task.cancel()
-                description = f"✅ Correct, **{msg.author.display_name}**! You got it in {round(answer_time)} seconds. The answer was **{question.get_answer()}**. <:frogchamp:566686914858713108>"
+                description = f"✅ Correct, **{author.display_name}**! You got it in {round(answer_time)} seconds. The answer was **{question.get_answer()}**. <:frogchamp:566686914858713108>"
                 if current_question < question_count - 1:
                     description += "\n\nNext question coming up in 5 seconds."
 
@@ -1850,10 +2370,10 @@ class SmiteTrivia(commands.Cog):
                     ),
                 )
 
-                if msg.author.id not in correct_answers:
-                    correct_answers[msg.author.id] = 1
+                if author.id not in correct_answers:
+                    correct_answers[author.id] = 1
                 else:
-                    correct_answers[msg.author.id] += 1
+                    correct_answers[author.id] += 1
                 if current_question < question_count - 1:
                     await asyncio.sleep(5)
             except asyncio.TimeoutError:
