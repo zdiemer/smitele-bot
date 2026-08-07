@@ -240,12 +240,7 @@ export default function Overview({ status }: { status: Status }) {
         <p className="prose" style={{ marginBottom: 0 }}>
           <span className="mark mark-ok">·</span> healthy ·{' '}
           <span className="mark mark-warn">!</span> behind schedule ·{' '}
-          <span className="mark mark-bad">×</span> blocked or badly stale. A design
-          sketch for a desktop build-advice API lives in the repository, at{' '}
-          <a href="https://github.com/zdiemer/smitele-bot/blob/main/docs/desktop-api.md">
-            <code>docs/desktop-api.md</code>
-          </a>{' '}
-          — it belongs with the code it describes, not on a status board.
+          <span className="mark mark-bad">×</span> blocked or badly stale.
         </p>
       </Band>
     </>

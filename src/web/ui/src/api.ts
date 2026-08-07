@@ -140,6 +140,7 @@ export type Breakdown = {
   plays: number
   wins: number
   win_percent: number | null
+  icon?: string
 }
 
 export type GameStats = {
@@ -152,6 +153,8 @@ export type GameStats = {
   roles?: Breakdown[]
   gods?: Breakdown[]
   gods_total?: number
+  gods_by_queue?: Record<string, Breakdown[]>
+
   matches_per_day?: { date: string; matches: number }[] | Failed
 }
 

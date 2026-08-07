@@ -128,7 +128,7 @@ code {
   padding: 0 0.3em;
 }
 
-.sheet {
+.shell {
   max-width: var(--measure);
   margin: 0 auto;
   padding: 0 var(--pad) 5rem;
@@ -299,6 +299,17 @@ section {
 .mark {
   font-weight: 700;
   user-select: none;
+}
+
+/* Every status mark is a character with a word behind it, so a screen reader
+ * hears "blocked" rather than the glyph ×. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .mark-ok {
@@ -490,6 +501,53 @@ dl {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* God portraits, from the Hi-Rez CDN and the Smite 2 wiki. Square and small —
+ * they are here to make a list of 20 names scannable by shape rather than to be
+ * looked at, so they sit at cap height and never set the row's height. */
+.bar-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 2px;
+  background: var(--paper-2);
+}
+
+/* --- filter chips -------------------------------------------------------- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0.3rem 0 0.6rem;
+}
+
+.chip {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--dim);
+  background: none;
+  border: 1px solid var(--rule);
+  padding: 1px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  color: var(--ink);
+  border-color: var(--rule-firm);
+}
+
+.chip-on {
+  color: var(--paper);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .bar-track {

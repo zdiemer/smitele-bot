@@ -35,20 +35,9 @@ export function Mark({ health }: { health: Health }) {
   return (
     <span className={`mark mark-${health}`} title={WORD[health]}>
       <span aria-hidden="true">{GLYPH[health]}</span>
-      <span className="sr-only" style={srOnly}>
-        {WORD[health]}
-      </span>
+      <span className="sr-only">{WORD[health]}</span>
     </span>
   )
-}
-
-const srOnly: React.CSSProperties = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
 }
 
 /**

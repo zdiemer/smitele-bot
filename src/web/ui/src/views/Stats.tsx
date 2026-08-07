@@ -12,11 +12,73 @@
  * measurement.
  */
 
+import { useState } from 'react'
 import type { GameStats, Stats as StatsDoc } from '../api'
 import { failed } from '../api'
 import { count } from '../format'
 import { Band, Empty, Pair, Row, Rows, Section } from '../components'
-import { Bars, DailyArea } from '../charts'
+import { Bars, Chips, DailyArea } from '../charts'
+
+/**
+ * The god ranking, filtered by queue.
+ *
+ * This was a flat list of the twenty most played gods overall, sitting under a
+ * second flat list of queues — two walls of numbers answering a question in a
+ * shape nobody asked it in. The question people actually have is per-queue: the
+ * most played god in Arena is not the most played in Ranked Conquest, and a
+ * global ranking is precisely what hides that.
+ *
+ * So the queue list becomes the control and the god list becomes the answer.
+ * One list on screen at a time, and picking a queue re-ranks it.
+ */
+function GodBreakdown({
+  title,
+  which,
+  stats,
+}: {
+  title: string
+  which: 'smite' | 'smite2'
+  stats: GameStats
+}) {
+  const [queue, setQueue] = useState<string | null>(null)
+
+  const queues = stats.queues ?? []
+  const rows =
+    (queue && stats.gods_by_queue?.[queue]) || stats.gods || []
+  const picked = queues.find((q) => q.key === queue)
+  const denominator = picked ? picked.plays : stats.total_plays
+
+  return (
+    <Band
+      label={`${title} — most played gods`}
+      qualifier={
+        picked
+          ? `in ${picked.name} · top ${rows.length}`
+          : `across every queue · top ${rows.length} of ${stats.gods_total ?? rows.length}`
+      }
+      game={which}
+      health="ok"
+    >
+      <Chips
+        options={queues.map((q) => ({ key: q.key, name: q.name }))}
+        value={queue}
+        onChange={setQueue}
+      />
+      {rows.length ? (
+        <Bars rows={rows} total={denominator} showWinRate />
+      ) : (
+        <p className="muted" style={{ marginBottom: 0 }}>
+          No gods recorded in that queue.
+        </p>
+      )}
+      <p className="muted" style={{ marginBottom: 0 }}>
+        {picked
+          ? `Share is of the ${count(picked.plays)} player records in ${picked.name}.`
+          : `Share is of all ${count(stats.total_plays)} player records.`}
+      </p>
+    </Band>
+  )
+}
 
 function GameStatsView({
   title,
@@ -76,7 +138,14 @@ function GameStatsView({
           game={which}
           health="ok"
         >
-          <Bars rows={stats.queues} total={stats.total_plays} showWinRate />
+          <Bars rows={stats.queues} total={stats.total_plays} showWinRate limit={6} />
+          {stats.queues.length > 6 && (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              {stats.queues.length - 6} quieter{' '}
+              {stats.queues.length - 6 === 1 ? 'queue' : 'queues'} not shown — pick
+              one below to rank its gods.
+            </p>
+          )}
         </Band>
       )}
 
@@ -93,14 +162,7 @@ function GameStatsView({
       )}
 
       {stats.gods && stats.gods.length > 0 && (
-        <Band
-          label={`${title} — most played gods`}
-          qualifier={`top ${stats.gods.length} of ${stats.gods_total ?? stats.gods.length}`}
-          game={which}
-          health="ok"
-        >
-          <Bars rows={stats.gods} total={stats.total_plays} showWinRate />
-        </Band>
+        <GodBreakdown title={title} which={which} stats={stats} />
       )}
 
       {perDay && perDay.length > 1 && (

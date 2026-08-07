@@ -22,6 +22,52 @@ export type BarDatum = {
   name: string
   plays: number
   win_percent?: number | null
+  icon?: string
+}
+
+/**
+ * Chips that pick one option, or all of them.
+ *
+ * The corpus page was one undifferentiated list of 130 gods next to another of
+ * nine queues, which is a lot of ink for a question nobody asked in that shape.
+ * Picking a queue is the question people actually have — the most played god in
+ * Arena is not the most played in Ranked Conquest — and filtering answers it
+ * without showing both lists at once.
+ */
+export function Chips({
+  options,
+  value,
+  onChange,
+  allLabel = 'all queues',
+}: {
+  options: { key: string; name: string }[]
+  value: string | null
+  onChange: (key: string | null) => void
+  allLabel?: string
+}) {
+  return (
+    <div className="chips" role="group" aria-label="Filter by queue">
+      <button
+        type="button"
+        className={`chip${value === null ? ' chip-on' : ''}`}
+        aria-pressed={value === null}
+        onClick={() => onChange(null)}
+      >
+        {allLabel}
+      </button>
+      {options.map((option) => (
+        <button
+          type="button"
+          key={option.key}
+          className={`chip${value === option.key ? ' chip-on' : ''}`}
+          aria-pressed={value === option.key}
+          onClick={() => onChange(value === option.key ? null : option.key)}
+        >
+          {option.name}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /**
@@ -66,7 +112,14 @@ export function Bars({
                 : ''
             }`}
           >
-            <span className="bar-name">{row.name}</span>
+            <span className="bar-name">
+              {row.icon && (
+                // Decorative: the name is right beside it, so alt text would
+                // just say the same word twice to a screen reader.
+                <img className="bar-icon" src={row.icon} alt="" loading="lazy" />
+              )}
+              {row.name}
+            </span>
             <span className="bar-track">
               <span
                 className="bar-fill"

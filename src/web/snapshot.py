@@ -318,7 +318,7 @@ def _god_stats(model_dir: str):
     return pd.read_parquet(path)
 
 
-def stats_section(game: Game, model_dir: str, names) -> Dict[str, Any]:
+def stats_section(game: Game, model_dir: str, names, icon=None) -> Dict[str, Any]:
     """How the corpus breaks down by queue, by god and by role.
 
     A note on what `plays` counts, because it is easy to report wrong: the
@@ -349,9 +349,46 @@ def stats_section(game: Game, model_dir: str, names) -> Dict[str, Any]:
         ]
         return sorted(rows, key=lambda r: r["plays"], reverse=True)
 
-    gods = rollup("GodId", god_name)
+    def with_icon(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if icon is None:
+            return rows
+        for row in rows:
+            url = icon(row["key"])
+            if url:
+                row["icon"] = url
+        return rows
+
+    gods = with_icon(rollup("GodId", god_name))
     queues = rollup("match_queue_id", queue_name)
     roles = rollup("Role", lambda role: str(role))
+
+    # The same god ranking again, once per queue. This is what makes the page
+    # filterable rather than one undifferentiated list of 130 gods: the most
+    # played god in Arena is not the most played in Ranked Conquest, and a
+    # single global ranking hides exactly that.
+    #
+    # Capped per queue rather than sent whole — 130 gods × 9 queues is a table
+    # nobody scrolls, and the tail is gods with a handful of plays.
+    by_queue: Dict[str, List[Dict[str, Any]]] = {}
+    for queue_id, rows in frame.groupby("match_queue_id", observed=True):
+        grouped = rows.groupby("GodId", observed=True)[["plays", "wins"]].sum()
+        ranked = sorted(
+            (
+                {
+                    "key": str(god_id),
+                    "name": god_name(god_id),
+                    "plays": int(row.plays),
+                    "wins": int(row.wins),
+                    "win_percent": round(float(row.wins) / float(row.plays), 4)
+                    if row.plays
+                    else None,
+                }
+                for god_id, row in grouped.iterrows()
+            ),
+            key=lambda r: r["plays"],
+            reverse=True,
+        )
+        by_queue[str(queue_id)] = with_icon(ranked[:TOP_GODS])
 
     total_plays = int(frame["plays"].sum())
     high_mmr = int(frame.loc[frame["HighMmr"], "plays"].sum())
@@ -366,6 +403,7 @@ def stats_section(game: Game, model_dir: str, names) -> Dict[str, Any]:
         "roles": roles,
         "gods": gods[:TOP_GODS],
         "gods_total": len(gods),
+        "gods_by_queue": by_queue,
     }
 
 
@@ -421,10 +459,19 @@ async def build_stats() -> Dict[str, Any]:
             except ValueError:
                 return f"queue {queue_id}"
 
+        def god_icon(god_id) -> Optional[str]:
+            try:
+                return provider.gods[GodId(int(god_id))].icon_url or None
+            except (KeyError, ValueError):
+                return None
+
         document["games"][Game.SMITE.value] = section(
             "smite stats",
             lambda: stats_section(
-                Game.SMITE, paths.game_model_dir(Game.SMITE), (god_name, queue_name)
+                Game.SMITE,
+                paths.game_model_dir(Game.SMITE),
+                (god_name, queue_name),
+                god_icon,
             ),
         )
     except Exception as error:  # noqa: BLE001
@@ -453,10 +500,16 @@ async def build_stats() -> Dict[str, Any]:
             except ValueError:
                 return f"queue {queue_id}"
 
+        def god_icon2(god_id) -> Optional[str]:
+            god = provider2.gods.get(int(god_id))
+            return getattr(god, "icon_url", None) or None if god else None
+
         state_dir = paths.game_model_dir(Game.SMITE_2)
         stats = section(
             "smite2 stats",
-            lambda: stats_section(Game.SMITE_2, state_dir, (god_name2, queue_name2)),
+            lambda: stats_section(
+                Game.SMITE_2, state_dir, (god_name2, queue_name2), god_icon2
+            ),
         )
         if isinstance(stats, dict) and "error" not in stats:
             stats["matches_per_day"] = section(
