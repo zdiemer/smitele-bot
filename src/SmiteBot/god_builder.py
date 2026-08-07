@@ -44,6 +44,19 @@ class BuildPrioritization(Enum):
     DEFENSE = "defense"
 
 
+def _tier_or_none(avg_tier) -> TierId | None:
+    """The ranked tier an average rounds down to, or None if there isn't one.
+
+    `TierId` starts at BRONZE_V = 1, so 0 is not "the lowest tier" — it is the
+    absence of one, which is what an aggregate reports when nothing that fed it
+    carried a tier. Smite 2 is entirely in that state.
+    """
+    try:
+        return TierId(math.floor(float(avg_tier)))
+    except (TypeError, ValueError):
+        return None
+
+
 class BuildBalance(Enum):
     """How a build splits its slots between surviving and killing.
 
@@ -461,9 +474,20 @@ class GodBuilder:
 
         mmr_str = ""
         if best["avg_rating"] > 0:
+            # A rating without a tier is the normal Smite 2 case, not a bug in
+            # the data: tracker.gg publishes an MMR-like number and no Hi-Rez
+            # tier ordinal at all, so `sum_tier` is 0 across every rated row
+            # while `sum_rating` is not. The old guard tested `avg_rating` and
+            # then indexed the enum with `avg_tier`, and TierId starts at 1 —
+            # so every Smite 2 god with ranked data raised `0 is not a valid
+            # TierId` and the command died after saying it was working on it.
+            tier = _tier_or_none(best["avg_tier"])
             mmr_str = (
                 "These winners average a rank of "
-                f"**{PlayerStats.get_tier_string(TierId(math.floor(best['avg_tier'])), best['avg_rating'])}**."
+                f"**{PlayerStats.get_tier_string(tier, best['avg_rating'])}**."
+                if tier is not None
+                else "These winners average a rating of "
+                f"**{int(round(best['avg_rating'])):,}**."
             )
 
         win_rate = (float(god_wins) / god_plays) if god_plays else 0.0
