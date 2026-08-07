@@ -21,3 +21,6 @@ cache/
 matchDetails/
 __pycache__/
 *.pyc
+
+# 1Password reference templates — never part of the packaged chart.
+values.local.tpl.yaml
