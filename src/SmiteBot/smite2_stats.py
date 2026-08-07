@@ -202,6 +202,109 @@ def carries_anti_heal(item: Item) -> bool:
     return _PASSIVE_ANTI_HEAL.search(item.passive or "") is not None
 
 
+# Cooldown refunds, which are the largest unread category in the catalogue —
+# seven of the twenty-five most-played items whose passive said nothing to the
+# model were refunds. They are all the same effect written three ways: seconds
+# off on a timer (Chronos' Pendant), seconds off on an event (Spear of
+# Desolation, Jotunn's Revenge, Genji's Guard), or a flat percentage off one
+# ability (The World Stone).
+_PASSIVE_COOLDOWN_TIMER = re.compile(
+    r"Every\s+([\d.]+)s[^.]*?-\s*([\d.]+)s\s+.{0,30}?Cooldown", re.IGNORECASE | re.S
+)
+_PASSIVE_COOLDOWN_EVENT = re.compile(
+    r"-\s*([\d.]+)s\s+(?:Cooldown|.{0,30}?Cooldown)", re.IGNORECASE
+)
+_PASSIVE_COOLDOWN_PERCENT = re.compile(
+    r"-\s*([\d.]+)%\s+Cooldown", re.IGNORECASE
+)
+
+# How often an event-driven refund is assumed to fire, in seconds. A kill or an
+# assist is not on a timer, so there is no published number to read and this is
+# an assumption rather than a measurement: roughly once a minute in a game going
+# normally. It is deliberately pessimistic — the discount in the optimizer
+# applies on top — because the alternative, scoring these at zero, was measurably
+# worse than a rough number.
+EVENT_COOLDOWN_WINDOW = 60.0
+
+# An ultimate is one ability of five, but it is the one a fight turns on, so a
+# percentage off only the ultimate counts for more than a fifth and less than
+# all of it.
+ULTIMATE_SHARE = 0.35
+
+# `Damage = 40% of your Intelligence`, `+60% Attack Damage`, `35% of your
+# Strength`. Bonus damage written as a share of a stat you already have, which
+# is the second largest unread category. Credited as more of that stat, which is
+# what it amounts to for a build that is choosing between items.
+_PASSIVE_DAMAGE_SHARE = re.compile(
+    r"([\d.]+)%\s+(?:of\s+your\s+)?(Strength|Intelligence|Attack Damage)",
+    re.IGNORECASE,
+)
+
+# How much of a per-proc damage bonus is worth counting as permanent stat. A
+# stat applies to everything you do; Polynomicon's 80% of your Intelligence
+# applies to one attack after an ability, on a two-second cooldown. Counting it
+# in full made Polynomicon read as +320 Intelligence and the best item in the
+# game, which it is not.
+DAMAGE_SHARE_UPTIME = 0.35
+
+_DAMAGE_SHARE_NAMES: Dict[str, ItemAttribute] = {
+    "strength": ItemAttribute.STRENGTH,
+    "intelligence": ItemAttribute.INTELLIGENCE,
+    "attack damage": ItemAttribute.BASIC_ATTACK_POWER,
+}
+
+# Shredding a target's protections and marking it to take more damage are the
+# same purchase as penetration from the build's point of view: both make what
+# you already deal land harder.
+_PASSIVE_SHRED = re.compile(
+    r"([\d.]+)%\s+(?:increased damage|Protections?)|"
+    r"reduces?\s+([\d.]+)%\s+Protections?",
+    re.IGNORECASE,
+)
+
+
+def _cooldown_rate_for(reduction: float) -> float:
+    """Cooldown Rate points equivalent to a fraction off your cooldowns.
+
+    The inverse of `cooldown_reduction`. A passive that takes 20% off is worth
+    the same as 25 Cooldown Rate, and expressing it that way lets the optimizer
+    weigh Chronos' Pendant's passive against the Rate printed on another item
+    instead of treating one of them as invisible.
+    """
+    reduction = min(max(reduction, 0.0), 0.9)
+    return 100.0 * reduction / (1.0 - reduction)
+
+
+def _cooldown_stats(text: str, stats: "Smite2Stats") -> None:
+    """Credit whichever way this passive writes a cooldown refund."""
+    timer = _PASSIVE_COOLDOWN_TIMER.search(text)
+    if timer:
+        window, seconds = float(timer.group(1)), float(timer.group(2))
+        if window > 0:
+            stats.add_flat(
+                ItemAttribute.COOLDOWN_RATE, _cooldown_rate_for(seconds / window)
+            )
+        return
+
+    percent = _PASSIVE_COOLDOWN_PERCENT.search(text)
+    if percent:
+        share = ULTIMATE_SHARE if "ultimate" in text.lower() else 1.0
+        stats.add_flat(
+            ItemAttribute.COOLDOWN_RATE,
+            _cooldown_rate_for(float(percent.group(1)) / 100.0 * share),
+        )
+        return
+
+    # Event-driven. Take the largest refund named rather than summing every
+    # bullet: they are alternatives — a kill *or* an assist — not a total.
+    seconds = [float(match) for match in _PASSIVE_COOLDOWN_EVENT.findall(text)]
+    if seconds:
+        stats.add_flat(
+            ItemAttribute.COOLDOWN_RATE,
+            _cooldown_rate_for(max(seconds) / EVENT_COOLDOWN_WINDOW),
+        )
+
+
 def passive_stats(item: Item, base: "Smite2Stats" = None) -> "Smite2Stats":
     """The stats an item's passive grants, as far as they can be read.
 
@@ -236,6 +339,36 @@ def passive_stats(item: Item, base: "Smite2Stats" = None) -> "Smite2Stats":
     anti_heal = _PASSIVE_ANTI_HEAL.search(text)
     if anti_heal:
         stats.add_percent(ItemAttribute.HEAL_REDUCTION, float(anti_heal.group(1)) / 100.0)
+
+    _cooldown_stats(text, stats)
+
+    for amount, name in _PASSIVE_SHRED.findall(text):
+        value = amount or name
+        if value:
+            stats.add_percent(ItemAttribute.PENETRATION, float(value) / 100.0)
+            break
+
+    if base is not None:
+        # Bonus damage written as a share of a stat, worth that share of the
+        # stat scaled by how often it actually lands. Only counted against what
+        # the build already has, for the same reason the scaled grants are: 40%
+        # of your Intelligence is nothing to an item considered on its own.
+        #
+        # The scaled grants above are stripped first. Rod of Tahuti's "+
+        # Intelligence equal to 25% of your Intelligence" matches both patterns,
+        # and counting it twice made the most-picked item in the game read as
+        # twice the item it is.
+        remaining = _PASSIVE_SCALED.sub("", text)
+        for share, name in _PASSIVE_DAMAGE_SHARE.findall(remaining):
+            attribute = _DAMAGE_SHARE_NAMES.get(name.strip().lower())
+            if attribute is None:
+                continue
+            held = base.get(attribute)
+            if held:
+                stats.add_flat(
+                    attribute, held * float(share) / 100.0 * DAMAGE_SHARE_UPTIME
+                )
+            break
 
     if base is not None:
         for granted, ratio, source in _PASSIVE_SCALED.findall(text):

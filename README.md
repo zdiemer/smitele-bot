@@ -63,11 +63,48 @@ how close its picks land to what actually wins, for anyone changing the model:
 python src/tools/smite2_accuracy.py --aggregate /matchdata/smite2
 ```
 
-It currently shares a mean of **1.95 of 6 items** with the six most-won items
-per god in Conquest, over the 56 gods with enough recorded wins to compare. The
-gap is mostly item passives — an execute threshold or a cooldown refund is a
-large part of why the corpus prefers an item, and the model reads only the parts
-of a passive written as stats.
+It currently shares a mean of **2.12 of 6 items** with the six most-won items
+per god in Conquest, over the 56 gods with enough recorded wins to compare.
+
+### Reading passives
+
+Most of what separates the corpus's favourite items from their neighbours is
+written in prose rather than on the stat line, and a stat model that reads only
+the stat line is blind to it. Measured over winning Conquest builds, **65% of
+item picks had a passive the model could not read at all**. Three shapes cover
+most of that, and each is credited as the stat it amounts to:
+
+- **Cooldown refunds** — the largest category. "-1s every 10s" is 10% off,
+  which is 11.1 Cooldown Rate; Chronos' Pendant's own wiki note puts the item at
+  "36 Cooldown Rate", and 25 on the stat line plus this comes to 36.1. Refunds
+  on a kill have no published rate, so they assume a window, which is an
+  assumption the code names rather than hides.
+- **Bonus damage as a share of a stat** — "Damage = 80% of your Intelligence"
+  is more Intelligence, scaled down by how often a proc actually lands. Counted
+  in full, Polynomicon read as +320 Intelligence and the best item in the game.
+- **Shred and damage amplification** — making a target take more is the same
+  purchase as penetration.
+
+Smite 1 needed a different fix for the same gap: `PassiveParser` has always
+classified passives into attributes and nothing ever *valued* them, so Divine
+Ruin's anti-heal and Titan's Bane's shred scored as though they were not there.
+`PASSIVE_VALUE` supplies the missing number per kind.
+
+Those figures are judgement rather than measurement, and the measurement so far
+does not settle them: over the fourteen most-played gods, valuing passives moved
+mean overlap from 1.93 to 2.00, which on that sample is noise — individual gods
+moved both ways. The builds do look more like real ones (Ymir picks up Pridwen,
+Gauntlet of Thebes and Contagion, which are support staples it used to ignore),
+but "looks right" is not evidence. Settling it wants the accuracy harness
+generalised to Smite 1 and run over all 130 gods rather than a sample.
+
+There is also a per-item table measured straight from win rates
+(`src/tools/derive_item_value.py`). It is generated, checked in and loaded, and
+currently weighted at **zero**: it made pick-overlap worse at every weight
+tried. That may say more about the measure than the table — the harness scores
+agreement with what people *play* and the table measures what *wins*, and they
+disagree — but settling it needs an evaluation against win rate, which does not
+exist yet.
 
 ### Balance, and the lobby
 

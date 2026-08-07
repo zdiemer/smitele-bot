@@ -259,6 +259,68 @@ class TestAspectRoll:
         pytest.fail("never rolled an Aspect")
 
 
+class TestSmite1PassiveValue:
+    """Smite 1 parsed its passives into attributes and never valued them, so an
+    item whose whole point is its passive scored as though it had none."""
+
+    @staticmethod
+    def optimizer():
+        god = God()
+        god.name = "Audit"
+        god.id = 1
+        god.role = GodRole.MAGE
+        god.type = GodType.MAGICAL
+        god.pros = []
+        god.stats = GodStats()
+        god.stats.values = {}
+        god.stats.basic_attack = _BasicAttack()
+        return BuildOptimizer(god, [], {})
+
+    def test_an_item_with_no_passive_is_worth_nothing_extra(self):
+        item = make_item("Plain")
+        item.passive_properties = set()
+        assert self.optimizer().passive_score(item) == 0.0
+
+    def test_a_real_passive_beats_a_filler_one(self):
+        from passive_parser import PassiveAttribute
+
+        strong = make_item("Strong")
+        strong.passive_properties = {PassiveAttribute.ANTIHEAL}
+        filler = make_item("Filler")
+        filler.passive_properties = {PassiveAttribute.STACKS}
+        optimizer = self.optimizer()
+        assert optimizer.passive_score(strong) > optimizer.passive_score(filler)
+
+    def test_how_a_passive_arrives_is_worth_nothing_by_itself(self):
+        """Stacking and evolving describe delivery, not effect, and the effect
+        they gate is already counted under its own attribute."""
+        from passive_parser import PassiveAttribute
+
+        for attribute in (
+            PassiveAttribute.STACKS,
+            PassiveAttribute.EVOLVES_WITH_GOD_KILLS,
+            PassiveAttribute.EVOLVES_WITH_MINION_KILLS,
+        ):
+            item = make_item(f"Delivery{attribute.value}")
+            item.passive_properties = {attribute}
+            assert self.optimizer().passive_score(item) == 0.0
+
+    def test_an_evolved_item_inherits_its_parents_passive(self):
+        """Evolutions often carry no passive of their own; scoring them as
+        passive-less is exactly the bug this exists to fix."""
+        from passive_parser import PassiveAttribute
+
+        parent = make_item("Parent")
+        parent.passive_properties = {PassiveAttribute.ANTIHEAL}
+        evolved = make_item("Evolved", tier=4)
+        evolved.passive_properties = set()
+        evolved.parent_item_id = parent.id
+
+        god = self.optimizer().god
+        optimizer = BuildOptimizer(god, [], {parent.id: parent})
+        assert optimizer.passive_score(evolved) > 0
+
+
 class TestSmite1ArchetypeTables:
     def test_no_two_archetypes_share_a_value(self):
         """An Enum turns a duplicated value into an alias, so

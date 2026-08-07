@@ -81,6 +81,91 @@ DEFENSIVE_STATS = frozenset(
 _TANK_BALANCE = 0.85
 
 
+# What an item's passive is worth, on top of its stat line.
+#
+# `PassiveParser` has always classified passives into these attributes and
+# nothing has ever *valued* them, so an item whose whole point is its passive —
+# Divine Ruin's anti-heal, Titan's Bane stripping protections — scored exactly as
+# though it had none. This is the Smite 1 half of what `smite2_stats` does by
+# reading numbers out of the text: Smite 1's passives are already parsed, so
+# what was missing was a number per kind rather than a parser.
+#
+# The scale is item-score units, where a whole stat line is worth a few. These
+# are judgement rather than measurement — unlike Smite 2's lane profiles there
+# is no Smite 1 accuracy harness to fit them against yet — so they are
+# deliberately modest: enough to separate an item with a real passive from one
+# with filler, not enough to outrank a stat line on their own.
+PASSIVE_VALUE: Dict[PassiveAttribute, float] = {
+    # Effects that change what the rest of the build is worth.
+    PassiveAttribute.STRIPS_PROTECTIONS: 1.6,
+    PassiveAttribute.ANTIHEAL: 1.4,
+    PassiveAttribute.DECREASES_ABILITY_COOLDOWNS: 1.4,
+    PassiveAttribute.PERCENT_DAMAGE: 1.3,
+    PassiveAttribute.SCALING_BONUS_DAMAGE: 1.2,
+    PassiveAttribute.INCREASES_CRITICAL_DAMAGE: 1.2,
+    PassiveAttribute.DAMAGE_MITIGATION: 1.2,
+    PassiveAttribute.INCREASES_COOLDOWN_CAP: 1.1,
+    PassiveAttribute.EVOLVES: 1.0,
+    PassiveAttribute.PERCENT_STAT_CONVERTED: 1.0,
+    # Real, situational, and common.
+    PassiveAttribute.AURA: 0.8,
+    PassiveAttribute.ENEMY_STAT_REDUCTION_AURA: 0.9,
+    PassiveAttribute.ALLIED_GODS_BUFF_AURA: 0.8,
+    PassiveAttribute.SHIELD: 0.8,
+    PassiveAttribute.INCREASE_DAMAGE_BELOW_TARGET_THRESHOLD: 0.8,
+    PassiveAttribute.FLAT_TRUE_BONUS_DAMAGE: 0.7,
+    PassiveAttribute.BASIC_ATTACK_PROC: 0.7,
+    PassiveAttribute.ABILITY_PROC: 0.7,
+    PassiveAttribute.ULTIMATE_PROC: 0.6,
+    PassiveAttribute.TRIGGERS_HEAL: 0.6,
+    PassiveAttribute.ABILITY_HEALING: 0.6,
+    PassiveAttribute.INCREASES_LIFESTEAL: 0.6,
+    PassiveAttribute.CAUSES_CC: 0.6,
+    PassiveAttribute.DAMAGE_SCALES_FROM_PROTECTIONS: 0.6,
+    PassiveAttribute.DECREASES_CRITICAL_DAMAGE_TAKEN: 0.6,
+    PassiveAttribute.IMMUNE_TO_CC: 0.6,
+    PassiveAttribute.IMMUNE_TO_SLOWS: 0.5,
+    PassiveAttribute.BLOCK_STACKS: 0.5,
+    PassiveAttribute.DAMAGING_AURA: 0.5,
+    PassiveAttribute.AREA_OF_EFFECT_BASIC_ATTACKS: 0.5,
+    PassiveAttribute.INCREASES_HEALING: 0.5,
+    PassiveAttribute.BELOW_THRESHOLD_BUFF: 0.4,
+    PassiveAttribute.TRIGGERED_BY_CC: 0.4,
+    PassiveAttribute.CRITICAL_HIT_EFFECT: 0.4,
+    PassiveAttribute.INCREASES_ENEMY_DAMAGE_WHEN_CC: 0.4,
+    PassiveAttribute.DECREASES_RELIC_COOLDOWNS: 0.4,
+    PassiveAttribute.SELF_BUFF_ON_HEAL: 0.3,
+    PassiveAttribute.ALLIED_GODS_BUFF_ON_HEAL: 0.3,
+    PassiveAttribute.ALLIED_GODS_CAN_CRITICAL_HIT: 0.3,
+    PassiveAttribute.INCREASED_PROJECTILE_SPEED: 0.2,
+    PassiveAttribute.ALLIED_MINIONS_BUFF: 0.2,
+    PassiveAttribute.ALLIED_STRUCTURES_BUFF: 0.2,
+    PassiveAttribute.ENEMY_STRUCTURE_REDUCTION: 0.2,
+    # Deliberately zero. These describe *how* a passive arrives rather than
+    # what it does — an item does not become better for stacking — and the
+    # effect they gate is already counted under its own attribute. The
+    # overcapping pair is worth nothing on its own too: it is only ever useful
+    # alongside the stat it uncaps, which the stat line already scores.
+    PassiveAttribute.STACKS: 0.0,
+    PassiveAttribute.EVOLVES_WITH_GOD_KILLS: 0.0,
+    PassiveAttribute.EVOLVES_WITH_ASSISTS: 0.0,
+    PassiveAttribute.EVOLVES_WITH_MINION_KILLS: 0.0,
+    PassiveAttribute.EFFECT_VARIES_BY_CURRENT_STATS: 0.0,
+    PassiveAttribute.INCREASES_WITH_MISSING_STAT: 0.0,
+    PassiveAttribute.ALLOWS_OVERCAPPING_PENETRATION_WITH_FIRST_ABILITY: 0.0,
+    PassiveAttribute.ALLOWS_OVERCAPPING_ATTACK_SPEED: 0.0,
+    # Jungle-only effects are worth nothing to the five gods in a lane and
+    # everything to the one clearing camps; with no way to tell which is being
+    # built for, they stay out of the score.
+    PassiveAttribute.IN_JUNGLE_EFFECT: 0.0,
+    PassiveAttribute.INCREASES_JUNGLE_MONSTER_DAMAGE: 0.0,
+}
+
+# How much of a passive's value to count, mirroring Smite 2's discount and for
+# the same reason: nearly all of these are conditional.
+PASSIVE_DISCOUNT = 0.6
+
+
 # How many combinations to check between yields to the event loop. The search
 # runs inside the bot's process, so it has to let other commands through; it
 # does not have to do so half a million times.
@@ -1096,7 +1181,26 @@ class BuildOptimizer:
         self, item: Item, weights: Dict[ItemAttribute, float]
     ) -> float:
         build_stats = self.compute_build_stats([item])
-        return self.__compute_properties_score(build_stats, weights)
+        score = self.__compute_properties_score(build_stats, weights)
+        return score + self.passive_score(item)
+
+    def passive_score(self, item: Item) -> float:
+        """What this item's passive adds, on top of its stat line.
+
+        An evolved item often carries no passive of its own and inherits its
+        parent's, which is why the parent is consulted — scoring Evolved Book of
+        Thoth as though it had no passive is exactly the mistake this exists to
+        fix.
+        """
+        passives = set(item.passive_properties or set())
+        if item.tier == 4 and item.parent_item_id in self.__all_items:
+            parent = self.__all_items[item.parent_item_id]
+            passives |= set(parent.passive_properties or set())
+        if not passives:
+            return 0.0
+        return PASSIVE_DISCOUNT * sum(
+            PASSIVE_VALUE.get(passive, 0.0) for passive in passives
+        )
 
     def __compute_properties_score(
         self,

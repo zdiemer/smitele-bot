@@ -212,6 +212,83 @@ class TestPassiveStats:
         assert granted.get(ItemAttribute.INTELLIGENCE) == 0
 
 
+class TestCooldownRefunds:
+    """The largest unread category in the catalogue: seven of the twenty-five
+    most-played items whose passive said nothing were cooldown refunds."""
+
+    def test_a_timed_refund_converts_to_cooldown_rate(self):
+        """Chronos' Pendant: -1s every 10s is 10% off, which is 11.1 Rate.
+
+        The wiki's own note on the item says its 25 Rate plus this passive comes
+        to "36 Cooldown Rate", which is the arithmetic this has to reproduce.
+        """
+        item = make_item(passive="Every 10s: -1s Ability Cooldowns.")
+        rate = stats.passive_stats(item).get(ItemAttribute.COOLDOWN_RATE)
+        assert rate == pytest.approx(11.1, abs=0.2)
+        assert 25 + rate == pytest.approx(36, abs=0.2)
+
+    def test_a_percentage_off_the_ultimate_counts_for_less_than_all(self):
+        whole = make_item(passive="-30% Cooldown for your Abilities.")
+        ultimate = make_item(passive="-30% Cooldown for your Ultimate Ability.")
+        assert stats.passive_stats(ultimate).get(
+            ItemAttribute.COOLDOWN_RATE
+        ) < stats.passive_stats(whole).get(ItemAttribute.COOLDOWN_RATE)
+
+    def test_an_event_refund_takes_the_largest_not_the_sum(self):
+        """A kill or an assist — the bullets are alternatives, not a total."""
+        item = make_item(
+            passive="God Kill: -3s Non Ultimate Cooldowns -10s Ultimate Cooldowns "
+            "God Assist: -1.5s Non Ultimate Cooldowns -5s Ultimate Cooldowns"
+        )
+        rate = stats.passive_stats(item).get(ItemAttribute.COOLDOWN_RATE)
+        biggest = stats._cooldown_rate_for(10.0 / stats.EVENT_COOLDOWN_WINDOW)
+        assert rate == pytest.approx(biggest)
+
+    def test_an_item_with_no_refund_gets_none(self):
+        item = make_item(passive="+35% Critical Strike Damage.")
+        assert stats.passive_stats(item).get(ItemAttribute.COOLDOWN_RATE) == 0
+
+
+class TestDamageShare:
+    def test_bonus_damage_as_a_share_of_a_stat_counts_as_that_stat(self):
+        base = stats.Smite2Stats()
+        base.add_flat(ItemAttribute.INTELLIGENCE, 400)
+        item = make_item(
+            passive="Ability Used: Your next Attack deals bonus Magical Damage. "
+            "Damage = 80% of your Intelligence"
+        )
+        granted = stats.passive_stats(item, base).get(ItemAttribute.INTELLIGENCE)
+        assert granted == pytest.approx(400 * 0.80 * stats.DAMAGE_SHARE_UPTIME)
+
+    def test_a_proc_is_not_worth_a_permanent_stat(self):
+        """Counted in full, Polynomicon read as +320 Intelligence and the best
+        item in the game."""
+        assert 0 < stats.DAMAGE_SHARE_UPTIME < 1
+
+    def test_a_scaled_grant_is_not_also_counted_as_a_damage_share(self):
+        """Rod of Tahuti matches both patterns; counting both made the
+        most-picked item in the game read as twice the item it is."""
+        base = stats.Smite2Stats()
+        base.add_flat(ItemAttribute.INTELLIGENCE, 400)
+        item = make_item(
+            passive="+Intelligence equal to 25% of your Intelligence from items."
+        )
+        assert stats.passive_stats(item, base).get(
+            ItemAttribute.INTELLIGENCE
+        ) == pytest.approx(100)
+
+
+class TestShred:
+    def test_making_a_target_take_more_damage_reads_as_penetration(self):
+        item = make_item(
+            passive="Ability Hit a God: That God is marked for 8s. "
+            "Marked Gods take 5% increased damage from all sources."
+        )
+        assert stats.passive_stats(item).get_percent(
+            ItemAttribute.PENETRATION
+        ) == pytest.approx(0.05)
+
+
 class TestDerivedStats:
     def test_attack_scales_fully_with_strength_and_a_fifth_with_intelligence(self):
         build = stats.Smite2Stats()
