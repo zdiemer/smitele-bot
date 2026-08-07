@@ -16,14 +16,12 @@ import Overview from './views/Overview'
 import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
 import { PlayerDetail, PlayerList } from './views/Players'
-import Docs from './views/Docs'
 
 const TABS = [
   { to: '/', label: 'Overview', end: true },
   { to: '/data', label: 'Data' },
   { to: '/upstreams', label: 'Upstreams' },
   { to: '/players', label: 'Players' },
-  { to: '/docs', label: 'Desktop API' },
 ]
 
 function Freshness({
@@ -89,7 +87,6 @@ function Body({ status }: { status: Status | null }) {
   if (match('/', path)) return status ? <Overview status={status} /> : waiting
   if (match('/data', path)) return status ? <Data status={status} /> : waiting
   if (match('/upstreams', path)) return status ? <ApiHealth status={status} /> : waiting
-  if (match('/docs', path)) return <Docs />
   if (match('/players', path)) return <PlayersRoute />
 
   const player = match('/players/:name', path)

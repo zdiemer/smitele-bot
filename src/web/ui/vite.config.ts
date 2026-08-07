@@ -14,9 +14,5 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080',
     },
-    // The docs view imports `docs/desktop-api.md?raw` so the page and the repo
-    // cannot drift. That path is above this project root, which the dev server
-    // refuses by default; the build resolves it either way.
-    fs: { allow: ['..', '../../..'] },
   },
 })

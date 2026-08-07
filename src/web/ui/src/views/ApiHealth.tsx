@@ -30,6 +30,7 @@ export default function ApiHealth({ status }: { status: Status }) {
                   <Band
                     label="Hi-Rez quota"
                     qualifier="smite 1 · resets daily"
+                    game="smite"
                     health={reqHealth === 'ok' ? sessHealth : reqHealth}
                   >
                     <Meter
@@ -69,6 +70,7 @@ export default function ApiHealth({ status }: { status: Status }) {
                 <Band
                   label="Hi-Rez servers"
                   qualifier="as Hi-Rez reports them"
+                  game="smite"
                   health={
                     servers.some((s) => s.environment === 'live' && s.status !== 'UP')
                       ? 'warn'
@@ -128,6 +130,7 @@ export default function ApiHealth({ status }: { status: Status }) {
               <Band
                 label="tracker.gg — WAF stand-down"
                 qualifier={`egress ${value.egress}`}
+                game="smite2"
                 health={standdownHealth}
               >
                 {value.standdown.active ? (
@@ -163,6 +166,7 @@ export default function ApiHealth({ status }: { status: Status }) {
               <Band
                 label="tracker.gg — Cloudflare clearance"
                 qualifier="the challenge solver, not the API"
+                game="smite2"
                 health={clearanceHealth}
               >
                 <Meter

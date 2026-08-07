@@ -51,21 +51,30 @@ const srOnly: React.CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-/** A labelled register: rule, status gutter, content. */
+/**
+ * A labelled register: rule, status gutter, content.
+ *
+ * `game` recolours the whole band — keyline, label, meters — so which pipeline
+ * you are reading is carried by colour and not only by the word at the top of a
+ * column. It is an identity, never a status: teal and violet sit off the
+ * red-amber-green axis precisely so they cannot be mistaken for one.
+ */
 export function Band({
   label,
   qualifier,
   health = 'ok',
+  game,
   children,
 }: {
   label: string
   qualifier?: string
   health?: Health
+  game?: 'smite' | 'smite2'
   children: ReactNode
 }) {
   return (
     <section>
-      <div className="band">
+      <div className={`band${game === 'smite2' ? ' band-smite2' : ''}`}>
         <Mark health={health} />
         <div className="body">
           <h3 className="label">

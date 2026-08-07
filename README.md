@@ -229,8 +229,11 @@ replicas, rolls normally, and fits in 256Mi.
   happened yet.
 - **Players** — the roster in `src/HirezAPI/roster.py`, Smite 1 only. Discord
   ids never leave the server; the site only ever sees game handles.
-- **Desktop API** — `docs/desktop-api.md`, rendered. A design sketch for a
-  screen-reading build-advice client. Nothing in it is implemented.
+
+The design sketch for a screen-reading build-advice client lives in
+[`docs/desktop-api.md`](docs/desktop-api.md) and is **not** on the site. It describes
+code, so it belongs next to the code — a status board is for what is happening
+now, not for what someone might build later. Nothing in it is implemented.
 
 ### Turning it on
 

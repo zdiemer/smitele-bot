@@ -22,20 +22,9 @@ WORKDIR /build/src/web/ui
 COPY src/web/ui/package.json src/web/ui/package-lock.json ./
 RUN npm ci
 
-# The docs view imports `docs/desktop-api.md?raw`, so the page and the repo
-# cannot drift. That import resolves *above* the ui directory, which is why the
-# doc is copied into the same relative position it occupies in the repo — a
-# build context missing it fails here, at build time, rather than shipping a
-# docs tab that renders nothing.
-COPY docs/desktop-api.md /build/docs/desktop-api.md
 COPY src/web/ui/ ./
 
 RUN npm run build
-
-# Prove the markdown actually made it into the bundle. `?raw` resolving to an
-# empty string is a silent success otherwise.
-RUN grep -q "build-advice API for a desktop client" dist/assets/*.js \
- && echo "docs inlined into the bundle"
 
 FROM ${BASE_IMAGE}:${BASE_TAG}
 

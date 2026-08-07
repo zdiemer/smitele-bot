@@ -37,7 +37,15 @@ const REASON_WORD: Record<string, string> = {
   no_gods: 'no god catalogue',
 }
 
-function GameDetail({ title, game }: { title: string; game: GameStatus }) {
+function GameDetail({
+  title,
+  game,
+  which,
+}: {
+  title: string
+  game: GameStatus
+  which: 'smite' | 'smite2'
+}) {
   const corpusMark = failed(game.corpus) ? 'unknown' : corpusHealth(game.corpus.newest)
   const aggMark = failed(game.aggregate)
     ? 'unknown'
@@ -45,7 +53,7 @@ function GameDetail({ title, game }: { title: string; game: GameStatus }) {
 
   return (
     <>
-      <Band label={`${title} — corpus`} health={corpusMark}>
+      <Band label={`${title} — corpus`} health={corpusMark} game={which}>
         <Section value={game.corpus}>
           {(corpus) => (
             <Pair>
@@ -62,7 +70,7 @@ function GameDetail({ title, game }: { title: string; game: GameStatus }) {
         </Section>
       </Band>
 
-      <Band label={`${title} — aggregate & model`} health={aggMark}>
+      <Band label={`${title} — aggregate & model`} health={aggMark} game={which}>
         <Pair>
           <Section value={game.aggregate}>
             {(aggregate) => (
@@ -113,7 +121,7 @@ function GameDetail({ title, game }: { title: string; game: GameStatus }) {
       </Band>
 
       {game.crawl && (
-        <Band label={`${title} — crawl frontier`} health="ok">
+        <Band label={`${title} — crawl frontier`} health="ok" game={which}>
           <Section value={game.crawl}>
             {(crawl) => (
               <Pair>
@@ -150,6 +158,7 @@ function CrawlReport({ run }: { run: LastRun }) {
     return (
       <Band
         label="Last crawl"
+        game="smite2"
         qualifier={`never started · ${run.finished ? ago(run.finished) : ''}`}
         health={health}
       >
@@ -165,6 +174,7 @@ function CrawlReport({ run }: { run: LastRun }) {
     <>
       <Band
         label="Last crawl"
+        game="smite2"
         qualifier={`${REASON_WORD[reason] ?? reason}${run.finished ? ` · ${ago(run.finished)}` : ''}`}
         health={health}
       >
@@ -225,7 +235,7 @@ function CrawlReport({ run }: { run: LastRun }) {
       </Band>
 
       {run.coverage && run.coverage.length > 0 && (
-        <Band label="Coverage by day" qualifier="as of the last crawl" health="ok">
+        <Band label="Coverage by day" qualifier="as of the last crawl" health="ok" game="smite2">
           <div className="scroll">
             <table>
               <thead>
@@ -277,11 +287,11 @@ export default function Data({ status }: { status: Status }) {
 
   return (
     <>
-      {smite && <GameDetail title="Smite 1" game={smite} />}
-      {smite2 && <GameDetail title="Smite 2" game={smite2} />}
+      {smite && <GameDetail title="Smite 1" game={smite} which="smite" />}
+      {smite2 && <GameDetail title="Smite 2" game={smite2} which="smite2" />}
 
       {lastRun === null && (
-        <Band label="Last crawl" qualifier="no run recorded yet" health="unknown">
+        <Band label="Last crawl" qualifier="no run recorded yet" health="unknown" game="smite2">
           <p className="prose" style={{ marginBottom: 0 }}>
             The collector writes a record at the end of every night, including nights it
             refuses to start. Nothing here yet — the first run under this build has not

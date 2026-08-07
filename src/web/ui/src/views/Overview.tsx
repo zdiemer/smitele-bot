@@ -35,15 +35,27 @@ function gameHealth(game: GameStatus | undefined): Health {
   return worst(corpus, aggregate)
 }
 
-function GameColumn({ title, game }: { title: string; game: GameStatus | undefined }) {
+function GameColumn({
+  title,
+  game,
+  which,
+}: {
+  title: string
+  game: GameStatus | undefined
+  which: 'smite' | 'smite2'
+}) {
   if (!game) return null
   const corpus = failed(game.corpus) ? null : game.corpus
   const aggregate = failed(game.aggregate) ? null : game.aggregate
   const crawl = game.crawl && !failed(game.crawl) ? game.crawl : null
 
   return (
-    <Rows>
-      <Row label={`${title} — newest day`} value={day(corpus?.newest) ?? 'none'} absent={!corpus?.newest} />
+    // Both games share one register so their rows line up, so the colour has to
+    // move to the column rather than the band.
+    <div className={which === 'smite2' ? 'band-smite2 col' : 'col'}>
+      <h4 className="col-head">{title}</h4>
+      <Rows>
+      <Row label="newest day" value={day(corpus?.newest) ?? 'none'} absent={!corpus?.newest} />
       <Row label="corpus files" value={count(corpus?.files)} />
       <Row label="last written" value={ago(corpus?.newest_at)} />
       <Row
@@ -62,7 +74,8 @@ function GameColumn({ title, game }: { title: string; game: GameStatus | undefin
         }
       />
       {crawl && <Row label="matches collected" value={count(crawl.matches_collected)} />}
-    </Rows>
+      </Rows>
+    </div>
   )
 }
 
@@ -122,8 +135,8 @@ export default function Overview({ status }: { status: Status }) {
         health={worst(gameHealth(smite), gameHealth(smite2))}
       >
         <Pair>
-          <GameColumn title="smite 1" game={smite} />
-          <GameColumn title="smite 2" game={smite2} />
+          <GameColumn title="Smite 1" game={smite} which="smite" />
+          <GameColumn title="Smite 2" game={smite2} which="smite2" />
         </Pair>
         <p className="muted" style={{ marginBottom: 0 }}>
           <Link to="/data">full detail →</Link>
@@ -227,9 +240,12 @@ export default function Overview({ status }: { status: Status }) {
         <p className="prose" style={{ marginBottom: 0 }}>
           <span className="mark mark-ok">·</span> healthy ·{' '}
           <span className="mark mark-warn">!</span> behind schedule ·{' '}
-          <span className="mark mark-bad">×</span> blocked or badly stale.{' '}
-          <Link to="/docs">The desktop build-advice API</Link> is a design sketch, not
-          something you can call yet.
+          <span className="mark mark-bad">×</span> blocked or badly stale. A design
+          sketch for a desktop build-advice API lives in the repository, at{' '}
+          <a href="https://github.com/zdiemer/smitele-bot/blob/main/docs/desktop-api.md">
+            <code>docs/desktop-api.md</code>
+          </a>{' '}
+          — it belongs with the code it describes, not on a status board.
         </p>
       </Band>
     </>

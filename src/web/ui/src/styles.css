@@ -20,17 +20,30 @@
 
 :root {
   --paper: #f4f5f3;
-  --paper-2: #edefeb;
+  --paper-2: #eaeeec;
   --ink: #16191a;
   --ink-2: #3a403c;
   --dim: #6e736e;
   --rule: #d6d9d4;
   --rule-firm: #b9beb7;
 
-  /* Semantic only. There is no decorative accent on this page. */
+  /* Two vocabularies, deliberately kept apart.
+   *
+   * STATUS answers "is this all right?" — green, ochre, vermilion, and nothing
+   * else is ever allowed to use them, so a coloured thing on this page always
+   * means something is or isn't fine.
+   *
+   * IDENTITY answers "which of these am I reading?" — teal for Smite 1, violet
+   * for Smite 2, and teal doubles as the interactive colour because Smite 1 is
+   * the primary game and the accent was already its. Neither reads as a status
+   * because neither is on the red-amber-green axis. */
   --refuse: #c1441a;
   --healthy: #2c6a58;
   --late: #9a6c14;
+
+  --smite1: #0e6e8a;
+  --smite2: #6a4c93;
+  --accent: var(--smite1);
 
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", "Roboto Mono",
     Menlo, Consolas, monospace;
@@ -39,12 +52,16 @@
 
   --gutter: 2.2ch;
   --step: 1.5rem;
+  --pad: 2.5rem;
+  /* ~120 monospace characters. 76rem was nearly 190 — technically readable and
+   * genuinely unpleasant, because the eye loses the row on the way back. */
+  --measure: 66rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #14171a;
-    --paper-2: #1b1f23;
+    --paper-2: #1c2126;
     --ink: #e4e7e2;
     --ink-2: #b4bab4;
     --dim: #7e857e;
@@ -53,6 +70,10 @@
     --refuse: #e8734a;
     --healthy: #63b79c;
     --late: #d3a249;
+    /* Lifted well off the dark ground — the light-theme values are near
+     * invisible on it, and an identity colour nobody can see is not one. */
+    --smite1: #58b6d4;
+    --smite2: #a98cd8;
   }
 }
 
@@ -72,9 +93,9 @@ body {
 }
 
 a {
-  color: inherit;
+  color: var(--accent);
   text-decoration: none;
-  border-bottom: 1px solid var(--rule-firm);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 a:hover {
@@ -96,9 +117,9 @@ code {
 }
 
 .sheet {
-  max-width: 76rem;
+  max-width: var(--measure);
   margin: 0 auto;
-  padding: 0 1.5rem 5rem;
+  padding: 0 var(--pad) 5rem;
 }
 
 /* --- masthead ------------------------------------------------------------ */
@@ -122,7 +143,7 @@ code {
 }
 
 .wordmark span {
-  color: var(--dim);
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -169,7 +190,7 @@ nav {
   flex-wrap: wrap;
   gap: 1.4rem;
   padding-bottom: 0.6rem;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 2px solid var(--accent);
   font-size: 12px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -181,7 +202,7 @@ nav a {
 }
 
 nav a.active {
-  color: var(--ink);
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -243,6 +264,20 @@ section {
   gap: 0 0.9rem;
   border-top: 1px solid var(--rule-firm);
   padding-top: 0.55rem;
+  position: relative;
+}
+
+/* A short keyline in the band's own colour, sitting on the rule above it.
+ * Reads as a tab on a filing card — enough to tell two registers apart at a
+ * glance without adding a box around either. */
+.band::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 2.5rem;
+  height: 2px;
+  background: var(--accent);
 }
 
 .band > .body {
@@ -273,10 +308,18 @@ h3.label {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-weight: 700;
+  color: var(--accent);
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.75rem;
+}
+
+/* Which pipeline you are reading, carried by a colour rather than only by the
+ * word "smite 2" at the top of a column. Set on the Band, inherited by its
+ * label, its keyline and its meters. */
+.band-smite2 {
+  --accent: var(--smite2);
 }
 
 h3.label .qual {
@@ -288,8 +331,30 @@ h3.label .qual {
 
 .pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  /* `min()` is load-bearing. A bare minmax(19rem, 1fr) makes 19rem a hard
+   * floor, so on any screen narrower than that the columns overflow the
+   * viewport and the whole page scrolls sideways — which is exactly what it
+   * did on a phone. */
+  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
   gap: 0.4rem 2.5rem;
+}
+
+/* A game's column inside a shared register. The rule above it is that game's
+ * colour, which is the only thing distinguishing the two once their rows are
+ * lined up. */
+.col {
+  min-width: 0;
+  border-top: 2px solid var(--accent);
+  padding-top: 0.35rem;
+}
+
+.col-head {
+  margin: 0 0 0.3rem;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent);
 }
 
 /* label · dotted leader · value — this is a readout, values track their labels */
@@ -310,6 +375,9 @@ dl {
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
+  /* Without this a grid item refuses to shrink below its content, and a long
+   * label pushes the value off the right edge instead of clipping its leader. */
+  min-width: 0;
 }
 
 .reg dt::after {
@@ -355,7 +423,7 @@ dl {
 .meter .fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--ink-2);
+  background: var(--accent);
 }
 
 .meter .fill.warn {
@@ -566,6 +634,63 @@ th.sortable:hover {
 
 .back:hover {
   color: var(--ink);
+}
+
+/* --- narrow screens ------------------------------------------------------ */
+
+/*
+ * The page was unusable on a phone: the two-column pair had a hard 19rem floor,
+ * the masthead pushed its freshness strip out with `margin-left: auto`, and
+ * 2.5rem of side padding ate a third of a 360px viewport. All three are width
+ * assumptions that only hold on a desktop.
+ */
+@media (max-width: 46rem) {
+  :root {
+    --pad: 1.1rem;
+    --step: 1.25rem;
+  }
+
+  body {
+    font-size: 13px;
+  }
+
+  .freshness {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  nav {
+    gap: 0.9rem;
+    font-size: 11px;
+  }
+
+  .refusal {
+    padding: 0.9rem 1rem;
+  }
+
+  /* The dotted leader needs room to be a leader. At this width it is just
+   * noise between a label and its value. */
+  .reg dt::after {
+    content: none;
+  }
+
+  .reg {
+    column-gap: 0.75rem;
+  }
+
+  .player-head img {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* Nothing on this page is allowed to scroll the body sideways. Wide content
+ * gets its own `.scroll` container; this catches anything that slips through
+ * before it becomes a bug report. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
