@@ -48,6 +48,7 @@ class MatchDataCollector:
         match_ids = set()
         attempted = 0
         failed = 0
+        expired = 0
 
         for hour in range(0, 24):
             for minute in range(0, 6):
@@ -88,11 +89,20 @@ class MatchDataCollector:
                         )
                         continue
 
-                    match_ids.update(
-                        match["Match"]
-                        for match in matches
-                        if isinstance(match, dict) and match.get("Active_Flag") == "n"
-                    )
+                    # Active_Flag is not "still in progress", whatever the name
+                    # suggests: it is "y" for every match past Hi-Rez's detail
+                    # retention and "n" for every match inside it. Match IDs
+                    # are served for 180 days but details only for about 31
+                    # (the flag flipped at 2026-07-07, measured 2026-08-07), so
+                    # an old day answers in full here and yields nothing at all
+                    # from getmatchdetailsbatch.
+                    for match in matches:
+                        if not isinstance(match, dict):
+                            continue
+                        if match.get("Active_Flag") == "n":
+                            match_ids.add(match["Match"])
+                        else:
+                            expired += 1
                     match_count_batch += len(matches)
 
                 print(
@@ -100,6 +110,14 @@ class MatchDataCollector:
                     flush=True,
                 )
         print(f"Fetched {len(match_ids)} match IDs total", flush=True)
+        if expired:
+            # The difference between "nobody played" and "this day is too old
+            # to collect", which otherwise both print as a total of zero.
+            print(
+                f"{expired:,} of {expired + len(match_ids):,} match IDs are past "
+                "Hi-Rez's detail retention (~31 days) and cannot be fetched",
+                flush=True,
+            )
         if failed:
             # The per-window line above still prints a plausible-looking count
             # from whichever queues did answer, so without this a day missing

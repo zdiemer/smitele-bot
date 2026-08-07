@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.8.22"
+  tag: "1.8.23"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -126,17 +126,22 @@ collector:
 
 # Recovering a gap in the corpus, a slice at a time.
 #
-# `getmatchidsbyqueue` serves a rolling window — 180 days, measured 2026-08-07 —
-# so a gap is recoverable only while it stays inside that window, and its old
-# edge expires a day every day. The range is walked oldest first for that
-# reason, and days already on disk are skipped for nothing, which is what makes
-# this safe to run on a schedule until it has nothing left to do.
+# The window that matters is SHORT, and it is not the one the API advertises.
+# `getmatchidsbyqueue` serves match IDs for 180 days, but `getmatchdetailsbatch`
+# only returns rows for about 31 of them: past that every ID comes back with
+# Active_Flag "y" and yields zero player rows. Measured 2026-08-07, the flip was
+# at 2026-07-07, exactly. So a gap older than a month is not recoverable at any
+# budget — only the last ~31 days of it are, and that edge moves forward a day
+# every day.
 #
-# Pacing is the whole point of `maxDays`. A day of collection costs ~2,500 of
-# the 75,000 daily requests and takes ~28 minutes, so 20 days is ~50,000
-# requests and ~9.5 hours — a comfortable fraction of both budgets, leaving the
-# nightly collector and the bot their share. At that rate a 177-day gap closes
-# in about nine days.
+# Which means: set this the day you notice the gap and let it run. A month-long
+# hole is two runs' work; waiting a week to start turns a week of it into
+# nothing. Days already on disk are skipped for free, so re-running is cheap and
+# the job ends by itself.
+#
+# `maxDays` paces against the 75,000 daily requests. A day costs ~2,500 and
+# takes ~15 minutes, so 20 days is ~50,000 requests and ~5 hours, leaving the
+# nightly collector and the bot their share.
 #
 # Disable this once `until` has been reached; it costs nothing to leave running
 # but it is a job with an end.

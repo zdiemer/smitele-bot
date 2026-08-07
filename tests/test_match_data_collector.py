@@ -141,6 +141,27 @@ class TestIdFetchSurvivesFailures:
 
         assert "WARNING" not in capsys.readouterr().out
 
+    def test_a_day_past_detail_retention_says_so(self, capsys):
+        """Active_Flag is "y" for every match older than about 31 days, and
+        those IDs yield zero rows from getmatchdetailsbatch. A backfill aimed
+        past the edge otherwise prints a total of zero and looks identical to a
+        day nobody played."""
+        provider = Provider(
+            ids_answer=lambda _q, h, m: [
+                {"Match": f"{h}-{m}-{i}", "Active_Flag": "y"} for i in range(3)
+            ]
+        )
+        found = fetch_ids(provider)
+
+        out = capsys.readouterr().out
+        assert found == []
+        assert "432 of 432 match IDs are past Hi-Rez's detail retention" in out
+
+    def test_a_collectable_day_says_nothing_about_retention(self, capsys):
+        fetch_ids(Provider(ids_answer=lambda _q, h, m: [done(f"{h}-{m}")]))
+
+        assert "detail retention" not in capsys.readouterr().out
+
     def test_matches_still_in_progress_are_left_out(self):
         provider = Provider(
             ids_answer=lambda _q, h, m: [
