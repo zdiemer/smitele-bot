@@ -72,7 +72,7 @@ deployGuard:
 persistence:
   data:
     size: 5Gi
-    storageClass: ""          # "" → cluster default StorageClass
+    storageClass: truenas-nfs     # NAS-backed; only ~350 files, NFS is fine here
     accessMode: ReadWriteOnce
 
 # The match-detail corpus, on the NAS over SMB. Grows daily and is shared
