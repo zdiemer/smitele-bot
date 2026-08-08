@@ -52,6 +52,12 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "smitele-bot.fullname" . }}-matchdata
+  annotations:
+    # Not backed up. ~500Gi of match corpus on the NAS, re-derivable from the
+    # Hi-Rez API — expensive to refetch, but not worth a second full copy of
+    # every week. selfhosted's infra/k8up backs up every PVC it finds unless a
+    # claim says otherwise, and this is the claim saying otherwise.
+    k8up.io/backup: "false"
   labels:
     {{- include "smitele-bot.labels" . | nindent 4 }}
 spec:
