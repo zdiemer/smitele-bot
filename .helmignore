@@ -24,3 +24,27 @@ __pycache__/
 
 # 1Password reference templates — never part of the packaged chart.
 values.local.tpl.yaml
+
+# Everything below is here because the release *secret* has a 1MB ceiling and
+# the packaged chart is stored in it gzipped and base64'd — so roughly 700KB of
+# chart is already too much. A `helm upgrade` that fails with "Secret ... is
+# invalid: data: Too long" is this list being incomplete, not the cluster.
+#
+# The rule: the chart is templates/ plus values. Nothing that only exists to
+# build, test or develop the thing belongs in it.
+tests/
+scripts/
+integration_tests/
+.pytest_cache/
+.claude/
+.vscode/
+htmlcov/
+coverage.*
+*.tgz
+
+# Local caches written by running the code from a checkout. `smite2/` is the
+# wiki disk cache and reaches several megabytes on its own, which is enough to
+# push the release past the ceiling by itself.
+smite2/
+session/
+matchData/
