@@ -629,6 +629,18 @@ And this is an undocumented endpoint behind a WAF with no published rate limit o
 terms allowance for bulk pulls: cache aggressively, pace deliberately, and expect
 it to break without notice.
 
+**Since measured (2026-08-07): the limit is a request quota of 300 per address
+per hour**, carrying `Retry-After: 3600`. Two independent exits were refused at
+request 300 exactly, ten and fourteen minutes in respectively — an identical
+count at different paces, which is what rules out a rate. The collector now
+waits the reset out and resumes rather than ending the night, so a run's length
+rather than its pace is what decides how much it collects. See
+`docs/proxy-setup.md` for the measurement and what follows from it.
+
+The transfer figures throughout this section are **decoded** bytes. Responses
+arrive Brotli-compressed at roughly a sixteenth of that on the wire, so where
+this document says 2.9 MB a page, about 180 KB actually crossed the network.
+
 #### What measuring it actually found
 
 `scripts/probe_tracker.py` crawled 120 match pages — 128 requests, 345 MB, 3.2

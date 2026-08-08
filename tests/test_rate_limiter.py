@@ -175,3 +175,54 @@ class TestWiden:
     def test_widening_never_speeds_up(self):
         limiter = tracker_client.RateLimiter(interval=1.5, jitter=0.0)
         assert limiter.widen() > 1.5
+
+
+class TestSharedLimiter:
+    """One address, one gap — however many clients are built around it.
+
+    The bot constructs a `TrackerClient` per command. A limiter built inside the
+    client has never issued a request, so its first `wait()` returns at once,
+    and a burst of commands paced itself at zero however low the interval was
+    configured. Sharing one limiter is what makes the gap a property of the
+    address rather than of whichever command happened to ask.
+    """
+
+    def test_a_supplied_limiter_is_used_instead_of_a_new_one(self):
+        limiter = tracker_client.RateLimiter(interval=9.0, jitter=0.0)
+        client = tracker_client.TrackerClient(
+            clearance=None, interval=1.5, limiter=limiter
+        )
+        assert client.interval == pytest.approx(9.0)
+
+    def test_without_one_each_client_paces_independently(self, clock, monkeypatch):
+        """The behaviour being fixed, pinned so a regression is visible."""
+        pin_random(monkeypatch, 0.0)
+        first = tracker_client.RateLimiter(interval=5.0, jitter=0.0)
+        second = tracker_client.RateLimiter(interval=5.0, jitter=0.0)
+
+        asyncio.run(first.wait())
+        before = clock.now
+        # A brand-new limiter has no history, so it does not wait at all.
+        asyncio.run(second.wait())
+        assert clock.now == before
+
+    def test_sharing_one_makes_the_second_caller_wait(self, clock, monkeypatch):
+        pin_random(monkeypatch, 0.0)
+        limiter = tracker_client.RateLimiter(interval=5.0, jitter=0.0)
+        one = tracker_client.TrackerClient(clearance=None, limiter=limiter)
+        two = tracker_client.TrackerClient(clearance=None, limiter=limiter)
+        assert one.interval == two.interval == pytest.approx(5.0)
+
+        asyncio.run(limiter.wait())
+        before = clock.now
+        asyncio.run(limiter.wait())
+        assert clock.now - before == pytest.approx(5.0)
+
+    def test_a_widen_on_one_client_slows_them_all(self, monkeypatch):
+        """A 429 answers the address, not the command that drew it."""
+        limiter = tracker_client.RateLimiter(interval=2.0, jitter=0.0)
+        one = tracker_client.TrackerClient(clearance=None, limiter=limiter)
+        two = tracker_client.TrackerClient(clearance=None, limiter=limiter)
+
+        limiter.widen(factor=2.0)
+        assert one.interval == two.interval == pytest.approx(4.0)

@@ -21,15 +21,23 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from smite2.tracker_client import PLATFORMS
 
 # Long enough that pressing a command twice is free, short enough that a match
-# played five minutes ago shows up.
+# played five minutes ago shows up. This one is about *recency*, so it stays
+# short and applies only to the match list.
 CACHE_SECONDS = 180
 
+# Aggregates — profiles, per-god segments, how deep a history goes — do not move
+# in three minutes, and every request the bot spends is one the nightly crawl
+# does not get. Held far longer on purpose.
+PROFILE_CACHE_SECONDS = 900
+
 FIRST_MATCH_FILE = "first_match.json"
+PAGE_COUNT_FILE = "page_count.json"
 
 # How deep /first_match will search before giving up. An active player reaches
-# ~256 pages over two years; this is generous but bounded, because the cost is
-# paid by someone waiting on an interaction.
-MAX_PAGES = 4096
+# ~256 pages over two years, so 512 is already generous; the old 4096 bought
+# nothing and cost three extra probes per player on every single call, because
+# the doubling search walks to the ceiling before it can bisect.
+MAX_PAGES = 512
 
 
 def parse_player(value: str, default_platform: str = "steam") -> Tuple[str, str]:
@@ -132,25 +140,49 @@ class PlayerLookups:
         self.__first_match_path = (
             os.path.join(cache_dir, FIRST_MATCH_FILE) if cache_dir else None
         )
-        self.__first_match: Dict[str, Any] = {}
-        if self.__first_match_path:
-            try:
-                with open(self.__first_match_path, "r", encoding="utf-8") as handle:
-                    loaded = json.load(handle)
-                self.__first_match = loaded if isinstance(loaded, dict) else {}
-            except (OSError, ValueError):
-                self.__first_match = {}
+        self.__page_count_path = (
+            os.path.join(cache_dir, PAGE_COUNT_FILE) if cache_dir else None
+        )
+        self.__first_match: Dict[str, Any] = self.__restore(self.__first_match_path)
+        self.__page_counts: Dict[str, Any] = self.__restore(self.__page_count_path)
+
+    @staticmethod
+    def __restore(path: Optional[str]) -> Dict[str, Any]:
+        """A remembered mapping, or an empty one. Never raises: both of these
+        are optimisations, and a bad file should cost requests, not the bot."""
+        if not path:
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+        except (OSError, ValueError):
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    def __persist(self, path: Optional[str], data: Dict[str, Any]) -> None:
+        """Write-to-partial then rename, because the bot and the web pods read
+        these files without coordinating and a torn read is worse than a miss."""
+        if not path:
+            return
+        partial = f"{path}.partial"
+        try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(partial, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+            os.replace(partial, path)
+        except OSError as error:
+            self.__log(f"could not persist {os.path.basename(path)}: {error}")
 
     def __log(self, message: str) -> None:
         if not self.__silent:
             print(f"smite2 players: {message}", flush=True)
 
-    def __cached(self, key: str):
+    def __cached(self, key: str, ttl: float = CACHE_SECONDS):
         entry = self.__cache.get(key)
         if entry is None:
             return None
         stored_at, value = entry
-        if time.time() - stored_at > CACHE_SECONDS:
+        if time.time() - stored_at > ttl:
             del self.__cache[key]
             return None
         return value
@@ -161,7 +193,7 @@ class PlayerLookups:
 
     async def profile(self, platform: str, handle: str) -> Optional[Dict[str, Any]]:
         key = f"profile:{platform}:{handle}"
-        cached = self.__cached(key)
+        cached = self.__cached(key, PROFILE_CACHE_SECONDS)
         if cached is not None:
             return cached
         async with self.__client_factory() as client:
@@ -209,7 +241,7 @@ class PlayerLookups:
         self, platform: str, handle: str, kind: str
     ) -> List[Segment]:
         key = f"segments:{kind}:{platform}:{handle}"
-        cached = self.__cached(key)
+        cached = self.__cached(key, PROFILE_CACHE_SECONDS)
         if cached is not None:
             return cached
         async with self.__client_factory() as client:
@@ -245,12 +277,27 @@ class PlayerLookups:
         return self.__store(key, out)
 
     async def page_count(self, platform: str, handle: str) -> int:
+        """How many pages of history a player has.
+
+        Remembered on disk as well as in memory, because the answer is a
+        *monotonic* one: a history only grows, so yesterday's count is still a
+        correct lower bound today. Handing it back as the search's starting
+        point turns roughly twenty-four probes into three, which is the
+        difference between `/first_match` costing a third of an hour's
+        allowance and costing almost none of it.
+        """
         key = f"pages:{platform}:{handle}"
-        cached = self.__cached(key)
+        cached = self.__cached(key, PROFILE_CACHE_SECONDS)
         if cached is not None:
             return cached
+        remembered = int(self.__page_counts.get(key) or 0)
         async with self.__client_factory() as client:
-            count = await client.page_count(platform, handle, ceiling=MAX_PAGES)
+            count = await client.page_count(
+                platform, handle, ceiling=MAX_PAGES, known=remembered
+            )
+        if count and count != remembered:
+            self.__page_counts[key] = count
+            self.__persist(self.__page_count_path, self.__page_counts)
         return self.__store(key, count)
 
     # --- /first_match ----------------------------------------------------
@@ -268,16 +315,7 @@ class PlayerLookups:
         self, one: Tuple[str, str], two: Tuple[str, str], value: Dict[str, Any]
     ) -> None:
         self.__first_match[self.__pair_key(one, two)] = value
-        if not self.__first_match_path:
-            return
-        partial = f"{self.__first_match_path}.partial"
-        try:
-            os.makedirs(os.path.dirname(self.__first_match_path) or ".", exist_ok=True)
-            with open(partial, "w", encoding="utf-8") as handle:
-                json.dump(self.__first_match, handle)
-            os.replace(partial, self.__first_match_path)
-        except OSError as error:
-            self.__log(f"could not persist first_match: {error}")
+        self.__persist(self.__first_match_path, self.__first_match)
 
     async def first_shared_match(
         self, one: Tuple[str, str], two: Tuple[str, str], budget: int = 40

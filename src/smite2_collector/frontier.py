@@ -59,6 +59,11 @@ class Player:
     matches_yielded: int = 0
     new_matches_yielded: int = 0
     party_key: str = ""
+    # Which of `select`'s three tiers put this player on tonight's roster.
+    # Deliberately absent from COLUMNS: it describes one night's selection, not
+    # a standing fact about a player, and persisting it would invite reading
+    # last night's reason for tonight's visit.
+    tier: str = ""
 
     @property
     def key(self) -> str:
@@ -83,6 +88,13 @@ class Frontier:
     def __init__(self, directory: str):
         self.path = os.path.join(directory, FRONTIER_FILE)
         self.players: Dict[str, Player] = {}
+        # Set by `select`; how many players the last call held back as premades.
+        self.suppressed = 0
+        # Whether anything has changed since the last write. A run now
+        # checkpoints every few minutes rather than only at the end, and without
+        # this the roster parquet would be rewritten on every tick of an
+        # eighteen-hour run whether or not a single player had moved.
+        self.dirty = False
         self.load()
 
     def load(self) -> None:
@@ -109,6 +121,8 @@ class Frontier:
                 self.players[player.key] = player
 
     def save(self) -> None:
+        if not self.dirty:
+            return
         frame = pd.DataFrame(
             [
                 {
@@ -131,6 +145,7 @@ class Frontier:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         frame.to_parquet(partial, compression="zstd", index=False)
         os.replace(partial, self.path)
+        self.dirty = False
 
     def add(self, platform: str, handle: str, today: str) -> Player:
         key = f"{platform}:{handle}"
@@ -138,6 +153,7 @@ class Frontier:
         if player is None:
             player = Player(platform=platform, handle=handle, first_seen=today)
             self.players[key] = player
+            self.dirty = True
         return player
 
     def record_visit(
@@ -148,6 +164,7 @@ class Frontier:
         player.matches_yielded += found
         player.new_matches_yielded += fresh
         player.barren_visits = 0 if fresh else player.barren_visits + 1
+        self.dirty = True
 
     def note_parties(self, parties: Dict[str, Set[str]]) -> None:
         """Record which party each player queues with.
@@ -161,8 +178,9 @@ class Frontier:
             label = min(members)
             for key in members:
                 player = self.players.get(key)
-                if player is not None:
+                if player is not None and player.party_key != label:
                     player.party_key = label
+                    self.dirty = True
 
     def select(self, budget: int, today: str, revisit: bool = False) -> List[Player]:
         """Tonight's roster.
@@ -181,18 +199,25 @@ class Frontier:
             today = ""
         seen_parties: Set[str] = set()
         chosen: List[Player] = []
+        # How many players a party membership kept off the roster. The
+        # suppression is the single largest saving the frontier makes — 7.16
+        # independent query-units per ten-player match — and until now it left
+        # no trace, so there was no way to tell it working from it never firing.
+        self.suppressed = 0
 
-        def take(player: Player) -> bool:
+        def take(player: Player, tier: str) -> bool:
             if player.party_key:
                 if player.party_key in seen_parties:
+                    self.suppressed += 1
                     return False
                 seen_parties.add(player.party_key)
+            player.tier = tier
             chosen.append(player)
             return len(chosen) >= budget
 
         fresh = [p for p in self.players.values() if p.visits == 0]
         for player in sorted(fresh, key=lambda p: p.first_seen, reverse=True):
-            if take(player):
+            if take(player, "fresh"):
                 return chosen
 
         stale = [
@@ -205,7 +230,7 @@ class Frontier:
         # ago; sorting on yield alone never revisits anyone new.
         stale.sort(key=lambda p: (p.last_queried, -p.yield_rate))
         for player in stale:
-            if take(player):
+            if take(player, "stale"):
                 return chosen
 
         # Only if there is budget left over: the ones written off. They are the
@@ -213,7 +238,7 @@ class Frontier:
         revivable = [p for p in self.players.values() if p.dead and p.last_queried != today]
         revivable.sort(key=lambda p: p.last_queried)
         for player in revivable:
-            if take(player):
+            if take(player, "revivable"):
                 return chosen
 
         return chosen

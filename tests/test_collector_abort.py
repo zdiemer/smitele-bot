@@ -158,6 +158,8 @@ def args(**overrides):
         horizon=None,
         revisit=True,
         flush_every=50_000,
+        max_wait_minutes=120.0,
+        checkpoint_minutes=10.0,
         dry_run=False,
         quiet=True,
         reset_clearance=False,

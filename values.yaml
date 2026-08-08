@@ -303,23 +303,48 @@ smite2:
     # this is simply a quiet time.
     schedule: "40 2 * * *"
     timeZone: "Etc/UTC"
-    # Requests per night. At the interval below this is a little over an hour
-    # and roughly 12GB transferred, which measured out at about a quarter of
-    # each of the two most recent days. Raising it buys coverage roughly
-    # linearly until the frontier saturates.
-    requestBudget: 1500
-    # Seconds between requests. This is the figure the original probe sustained
-    # without drawing a single error, and it has no measured headroom: finding
-    # the real limit means being blocked by it. Raising this number is safe;
-    # lowering it is the one change here that could get the address banned.
-    requestIntervalSeconds: 1.5
+    # Requests per night — a ceiling, not the binding constraint. What actually
+    # bounds a night is the quota below and the wall clock: at 300 requests an
+    # hour over eighteen hours the run can reach ~5,400, so a budget under that
+    # will cut it short. An "exit_reason" of "budget" on the status page means
+    # this number is too low; "deadline" means the night went as intended.
+    requestBudget: 6000
+    # Seconds between requests.
+    #
+    # Measured 2026-08-07: the limit is a **request quota, not a rate**. Bursts
+    # at 1.0s and at 1.5s were both refused at request 300 exactly, ten minutes
+    # apart, each carrying `Retry-After: 3600`. That is why raising this never
+    # helped, and why an earlier probe saw a refusal arrive *sooner* at a slower
+    # pace — there was no rate to find.
+    #
+    # So this is now about politeness rather than protection: it spreads 300
+    # requests over the hour instead of firing them in ten minutes. 12s is the
+    # quota rate exactly; below that the run simply reaches the refusal sooner
+    # and waits longer, for the same total.
+    requestIntervalSeconds: 12.0
     # Fraction of the interval added back at random, so the request train does
     # not arrive on a metronome. This only ever *widens* a gap — the interval
     # above stays a floor — so it costs a slightly shorter night and cannot
     # move the pace in the dangerous direction.
     requestIntervalJitter: 0.4
-    # A hard stop, so a slow night cannot overrun into the day.
-    wallClockHours: 3
+    # A hard stop. Long on purpose: the quota resets hourly, so the length of
+    # the run is what decides how many resets it gets to spend. 02:40 + 18h
+    # finishes at 20:40, leaving six hours before the next fire — enough that
+    # concurrencyPolicy: Forbid never silently drops a slot.
+    #
+    # Two consequences worth knowing. The 06:50 aggregate now reads a corpus
+    # being written; merge_day is atomic per file so it sees whole days, just
+    # not the newest rows of days still in flight. And the six-hourly snapshot
+    # jobs now land inside the crawl window, at ~20 requests each.
+    wallClockHours: 18
+    # Longest single pause to serve when the site asks for one. The measured
+    # reset is an hour, so this covers it with room spare; beyond this a
+    # refusal is treated as a stop rather than a wait.
+    maxWaitMinutes: 90
+    # How often to put the indexes on disk. A run this long that is killed
+    # between checkpoints refetches everything since the last one — and counts
+    # all of it as new.
+    checkpointMinutes: 10
     # Pages of history per player, 25 matches each — about three days. One is
     # right for a nightly run, which only has to cover the time since the last
     # one; anything more re-reads what yesterday already has. Raise it, with
@@ -338,7 +363,12 @@ smite2:
     # Enough for a browser plus a streaming JSON parse. The crawl itself is
     # bounded by the row buffer, not by response size — responses are never
     # held whole.
-    activeDeadlineSeconds: 18000
+    # Must stay comfortably above wallClockHours x 3600, so the crawl's own
+    # graceful stop wins over the kubelet's kill and it saves on the way out.
+    activeDeadlineSeconds: 72000
+    # Long enough for a final flush of parquet to the SMB share. Without it the
+    # SIGTERM handler is decoration.
+    terminationGracePeriodSeconds: 120
     resources:
       requests:
         cpu: 500m

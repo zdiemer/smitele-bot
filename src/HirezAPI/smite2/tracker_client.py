@@ -41,7 +41,7 @@ import asyncio
 import json
 import random
 import time
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, Iterable, List, Optional
 
 import ijson
 from curl_cffi import requests as curl_requests
@@ -93,14 +93,46 @@ MAX_INTERVAL_SECONDS = 15.0
 # cookie refresh or a flaky 5xx. Cooldowns deliberately do not count against it.
 MAX_ATTEMPTS = 2
 
-# A Retry-After longer than this is a ban notice rather than a pause, and a job
-# with a wall-clock cap has nothing useful to do while it waits one out.
+# What a caller with no deadline treats as a ban rather than a pause. Retained
+# for exactly that case — the bot and `--check-egress` have nothing useful to do
+# while an hour elapses, so for them a long Retry-After is still fatal.
 RETRY_AFTER_CAP_SECONDS = 300
 # What to wait when the header is absent, which is the common case.
 DEFAULT_COOLDOWN_SECONDS = 60
-# 429s tolerated in one run. The first is information — we widen and carry on.
-# The fourth means the widened pace is still wrong and the night should end.
+# 429s tolerated in one run by a caller with no deadline to reason about.
 MAX_RATE_LIMITS = 3
+
+# --- waiting a refusal out -------------------------------------------------
+#
+# Measured 2026-08-07, through a proxy so the finding cost no allowance on the
+# address the crawl depends on: the limit is a **request quota, not a rate**.
+# A burst at 1.0s and a burst at 1.5s were both refused at request 300 exactly,
+# ten minutes apart, each with `Retry-After: 3600`. That is why pacing slower
+# never helped and why an earlier probe saw a refusal arrive *earlier* at a
+# slower pace — there was never a rate to find.
+#
+# A quota with a published reset is not a ban. Waiting it out and resuming is
+# what the header is for, and it is the difference between ~300 requests a night
+# and ~300 an hour for as long as the run is allowed to last.
+MEASURED_ALLOWANCE = 300
+MEASURED_WINDOW_SECONDS = 3600.0
+
+# The longest single wait, whatever the header says and however much wall clock
+# is left. Past this it is a ban with a polite header on it.
+MAX_WAIT_SECONDS = 2 * 60 * 60
+# Resuming with less than this remaining buys nothing worth having waited for.
+WAIT_MARGIN_SECONDS = 600
+# 429s *in a row*, with no served request between them. A total was the wrong
+# bound the moment waiting became possible: a run that waits four times over
+# eighteen hours and serves twelve hundred requests between them is working.
+MAX_CONSECUTIVE_RATE_LIMITS = 3
+# What we arm on the way out, whatever the header asked for. The Retry-After is
+# the site's statement about this request, not evidence about tomorrow, and
+# standing down for a day because a header said 86400 costs several nights to
+# avoid a refusal that one request would have disproved. Matches
+# clearance.BACKOFF_SECONDS: the figure this codebase already treats as long
+# enough to be safe and short enough to recover from.
+MAX_STANDDOWN_SECONDS = 4 * 60 * 60
 
 # __check's verdicts. Deliberately not a bool: a cooldown is neither "retry"
 # nor "this response is usable", and collapsing it into either was the bug.
@@ -242,11 +274,33 @@ class TrackerClient:
         jitter: float = DEFAULT_JITTER,
         proxy: Optional[str] = None,
         cooldown: Optional["cooldown_module.Cooldown"] = None,
+        limiter: Optional[RateLimiter] = None,
+        time_left: Optional[Callable[[], float]] = None,
+        checkpoint: Optional[Callable[[], None]] = None,
+        max_wait: float = MAX_WAIT_SECONDS,
     ):
         self.__clearance = clearance
-        self.__limiter = RateLimiter(interval, jitter)
+        # A caller may supply the limiter so that several clients share one
+        # pace. The bot needs this: it builds a client per command, and a
+        # per-client limiter starts at zero and never waits for the first
+        # request — so a burst of commands is unpaced however low the interval
+        # is set. What the WAF sees is one address, so there should be one gap.
+        self.__limiter = RateLimiter(interval, jitter) if limiter is None else limiter
         self.__proxy = egress.proxy_url() if proxy is None else proxy
         self.__cooldown = cooldown
+        # Seconds of useful wall clock left. A callable returning a *delta*
+        # rather than an absolute deadline, so the client never has to agree
+        # with its caller about which clock — `collect` reasons in `time.time`
+        # and the limiter in `time.monotonic`, and passing a difference sidesteps
+        # the mismatch. None means "no deadline to reason about", which is the
+        # bot and --check-egress, and which keeps their behaviour exactly as it
+        # was: for them a long Retry-After is still fatal.
+        self.__time_left = time_left
+        # Called immediately before any long pause. The moment before an hour of
+        # sleeping is when a kill is most likely and the cheapest time to have
+        # already written everything down.
+        self.__checkpoint = checkpoint
+        self.__max_wait = max_wait
         self.__session: Optional[curl_requests.AsyncSession] = None
         self.__current: Optional[Clearance] = None
         self.__silent = silent
@@ -255,6 +309,16 @@ class TrackerClient:
         # 429s seen this run. Counted rather than fatal on sight, so one of them
         # costs a cooldown instead of the rest of the night.
         self.rate_limited = 0
+        # 429s with no served request between them. This is the bound that
+        # actually ends a run now; `rate_limited` is only a report.
+        self.consecutive_rate_limits = 0
+        self.__requests_at_last_limit = 0
+        self.__bytes_at_last_limit = 0
+        self.__last_limit_at = 0.0
+        # One record per refusal: how much was served before it, over how long,
+        # and what the site asked for. Bounded because it is written to a run
+        # record, not a log. This is the instrument that identified the quota.
+        self.rate_limit_events: List[Dict[str, Any]] = []
 
     async def __aenter__(self) -> "TrackerClient":
         self.__session = new_session(self.__proxy)
@@ -315,6 +379,10 @@ class TrackerClient:
                 self.__log(f"HTTP {status} on {path}; one retry")
                 return RETRY
             raise TrackerServerError(f"HTTP {status} on {path}")
+        # A served request is what makes the consecutive bound mean anything:
+        # without this reset it degenerates into the total it replaced, and a
+        # long run that recovered four times over eighteen hours would die.
+        self.consecutive_rate_limits = 0
         if self.__current is not None:
             self.__clearance.mark_ok(self.__current)
         return OK
@@ -358,41 +426,122 @@ class TrackerClient:
         The deadline is the only part of a ban worth keeping, and it used to die
         with the process — so a nightly would fire into a live one, collect
         nothing, and poke the WAF for the privilege.
+
+        Bounded well below what a header may ask for. `Retry-After` is the
+        site's statement about *this request*; treating it as evidence about
+        tomorrow meant one bad header could cost several nights to avoid a
+        refusal that a single request would have disproved. The number asked
+        for is kept in the reason so the discrepancy is visible.
         """
         if self.__cooldown is None:
             return ""
-        standdown = self.__cooldown.arm(seconds, reason)
+        capped = min(seconds, MAX_STANDDOWN_SECONDS)
+        if capped < seconds:
+            reason = f"{reason} (asked for {cooldown_module.describe(seconds)})"
+        standdown = self.__cooldown.arm(capped, reason)
         return (
             f" Nothing will crawl this address for "
             f"{cooldown_module.describe(standdown.remaining)}."
         )
 
+    def __can_wait(self, cooldown: float) -> bool:
+        """Whether waiting this out leaves time to do anything afterwards."""
+        if self.__time_left is None:
+            # No deadline to reason about. The old blind rule, unchanged, which
+            # is what keeps the bot and --check-egress behaving as before.
+            return cooldown <= RETRY_AFTER_CAP_SECONDS
+        if cooldown > self.__max_wait:
+            return False
+        return self.__time_left() - cooldown >= WAIT_MARGIN_SECONDS
+
+    def __record_limit(self, path: str, cooldown: float) -> Dict[str, Any]:
+        """What this run served before being refused.
+
+        The three numbers that distinguish a quota from a rate from a volume
+        cap: requests since the last refusal, bytes since it, and how long that
+        took. Kept per event rather than summed, because the interesting claim
+        is that the request count repeats while the other two do not.
+        """
+        now = time.monotonic()
+        since = self.__last_limit_at or now
+        event = {
+            "requests_before": self.requests - self.__requests_at_last_limit,
+            "bytes_before": self.bytes - self.__bytes_at_last_limit,
+            "seconds_before": round(now - since, 1) if self.__last_limit_at else None,
+            "retry_after": cooldown,
+            "interval": round(self.__limiter.interval, 2),
+            "path": path,
+        }
+        self.__requests_at_last_limit = self.requests
+        self.__bytes_at_last_limit = self.bytes
+        self.__last_limit_at = now
+        if len(self.rate_limit_events) < 64:
+            self.rate_limit_events.append(event)
+        return event
+
     def __cool_down(self, path: str, retry_after: Optional[str]) -> str:
-        """Stand down for a 429, or decide it is not a pause at all."""
+        """Wait a 429 out if the run can afford it, or decide it is a stop.
+
+        The site publishes a reset. Measured, that reset is real: a quota of 300
+        requests an hour per address, refused at exactly 300 whether the burst
+        took ten minutes or sixty. Treating the reset as a ban was throwing away
+        every hour of the run after the first — so what decides now is whether
+        there is wall clock left to spend on the wait, not how long the wait is.
+        """
         self.rate_limited += 1
+        self.consecutive_rate_limits += 1
         cooldown = _cooldown_seconds(retry_after)
-        if cooldown > RETRY_AFTER_CAP_SECONDS:
-            reason = f"429 on {path} asking for {cooldown:.0f}s"
+        event = self.__record_limit(path, cooldown)
+        served = event["requests_before"]
+
+        if self.consecutive_rate_limits > MAX_CONSECUTIVE_RATE_LIMITS:
+            # Waiting has stopped buying anything: several refusals in a row
+            # with nothing served between them is not a quota, it is a refusal.
+            reason = (
+                f"{self.consecutive_rate_limits} refusals in a row on {path} "
+                "with nothing served between them"
+            )
             note = self.__stand_down(cooldown, reason)
             raise TrackerBlocked(
-                f"429 on {path} asking for {cooldown:.0f}s — that is a block, "
-                f"not a pause.{note}"
+                f"429 on {path} {self.consecutive_rate_limits} times running "
+                f"with nothing served in between — waiting it out did not "
+                f"help; stopping.{note}"
             )
-        if self.rate_limited > MAX_RATE_LIMITS:
-            # No header to trust here — the site kept answering, it just kept
-            # refusing. Stand down for the cap rather than guessing longer.
-            reason = f"{self.rate_limited} rate limits on {path} in one run"
-            note = self.__stand_down(RETRY_AFTER_CAP_SECONDS, reason)
+
+        if not self.__can_wait(cooldown):
+            reason = f"429 on {path} asking for {cooldown:.0f}s"
+            note = self.__stand_down(cooldown, reason)
+            if self.__time_left is None:
+                # Nothing to wait *with*: an interactive caller has no run to
+                # spend, so an hour is a ban notice exactly as it always was.
+                raise TrackerBlocked(
+                    f"429 on {path} asking for {cooldown:.0f}s — that is a "
+                    f"block, not a pause.{note}"
+                )
             raise TrackerBlocked(
-                f"429 on {path} for the {self.rate_limited}th time this run — "
-                f"widening the pace did not help; stopping.{note}"
+                f"429 on {path} asking for {cooldown:.0f}s after {served} "
+                f"requests — more than this run can wait out.{note}"
             )
-        widened = self.__limiter.widen()
+
+        # Widen only for a short refusal. A short Retry-After is the shape of
+        # burst protection, where a wider gap is the actual remedy. A long one
+        # is the quota resetting, and the quota is a *count* — resuming slower
+        # after it just collects less before the next one, which is how a
+        # sensible-looking backoff turns into a permanent tax on the run.
+        if cooldown <= RETRY_AFTER_CAP_SECONDS:
+            self.__limiter.widen()
+
+        if cooldown >= 60 and self.__checkpoint is not None:
+            # About to be asleep for a long time. Everything collected so far
+            # should already be on disk before that starts.
+            self.__checkpoint()
         self.__limiter.pause(cooldown)
+        left = f", {cooldown_module.describe(self.__time_left())} of run left" if (
+            self.__time_left is not None
+        ) else ""
         self.__log(
-            f"429 on {path} ({self.rate_limited}/{MAX_RATE_LIMITS}); waiting "
-            f"{cooldown:.0f}s and pacing at {widened:.2f}s for the rest of the "
-            "run"
+            f"429 on {path} after {served} requests; waiting "
+            f"{cooldown_module.describe(cooldown)} and carrying on{left}"
         )
         return COOLDOWN
 
@@ -460,6 +609,12 @@ class TrackerClient:
                     path, response.status_code, attempt, _retry_after(response)
                 )
                 if verdict is COOLDOWN:
+                    # Safe to sleep an hour here, and non-obviously so. `pause`
+                    # only assigns a deadline — the sleep happens in
+                    # `limiter.wait()` above, *outside* this `async with` — and
+                    # `continue` unwinds the stream before re-entering the loop.
+                    # Do not move the `wait()` inside the context manager, or a
+                    # long cooldown holds a connection open for the duration.
                     continue
                 if verdict is RETRY:
                     attempt += 1
@@ -522,7 +677,9 @@ class TrackerClient:
         )
         return body.get("data") or []
 
-    async def page_count(self, platform: str, handle: str, ceiling: int = 4096) -> int:
+    async def page_count(
+        self, platform: str, handle: str, ceiling: int = 4096, known: int = 0
+    ) -> int:
         """How many pages of history a player has, found by search rather than walk.
 
         Verified before relying on it: pages are dense below the end and empty
@@ -534,6 +691,13 @@ class TrackerClient:
 
         Each probe abandons its response after the first match, so it costs a
         fraction of the 2.9 MB a full page transfers.
+
+        `known` is a previous answer for this player. A history only ever grows,
+        so the page that had matches last time still does, which makes an old
+        count a *correct lower bound* rather than a cache that can go stale —
+        and starting the doubling there turns ~24 probes into ~3. Verified
+        rather than trusted, because an account can be reset or a handle reused,
+        and the fallback costs one request.
         """
 
         async def has_matches(page: int) -> bool:
@@ -543,10 +707,14 @@ class TrackerClient:
                 return True
             return False
 
-        if not await has_matches(0):
-            return 0
+        low = high = 0
+        if known > 0 and await has_matches(known - 1):
+            low, high = known - 1, known
+        else:
+            if not await has_matches(0):
+                return 0
+            low, high = 0, 1
 
-        low, high = 0, 1
         while high < ceiling and await has_matches(high):
             low, high = high, high * 2
 

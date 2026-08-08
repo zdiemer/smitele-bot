@@ -153,3 +153,51 @@ class TestArmedByTheClient:
         client = client_bits.TrackerClient(None, silent=True)
         with pytest.raises(client_bits.TrackerBlocked):
             client._TrackerClient__cool_down("/matches", "3600")
+
+
+class TestTheStanddownIsBounded:
+    """`Retry-After` describes this request, not tomorrow.
+
+    A header asking for a day used to arm a day, and the collector refuses to
+    start inside a live stand-down — so one bad number cost several nights to
+    avoid a refusal that a single request would have disproved.
+    """
+
+    @pytest.fixture
+    def client_bits(self):
+        pytest.importorskip("curl_cffi")
+        pytest.importorskip("ijson")
+        return pytest.importorskip("smite2.tracker_client")
+
+    def test_a_day_long_retry_after_arms_four_hours(self, tmp_path, client_bits):
+        target = store(tmp_path)
+        client = client_bits.TrackerClient(None, silent=True, cooldown=target)
+
+        with pytest.raises(client_bits.TrackerBlocked):
+            client._TrackerClient__cool_down("/matches", "86400")
+
+        recorded = target.read()
+        assert recorded.active
+        assert recorded.remaining <= client_bits.MAX_STANDDOWN_SECONDS
+        assert recorded.remaining > client_bits.MAX_STANDDOWN_SECONDS - 60
+
+    def test_what_was_asked_for_survives_in_the_reason(self, tmp_path, client_bits):
+        """Or the discrepancy between asked and armed is invisible."""
+        target = store(tmp_path)
+        client = client_bits.TrackerClient(None, silent=True, cooldown=target)
+
+        with pytest.raises(client_bits.TrackerBlocked):
+            client._TrackerClient__cool_down("/matches", "86400")
+
+        assert "24.0h" in target.read().reason
+
+    def test_an_hour_is_under_the_bound_and_arms_unchanged(
+        self, tmp_path, client_bits
+    ):
+        target = store(tmp_path)
+        client = client_bits.TrackerClient(None, silent=True, cooldown=target)
+
+        with pytest.raises(client_bits.TrackerBlocked):
+            client._TrackerClient__cool_down("/matches", "3600")
+
+        assert 3500 < target.read().remaining <= 3600

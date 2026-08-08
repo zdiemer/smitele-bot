@@ -19,17 +19,40 @@ Two reasons, and only the second is a good one.
 `Retry-After` the run reports:
 
 - **A short one** (seconds to a couple of minutes) is a pacing signal. The crawl
-  now widens its interval, waits, and carries on; you do not need a proxy, and
+  widens its interval, waits, and carries on; you do not need a proxy, and
   raising `requestIntervalSeconds` is the cheaper fix if it keeps happening.
-- **A long one** — `asking for 3600s — that is a block, not a pause` — is not
-  about pacing at all. An hour is a ban issued to an address, and no interval
-  setting reaches it. This is the case a proxy actually addresses.
+- **A long one** — `Retry-After: 3600` — is the hourly quota resetting. The
+  crawl now *waits it out and resumes* rather than treating it as a ban, so this
+  no longer ends a night. A proxy still helps, but as a multiplier rather than
+  as a rescue.
 
-Measured here: a backfill was refused with `Retry-After: 3600` after 187
-requests, having earlier survived 309 at a *faster* pace. Slowing down brought
-the refusal forward rather than pushing it back, which is the opposite of what
-a rate limit does. Cumulative daily volume from one address is the better
-explanation, and moving addresses is the remedy that fits it.
+### The limit, measured
+
+**It is a request quota, not a rate and not a volume: 300 requests per address
+per hour.** Measured 2026-08-07 through two independent proxies, so establishing
+it cost nothing on the address the crawl depends on:
+
+| exit | pace | refused at | elapsed | wire |
+|---|---|---|---|---|
+| `147.45.60.124` | 1.5 s | request **300** | 10.3 min | 92 MB |
+| `192.9.171.168` | 1.0 s | request **300** | 13.9 min | 92 MB |
+
+Both carried `Retry-After: 3600`. The count is identical and the elapsed time is
+not, which is what rules out a rate. An earlier note here recorded a refusal at
+187 requests after 309 at a *faster* pace and concluded "cumulative daily
+volume"; the truth is simpler — that run began partway into an hour it had
+already spent, and there was never a rate to find.
+
+Three consequences:
+
+- **Raising `requestIntervalSeconds` cannot buy allowance.** It only changes how
+  early in the hour the quota is spent. 12 s is the quota rate exactly, and is
+  the default for that reason — it spreads the 300 over the hour rather than
+  firing them in ten minutes.
+- **The run length is what decides the night.** 300/hour over an 18-hour run is
+  ~5,400 requests, against the ~300 a run got when a reset ended it.
+- **Each address gets its own 300.** The quota is per-egress, as are the cookie,
+  the mint breaker and the stand-down, so exits add allowance linearly.
 
 **Separating this traffic from your home address.** A better reason. The crawl
 is a sustained multi-gigabyte pull against a WAF that has no allowance for it,
@@ -56,24 +79,28 @@ The collector checks this for you: it records the address at mint time and again
 at the end of the run, and stops with `EgressChanged` rather than minting into a
 loop if they disagree.
 
-### Bandwidth, which is what actually decides the provider
+### Bandwidth, which is far less than this document used to claim
 
-Each match-list request returns about **2.61 MB** — one page carries all ten
+Each match-list request *decodes* to about **2.9 MB** — one page carries all ten
 players of 25 matches, and that density is the only reason a crawl is viable at
-all. It is not reducible.
+all. But it arrives **Brotli-compressed, at roughly 180 KB on the wire**, a
+ratio of about 16x. curl_cffi's Firefox impersonation negotiates the encoding on
+its own, so this has always been true; the figures here were derived from
+`TrackerClient.bytes`, which counts chunks *after* decoding and therefore
+overstates transfer by that factor.
 
-| Workload | Requests | Transfer |
-|---|---|---|
-| Nightly (`budget: 1500`) | 1,500 | ~3.9 GB/night → **~118 GB/month** |
-| Full backfill (`--budget 14000`) | 14,000 | **~36 GB/run** |
+| Workload | Requests | Decoded | On the wire |
+|---|---|---|---|
+| Nightly (18h, quota-bound) | ~5,400 | ~15 GB | **~1 GB/night → ~30 GB/month** |
+| Full backfill (`--budget 14000`) | 14,000 | ~41 GB | **~2.5 GB/run** |
 
-This eliminates the category most people reach for first. Metered residential
-proxies bill per gigabyte, and at typical rates ~118 GB/month is several hundred
-dollars for the nightly alone, before any backfill. **Any provider billing per
-GB is the wrong shape for this workload.**
+This does *not* eliminate metered residential proxies the way the old numbers
+did — ~30 GB/month is an ordinary bill rather than several hundred dollars. The
+binding constraint is stickiness, not gigabytes: one address held for the life
+of a cookie.
 
-What you want is a flat-rate or unmetered exit with one stable address. The two
-constraints point at the same answer, which is convenient.
+`bytes` in the run record and on the status page is still the decoded figure.
+Divide by ~16 for what actually crossed the network.
 
 ## What to use
 

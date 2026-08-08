@@ -36,14 +36,35 @@ SCHEMA_VERSION = 1
 # Why the run stopped, mirroring collect.py's exit codes so the two cannot drift
 # into describing different things:
 #
-#   ok            0  ran to the end of its budget, wall clock or coverage target
+#   ok            0  ran out of roster with budget and wall clock to spare
+#   budget        0  spent every request it was allowed
+#   deadline      0  ran until the wall clock said stop
+#   coverage      0  hit the coverage target and stopped early
+#   running       -  still going; written by a mid-run checkpoint
+#   no_gods       1  the wiki catalogue would not load, so nothing was crawled
 #   blocked       2  TrackerBlocked or ClearanceUnavailable mid-crawl
 #   standdown     3  refused to start; a recorded ban was still in force
-#   no_gods       1  the wiki catalogue would not load, so nothing was crawled
+#   terminated    4  SIGTERM — saved what it had and stopped
 #
 # "standdown" is the one worth having. A night that never ran looks exactly like
 # a night that has not happened yet unless something says otherwise.
-REASONS = ("ok", "blocked", "standdown", "no_gods")
+#
+# "ok" used to cover the first four. They wanted separating once a run was meant
+# to last until its deadline: finishing on "budget" now means the ceiling was
+# set too low, where finishing on "deadline" means the night went as intended,
+# and a single "ok" cannot say which. Kept in the tuple so an old record still
+# validates.
+REASONS = (
+    "ok",
+    "budget",
+    "deadline",
+    "coverage",
+    "running",
+    "blocked",
+    "standdown",
+    "no_gods",
+    "terminated",
+)
 
 
 def path_for(state_dir: str) -> str:

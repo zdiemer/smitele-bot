@@ -244,3 +244,106 @@ class TestBudget:
         session = Session(Response(429), Response(403), Response(200))
         client, _ = run(session, monkeypatch)
         assert client.requests == 3
+
+
+class TestWaitingItOut:
+    """A quota resetting is not a ban, and a run with hours left can spend them.
+
+    Measured 2026-08-07, through a proxy so the finding cost nothing on the
+    address the crawl depends on: refusal arrives at request 300 exactly, with
+    `Retry-After: 3600`, whether the burst took ten minutes or sixty. It is a
+    request quota, not a rate. Treating the reset as fatal threw away every
+    hour of a run after the first.
+    """
+
+    def test_an_hour_is_waited_out_when_the_run_can_afford_it(
+        self, instant, monkeypatch
+    ):
+        session = Session(Response(429, retry_after="3600"), Response(200))
+        client, body = run(
+            session, monkeypatch, time_left=lambda: 6 * 3600, cooldown=None
+        )
+
+        assert body == json.loads(BODY)
+        assert session.asked == 2
+        assert client.rate_limited == 1
+        # And it did not slow down on the way back: the quota is a count, so a
+        # wider gap would only mean collecting less before the next reset.
+        assert client.interval == pytest.approx(
+            tracker_client.DEFAULT_INTERVAL_SECONDS
+        )
+
+    def test_an_hour_is_fatal_when_the_run_cannot(self, instant, monkeypatch):
+        session = Session(Response(429, retry_after="3600"))
+        with pytest.raises(tracker_client.TrackerBlocked, match="wait out"):
+            run(session, monkeypatch, time_left=lambda: 1800)
+
+    def test_a_wait_longer_than_the_ceiling_is_fatal_however_long_the_run(
+        self, instant, monkeypatch
+    ):
+        session = Session(Response(429, retry_after="86400"))
+        with pytest.raises(tracker_client.TrackerBlocked, match="wait out"):
+            run(session, monkeypatch, time_left=lambda: 30 * 24 * 3600)
+
+    def test_a_served_request_forgives_the_previous_refusal(
+        self, instant, monkeypatch
+    ):
+        """Four refusals, each recovered from. The old total bound killed this.
+
+        A run that waits out four resets over eighteen hours and serves
+        hundreds of requests between them is working exactly as intended.
+        """
+        session = Session(
+            Response(429, retry_after="3600"), Response(200),
+            Response(429, retry_after="3600"), Response(200),
+            Response(429, retry_after="3600"), Response(200),
+            Response(429, retry_after="3600"), Response(200),
+        )
+        client = client_for(session, monkeypatch, time_left=lambda: 20 * 3600)
+
+        async def scenario():
+            async with client:
+                for _ in range(4):
+                    await client.get_json("/api/v1/whatever")
+
+        asyncio.run(scenario())
+        assert client.rate_limited == 4
+        assert client.consecutive_rate_limits == 0
+        assert session.asked == 8
+
+    def test_refusals_with_nothing_served_between_them_still_stop(
+        self, instant, monkeypatch
+    ):
+        session = Session(*[Response(429, retry_after="3600") for _ in range(6)])
+        with pytest.raises(tracker_client.TrackerBlocked, match="did not help"):
+            run(session, monkeypatch, time_left=lambda: 20 * 3600)
+
+
+class TestWhatTheRefusalRecorded:
+    def test_each_refusal_records_what_preceded_it(self, instant, monkeypatch):
+        session = Session(
+            Response(200), Response(200),
+            Response(429, retry_after="3600"), Response(200),
+        )
+        client = client_for(session, monkeypatch, time_left=lambda: 20 * 3600)
+
+        async def scenario():
+            async with client:
+                for _ in range(3):
+                    await client.get_json("/api/v1/whatever")
+
+        asyncio.run(scenario())
+        assert len(client.rate_limit_events) == 1
+        event = client.rate_limit_events[0]
+        # Two served, then the refusal itself — the count the site was
+        # measuring includes the request it refused.
+        assert event["requests_before"] == 3
+        assert event["retry_after"] == pytest.approx(3600.0)
+        assert event["bytes_before"] > 0
+
+    def test_the_record_is_bounded(self, instant, monkeypatch):
+        client = client_for(Session(), monkeypatch, time_left=lambda: 20 * 3600)
+        for _ in range(200):
+            client.consecutive_rate_limits = 0
+            client._TrackerClient__cool_down("/matches", "3600")
+        assert len(client.rate_limit_events) == 64

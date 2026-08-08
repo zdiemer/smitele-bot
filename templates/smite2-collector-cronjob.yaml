@@ -47,6 +47,12 @@ spec:
             app.kubernetes.io/component: s2collector
         spec:
           restartPolicy: Never
+          {{/*
+            The crawl turns SIGTERM into a cancellation and saves its indexes on
+            the way out. That is only worth anything if the kubelet waits long
+            enough for a parquet write to the SMB share to land.
+          */}}
+          terminationGracePeriodSeconds: {{ .Values.smite2.collector.terminationGracePeriodSeconds }}
           {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
           securityContext:
             runAsNonRoot: true
@@ -67,6 +73,10 @@ spec:
                 - {{ .Values.smite2.collector.requestIntervalSeconds | quote }}
                 - --jitter
                 - {{ .Values.smite2.collector.requestIntervalJitter | quote }}
+                - --max-wait-minutes
+                - {{ .Values.smite2.collector.maxWaitMinutes | quote }}
+                - --checkpoint-minutes
+                - {{ .Values.smite2.collector.checkpointMinutes | quote }}
                 {{- with .Values.smite2.collector.pages }}
                 - --pages
                 - {{ . | quote }}

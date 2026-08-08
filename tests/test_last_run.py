@@ -96,8 +96,25 @@ def test_unwritable_directory_does_not_raise(tmp_path):
 
 def test_reasons_match_the_collector_exit_codes():
     # These strings are the dashboard's whole vocabulary for why a night did
-    # nothing; drift between them and collect.py is silent.
-    assert set(last_run.REASONS) == {"ok", "blocked", "standdown", "no_gods"}
+    # what it did; drift between them and collect.py is silent.
+    assert set(last_run.REASONS) == {
+        # A run that finished, and which of the four ways it finished. "ok"
+        # covered all of these until a run was expected to last until its
+        # deadline — at which point "budget" means the ceiling is too low and
+        # "deadline" means the night went to plan, and one word cannot say both.
+        "ok",
+        "budget",
+        "deadline",
+        "coverage",
+        # Still going. Written by a mid-run checkpoint so an eighteen-hour crawl
+        # is visible while it runs instead of showing yesterday's card all day.
+        "running",
+        # A run that did not finish, and why.
+        "blocked",
+        "standdown",
+        "no_gods",
+        "terminated",
+    }
 
 
 def test_frontier_counts_agree_with_summary(tmp_path):
@@ -208,6 +225,8 @@ class TestTheCollectorWritesIt:
                 horizon=None,
                 revisit=True,
                 flush_every=50_000,
+                max_wait_minutes=120.0,
+                checkpoint_minutes=10.0,
                 dry_run=False,
                 quiet=True,
                 reset_clearance=False,

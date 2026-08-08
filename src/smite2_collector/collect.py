@@ -30,9 +30,10 @@ import argparse
 import asyncio
 import datetime
 import os
+import signal
 import sys
 import time
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 sys.path.insert(
     0,
@@ -54,7 +55,10 @@ from smite2 import egress as egress_module  # noqa: E402
 from smite2 import last_run as last_run_module  # noqa: E402
 from smite2.provider import CLEARANCE_FILE, Smite2Provider  # noqa: E402
 from smite2.tracker_client import (  # noqa: E402
+    API_HOST,
     DEFAULT_JITTER,
+    GAME_SLUG,
+    IMPERSONATE,
     LEADERBOARDS,
     TrackerBlocked,
     TrackerClient,
@@ -73,7 +77,77 @@ def _today() -> str:
 
 
 async def check_egress(state_dir: str) -> int:
-    """Prove an egress works before anything depends on it.
+    """Prove the configured egresses work before anything depends on them.
+
+    Walks every exit in `SMITELE_EGRESS_PROXY`, in the preference order it was
+    written in, and reports one verdict each. Screening a list is worth doing
+    precisely because the state is bucketed per egress: the clearance cookie,
+    the twelve-solves-a-day breaker and the WAF stand-down are all keyed on
+    `identity()`, so a candidate that fails burns its own budget and arms its
+    own backoff. Trying a bad one cannot cost the address you depend on.
+
+    A failure never stops the walk — the point is to find which of several work,
+    and the first entry being dead is the ordinary case this exists to catch.
+    """
+    exits = egress_module.proxy_urls() or [None]
+    if len(exits) > 1:
+        print(f"Screening {len(exits)} exits, in preference order.\n")
+
+    usable: List[str] = []
+    for candidate in exits:
+        if await _check_one(state_dir, candidate) == 0:
+            usable.append(candidate or "direct")
+
+    if len(exits) > 1:
+        print(
+            f"\n{len(usable)} of {len(exits)} usable"
+            + (f": {', '.join(usable)}" if usable else "")
+        )
+        if usable:
+            print(
+                "  Re-run in a few hours: an exit that works once still has to "
+                "hold one address for the life of a cookie."
+            )
+    return 0 if usable else 1
+
+
+async def _serves_unauthenticated(configured: Optional[str]) -> bool:
+    """Whether this exit can read the API carrying no cookie at all.
+
+    Cheap, and it answers the only question screening really asks. Kept
+    deliberately narrow: one small leaderboard call, no retries, every failure
+    read as "no" — a false negative costs a mint, a false positive would report
+    a broken exit as usable.
+    """
+    try:
+        from curl_cffi import requests as curl_requests  # noqa: PLC0415
+    except ImportError:
+        return False
+
+    kwargs = {"impersonate": IMPERSONATE, "trust_env": False}
+    if configured:
+        kwargs["proxy"] = configured
+    try:
+        async with curl_requests.AsyncSession(**kwargs) as session:
+            response = await session.get(
+                f"{API_HOST}/api/v1/{GAME_SLUG}/standard/leaderboards",
+                params={
+                    "type": "stats",
+                    "board": LEADERBOARDS[0],
+                    "platform": "steam",
+                    # Not optional — omitting `skip` 404s.
+                    "skip": 0,
+                    "take": 1,
+                },
+                timeout=30,
+            )
+            return response.status_code == 200 and b'"data"' in (response.content or b"")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _check_one(state_dir: str, configured: Optional[str]) -> int:
+    """One exit, end to end.
 
     Resolves the address, mints one cookie through it, and issues a single
     request — printing what each stage saw. They must agree: the cookie is bound
@@ -81,10 +155,9 @@ async def check_egress(state_dir: str) -> int:
     different places 403s everything.
 
     Exists so that evaluating a proxy is one command rather than a nightly that
-    fails at 02:40. A pre-flagged address fails here, where it costs nothing,
-    instead of costing a solve out of a budget of twelve.
+    fails at 02:40. A pre-flagged address fails here, where it costs a solve out
+    of *its own* budget of twelve rather than out of the one the crawl depends on.
     """
-    configured = egress_module.proxy_url()
     identity = egress_module.identity(configured)
     print(f"Egress check · {identity}")
 
@@ -106,9 +179,21 @@ async def check_egress(state_dir: str) -> int:
             f"remaining ({standdown.reason})"
         )
 
+    # Ask without a cookie before spending one. Measured 2026-08-07: the API
+    # answers 200 to an unauthenticated request as long as the TLS handshake is
+    # Firefox's — it is the *fingerprint* that is checked on these routes, not
+    # clearance. So a mint is a fallback for exits that need it, not the price
+    # of finding out, and screening a list of candidates costs seconds rather
+    # than two minutes each.
+    if await _serves_unauthenticated(configured):
+        print("  request      served without a cookie")
+        print("  USABLE")
+        return 0
+
     manager = ClearanceManager(
         ClearanceStore(os.path.join(state_dir, CLEARANCE_FILE), egress=identity)
     )
+    print("  clearance    needed here; minting")
     try:
         clearance = await manager.get()
     except ClearanceUnavailable as error:
@@ -136,7 +221,7 @@ async def check_egress(state_dir: str) -> int:
         )
         return 1
 
-    print("\nUsable. Re-run in a few hours to confirm the exit is sticky.")
+    print("  USABLE")
     return 0
 
 
@@ -267,6 +352,13 @@ async def crawl(args) -> int:
     if egress_at_start:
         print(f"  leaving from {egress_at_start} ({egress_module.identity()})")
 
+    # Which stop condition fired. "ok" used to conflate spending the budget,
+    # running out of wall clock and hitting the coverage target; under a model
+    # where the run is *meant* to last until the deadline, those three want
+    # telling apart — finishing on "budget" now means the ceiling was too low,
+    # not that the night went well.
+    exit_reason = "ok"
+    terminated = False
     new_matches = 0
     unknown_items = 0
     item_slots = 0
@@ -276,9 +368,65 @@ async def crawl(args) -> int:
     # bindings would never have happened.
     index = 0
     discovered_total = 0
+    last_checkpoint = time.time()
+
+    def checkpoint() -> None:
+        """Put everything collected so far beyond the reach of a kill.
+
+        A run used to write its indexes once, at the end, which was survivable
+        when it lasted an hour. It now waits out quota resets and can run most
+        of a day, so an eviction or an `activeDeadlineSeconds` kill would throw
+        away a whole night of `seen_matches` and `frontier` updates — and the
+        next run would refetch every one of those matches and count them new.
+
+        Also files an interim run record, so a crawl that is still going says so
+        instead of leaving yesterday's report standing all day.
+        """
+        nonlocal last_checkpoint
+        last_checkpoint = time.time()
+        if args.dry_run:
+            return
+        buffer.flush()
+        seen.save()
+        frontier.save()
+        last_run_module.write(
+            state_dir,
+            {
+                "started": started,
+                "elapsed_seconds": time.time() - started,
+                "exit_reason": "running",
+                "egress": egress_module.identity(),
+                "requests": client.requests,
+                "bytes": client.bytes,
+                "budget": args.budget,
+                "new_matches": new_matches,
+                "rows_written": buffer.written,
+                "players_visited": index,
+                "rate_limited": client.rate_limited,
+                # getattr: the record is a report, and a missing field must not
+                # be able to fail the run that was trying to describe itself.
+                "rate_limits": getattr(client, "rate_limit_events", []),
+            },
+        )
+
+    # players/found/fresh per selection tier. The question it exists to settle:
+    # `select` puts never-visited players first, and those were discovered from
+    # the matches just read, so their pages should overlap what we already have.
+    # If `fresh` yields materially worse than `stale`, the ordering is wrong —
+    # but that is a claim about this corpus, not one to guess at.
+    by_tier: Dict[str, Dict[str, int]] = {}
 
     async with TrackerClient(
-        manager, interval=args.interval, jitter=args.jitter, cooldown=cooldown
+        manager,
+        interval=args.interval,
+        jitter=args.jitter,
+        cooldown=cooldown,
+        # What turns a refusal from the end of the night into a pause. The
+        # client cannot know how long the run has; giving it a way to ask is
+        # what lets it decide that an hour's wait is affordable.
+        time_left=lambda: deadline - time.time(),
+        checkpoint=checkpoint,
+        max_wait=args.max_wait_minutes * 60,
     ) as client:
         try:
             added = await seed(client, frontier, today, args.quiet)
@@ -297,9 +445,11 @@ async def crawl(args) -> int:
             while pending:
                 if time.time() > deadline:
                     print(f"\nWall clock cap reached after {index} players.")
+                    exit_reason = "deadline"
                     break
                 if client.requests >= args.budget:
                     print(f"\nRequest budget spent after {index} players.")
+                    exit_reason = "budget"
                     break
 
                 player = pending.pop(0)
@@ -311,6 +461,14 @@ async def crawl(args) -> int:
                 found, fresh, counts, parties, discovered = await _visit(
                     client, player, god_ids, seen, tracker, buffer, args
                 )
+                tier = by_tier.setdefault(
+                    player.tier or "unknown",
+                    {"players": 0, "found": 0, "fresh": 0},
+                )
+                tier["players"] += 1
+                tier["found"] += found
+                tier["fresh"] += fresh
+
                 frontier.record_visit(player, today, found, fresh)
                 frontier.note_parties(parties)
                 new_matches += fresh
@@ -328,6 +486,9 @@ async def crawl(args) -> int:
                 if not args.dry_run:
                     buffer.maybe_flush()
 
+                if time.time() - last_checkpoint > args.checkpoint_minutes * 60:
+                    checkpoint()
+
                 if index % 25 == 0:
                     _progress(
                         index, len(pending), client, new_matches, tracker, started
@@ -340,6 +501,7 @@ async def crawl(args) -> int:
                             f"\nCoverage target {args.coverage_target:.0%} reached "
                             f"(estimated {estimate:.0%}); stopping early."
                         )
+                        exit_reason = "coverage"
                         break
 
                 # Refill from what this run has discovered, so a night is
@@ -372,6 +534,13 @@ async def crawl(args) -> int:
         except TrackerBlocked as error:
             print(f"\nSTOPPED — {error}")
             blocked = True
+        except asyncio.CancelledError:
+            # SIGTERM, almost always: the kubelet reclaiming the pod. Caught so
+            # that everything below still runs, because the alternative is
+            # losing a whole night's indexes to a signal we were told about.
+            print("\nSTOPPED — asked to shut down; saving what we have.")
+            exit_reason = "terminated"
+            terminated = True
 
     if not args.dry_run:
         buffer.flush()
@@ -406,6 +575,22 @@ async def crawl(args) -> int:
             + ("  ← check the wiki join" if share > 2 else "")
         )
     print(f"  {frontier.summary()}")
+    if by_tier:
+        # The number that decides whether `select`'s ordering is right. Printed
+        # rather than only filed, because it is read by whoever is deciding.
+        parts = []
+        for name in ("fresh", "stale", "revivable", "unknown"):
+            counts = by_tier.get(name)
+            if not counts or not counts["found"]:
+                continue
+            share = counts["fresh"] / counts["found"]
+            parts.append(
+                f"{name} {counts['players']:,}p {share:.0%} new"
+            )
+        if parts:
+            print(f"  yield by tier · {' · '.join(parts)}")
+    if frontier.suppressed:
+        print(f"  {frontier.suppressed:,} players held back as premades")
     print("\nCoverage:")
     print(tracker.report())
 
@@ -418,7 +603,7 @@ async def crawl(args) -> int:
             {
                 "started": started,
                 "elapsed_seconds": elapsed,
-                "exit_reason": "blocked" if blocked else "ok",
+                "exit_reason": "blocked" if blocked else exit_reason,
                 "egress": egress_module.identity(),
                 "egress_changed": bool(
                     egress_at_end and egress_at_end != egress_at_start
@@ -432,16 +617,27 @@ async def crawl(args) -> int:
                 "players_visited": index,
                 "players_discovered": discovered_total,
                 "rate_limited": client.rate_limited,
+                # One record per refusal: how much was served before it, over
+                # how long, and what was asked for. This is what distinguishes
+                # a quota from a rate from a volume cap, and the answer decides
+                # how the next round of pacing work is spent.
+                "rate_limits": getattr(client, "rate_limit_events", []),
                 "final_interval": client.interval,
                 "unknown_items": unknown_items,
                 "item_slots": item_slots,
                 "frontier": frontier.counts(),
+                "yield_by_tier": by_tier,
+                "party_suppressed": frontier.suppressed,
                 "coverage": tracker.snapshot(),
                 "coverage_estimate": tracker.best_estimate(),
             },
         )
 
-    return 2 if blocked else 0
+    if blocked:
+        return 2
+    # A run we asked to stop did not fail, but it did not finish either, and a 0
+    # would tell the CronJob's history it had.
+    return 4 if terminated else 0
 
 
 async def _visit(client, player, god_ids, seen, tracker, buffer, args):
@@ -567,6 +763,21 @@ def main() -> int:
         "--hours", type=float, default=5.0, help="wall-clock cap"
     )
     parser.add_argument(
+        "--max-wait-minutes",
+        type=float,
+        default=120.0,
+        help="longest single pause to serve when the site asks for one. The "
+        "measured quota resets after an hour, so anything under this is a "
+        "wait; beyond it, treat the refusal as a stop.",
+    )
+    parser.add_argument(
+        "--checkpoint-minutes",
+        type=float,
+        default=10.0,
+        help="how often to put the indexes on disk. A long run that is killed "
+        "between checkpoints refetches everything since the last one.",
+    )
+    parser.add_argument(
         "--interval",
         type=float,
         default=1.5,
@@ -657,7 +868,41 @@ def main() -> int:
         args.budget = min(args.budget, 50)
         print(f"Dry run: capping budget at {args.budget} requests.")
 
-    return asyncio.run(crawl(args))
+    return asyncio.run(_run(args))
+
+
+async def _run(args) -> int:
+    """`crawl`, with SIGTERM turned into something the crawl can act on.
+
+    Without this the kubelet's kill lands as an unhandled signal and the process
+    dies where it stands — skipping the flush, the index writes and the run
+    record. That was survivable when a run lasted an hour and wrote everything
+    at the end anyway; it is not when a run waits out quota resets for most of a
+    day. Cancelling the task instead unwinds it through the same path a block
+    takes, which already knows how to save on the way out.
+
+    Needs `terminationGracePeriodSeconds` on the pod to be worth anything: the
+    handler only gets as long as the kubelet waits before SIGKILL.
+    """
+    task = asyncio.ensure_future(crawl(args))
+    loop = asyncio.get_running_loop()
+    for name in ("SIGTERM", "SIGINT"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            loop.add_signal_handler(signum, task.cancel)
+        except (NotImplementedError, RuntimeError):
+            # Windows, or a loop that will not take handlers. The crawl still
+            # runs; it just dies abruptly, which is where we started.
+            pass
+    try:
+        return await task
+    except asyncio.CancelledError:
+        # `crawl` catches this and saves. Reaching here means it was cancelled
+        # somewhere that could not, so there is nothing left to write.
+        print("Shut down before the crawl could save.", flush=True)
+        return 4
 
 
 if __name__ == "__main__":
