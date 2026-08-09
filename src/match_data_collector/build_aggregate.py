@@ -340,6 +340,10 @@ def consolidate(
 ) -> pd.DataFrame:
     """Sum counts across per-file partials, collapsing to one row per key."""
     columns = COUNT_COLUMNS + list(extra)
+    # Empties are dropped rather than concatenated: the running total starts out
+    # as a bare frame with no keys on it, and one of those in the list is enough
+    # to leave nothing to group by.
+    frames = [frame for frame in frames if frame.shape[0]]
     if not frames:
         return pd.DataFrame(columns=keys + columns)
     return narrow(
@@ -403,6 +407,20 @@ def decay_totals(frame: pd.DataFrame, factor: float) -> pd.DataFrame:
     return frame
 
 
+def empty_build_plays() -> pd.DataFrame:
+    """The pass-1 total, before anything has been counted into it.
+
+    It carries its schema rather than being a bare frame, because it is folded
+    in like any other partial and there is nothing to group on otherwise. An
+    empty fold window is not a rare case: the oldest days in the corpus are
+    Smite 2's alpha, a few dozen rows apiece, and a run of them can easily pass
+    without yielding a single full build.
+    """
+    return pd.DataFrame(
+        {"BuildHash": pd.Series(dtype="UInt64"), "plays": pd.Series(dtype="int32")}
+    )
+
+
 def count_build_plays(
     corpus: List[str],
     items: Dict[int, object],
@@ -427,12 +445,15 @@ def count_build_plays(
     shape = config.shape if config else build_features.SMITE1
     columns = ["GodId"] + shape.item_columns + shape.relic_columns
     parts: List[pd.DataFrame] = []
-    total = previous if previous is not None else pd.DataFrame()
+    total = previous if previous is not None else empty_build_plays()
     start = time.time()
 
     def fold(parts, total):
+        frames = [frame for frame in parts + [total] if frame.shape[0]]
+        if not frames:
+            return total
         merged = (
-            pd.concat(parts + [total], ignore_index=True)
+            pd.concat(frames, ignore_index=True)
             .groupby("BuildHash", observed=True)["plays"]
             .sum()
             .reset_index()
