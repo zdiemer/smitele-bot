@@ -91,7 +91,7 @@ def test_a_corpus_with_no_complete_builds_at_all_yields_nothing(tmp_path):
 
     keep, total = count(corpus)
 
-    assert keep == set()
+    assert keep.size == 0
     assert total.empty
     # The schema survives an empty run, because the next incremental pass folds
     # into this frame rather than starting over.
