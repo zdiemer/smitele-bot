@@ -121,15 +121,41 @@ class TestPickingBranches:
             is None
         )
 
-    def test_no_fork_when_only_one_side_exists(self):
-        """Filling the missing side with the neutral build would tell the
-        reader there is a decision here when there is not."""
-        assert (
-            build_engine.branches(
-                candidates(MIXED, DAMAGE), resolver(MIXED, DAMAGE)
-            )
-            is None
+    def test_two_builds_that_differ_are_a_fork(self):
+        """Even though neither straddles the neutral one — they are the same
+        build here — because the branches are measured against each other."""
+        picked = build_engine.branches(
+            candidates(MIXED, DAMAGE), resolver(MIXED, DAMAGE)
         )
+        assert picked is not None
+        assert picked["ahead"] == DAMAGE
+        assert picked["behind"] == MIXED
+
+    def test_the_neutral_build_may_itself_be_the_aggressive_branch(self):
+        """The case that kept the tree off almost every god.
+
+        The highest-ranked build for a carry or a mid is routinely full damage,
+        sitting at the top of the scale, and nothing can be more offensive than
+        that. Requiring each branch to be more extreme than neutral made a fork
+        impossible for exactly the gods people ask about most.
+        """
+        picked = build_engine.branches(
+            candidates(DAMAGE, MIXED, TANK), resolver(DAMAGE, MIXED, TANK)
+        )
+        assert picked is not None
+        assert picked["neutral"] == DAMAGE
+        assert picked["ahead"] == DAMAGE
+        assert picked["behind"] == TANK
+
+    def test_the_best_of_the_aggressive_builds_wins_a_tie(self):
+        """Two equally offensive builds: the branch is the higher-ranked one,
+        not whichever the scan reached last."""
+        first = [item(40, prop("PHYSICAL_POWER", 60))]
+        second = [item(41, prop("PHYSICAL_POWER", 60))]
+        picked = build_engine.branches(
+            candidates(TANK, first, second), resolver(TANK, first, second)
+        )
+        assert picked["ahead"] == first
 
     def test_a_build_referencing_a_removed_item_is_skipped(self):
         """Item rotations happen between the corpus and the catalogue; the tree

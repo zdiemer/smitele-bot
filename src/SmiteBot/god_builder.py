@@ -458,6 +458,7 @@ class GodBuilder:
             if relic_ids
             else None
         )
+        relics = self.__with_starter(god, build, relics)
 
         god_plays, god_wins = stats.god_totals(
             god_id=id_value(build_options.god_id),
@@ -529,6 +530,32 @@ class GodBuilder:
                 stats, build_options, queue_id, role, starters, optimizer
             ),
         )
+
+    def __with_starter(self, god, build, relics):
+        """Put a starter in front of Smite 2's extras, which the corpus omits.
+
+        Smite 1 counts a starter as filling a core slot, so a corpus build
+        already contains one. Smite 2 keeps it in its own `StarterId` column —
+        and `build_features.SMITE2` aggregates only `ActiveId1`, so the starter
+        is not in the aggregate at all. The embed then labelled a lone relic
+        "Starter & Relic" and every Smite 2 build came back without one.
+
+        Aggregating `StarterId` is the real fix and needs a corpus rebuild. In
+        the meantime the stat model picks one, scored against the build it is
+        opening into, which is the same call `/optimize` always made.
+        """
+        if self.__provider is None or self.__provider.game is not Game.SMITE_2:
+            return relics
+        try:
+            from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
+
+            starter = Smite2BuildOptimizer(god, self.__items).best_starter(build)
+        except Exception as error:  # noqa: BLE001 — a build beats a starter
+            print(f"Could not pick a starter: {error}", flush=True)
+            return relics
+        if starter is None:
+            return relics
+        return [starter] + list(relics or [])
 
     def __resolve_items(self, item_ids):
         """Recorded item ids as catalogue items, or None if any has gone.

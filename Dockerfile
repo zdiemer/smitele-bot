@@ -45,6 +45,12 @@ COPY src/HirezAPI/*.py src/HirezAPI/
 # passed locally, and the bot crash-looped on ModuleNotFoundError.
 COPY src/HirezAPI/smite2/*.py src/HirezAPI/smite2/
 COPY src/SmiteBot/*.py src/SmiteBot/
+# The derived item-value tables. Not source, but not regenerable in the image
+# either — they are produced from the corpus by src/tools/derive_item_value.py
+# and checked in. Without this line item_value.py loads an empty dict, which is
+# a supported state (it means "not generated yet"), so nothing failed and
+# nothing said anything.
+COPY src/SmiteBot/*.json src/SmiteBot/
 COPY src/match_data_collector/*.py src/match_data_collector/
 # The tracker.gg crawl. Its entrypoint lives in Dockerfile.s2collector, which
 # layers a browser on top of this image, but the source belongs here so the two
@@ -70,7 +76,17 @@ RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/ml', 'src/SmiteB
 import smite2.players, smite2.provider, smite2.tracker_client, smite2.voicelines, smite2.wikitext; \
 import smite2.cooldown, smite2.clearance, smite2.last_run; \
 import providers, game, guild_settings, roster, queue_stats; \
+import build_engine, live_lobby, linked_players, build_ranker; \
 print('image imports ok')"
+
+# Data the image needs and cannot rebuild. An absent item-value table is a
+# *supported* state — it means nobody has derived one yet — so a missed COPY
+# does not raise, it just makes every item score zero. That is the shape of
+# failure this file exists to catch, and only an explicit check finds it.
+RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/SmiteBot']; \
+import item_value; \
+assert item_value.SMITE and item_value.SMITE2, 'item value tables missing from image'; \
+print(f'item values ok: {len(item_value.SMITE)} + {len(item_value.SMITE2)}')"
 
 # The snapshot job separately, because it reaches across three source trees —
 # HirezAPI, match_data_collector for the aggregate manifest, and its own — and

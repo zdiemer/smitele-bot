@@ -182,28 +182,32 @@ def branches(
         return None
 
     neutral = resolved[0]
-    middle = offensive_share(neutral)
-    if middle is None:
+    scored = [
+        (share, index, items)
+        for index, items in enumerate(resolved)
+        if (share := offensive_share(items)) is not None
+    ]
+    if len(scored) < 2:
         return None
 
-    ahead = behind = None
-    for items in resolved[1:]:
-        share = offensive_share(items)
-        if share is None:
-            continue
-        if ahead is None and share - middle >= MIN_SPLIT:
-            ahead = items
-        elif behind is None and middle - share >= MIN_SPLIT:
-            behind = items
-        if ahead is not None and behind is not None:
-            break
+    # The branches are measured against *each other*, not against the neutral
+    # build. Requiring each to be more extreme than neutral looked reasonable
+    # and was wrong in a way only the real aggregate showed: the highest-ranked
+    # build for a carry or a mid is routinely a full damage build, sitting at a
+    # share of 1.0, and nothing can be more offensive than that. Four of the six
+    # most-played Smite 1 gods could never fork, which is why the tree almost
+    # never appeared.
+    #
+    # Ties break toward the ranking, so the aggressive branch is the *best*
+    # build among the most aggressive rather than merely the most extreme one.
+    ahead = min(scored, key=lambda entry: (-entry[0], entry[1]))
+    behind = min(scored, key=lambda entry: (entry[0], entry[1]))
 
-    # One branch is not a fork. Falling back to the neutral build on the missing
-    # side would draw a tree whose two halves are identical, which tells the
-    # reader there is a decision here when there is not.
-    if ahead is None or behind is None:
+    # Still no fork when the candidates genuinely agree: a god with one settled
+    # build should be shown one build, not a tree whose halves are the same.
+    if ahead[0] - behind[0] < MIN_SPLIT:
         return None
-    return {"neutral": neutral, "ahead": ahead, "behind": behind}
+    return {"neutral": neutral, "ahead": ahead[2], "behind": behind[2]}
 
 
 # How far a matchup may reorder the ranking. One place per unit of fit, so a
