@@ -1722,8 +1722,14 @@ class Smitele(commands.Cog):
                 badge_url=aspect.icon_url if aspect is not None else None,
                 badge_parts=(*cache_parts, "gods", "aspects"),
             )
+            # Inline, so Discord lays these across one row instead of stacking
+            # three full-width blocks. The embed was rendering tall and narrow:
+            # a nearly square build image with a column of one-line fields
+            # underneath it, all of it in a third of the available width.
             embed.add_field(
-                name="Items", value=", ".join([item.name for item in build])
+                name="Items",
+                value=", ".join([item.name for item in build]),
+                inline=True,
             )
             if relics is not None and any(relics):
                 # In Smite 2 this strip is the starter and the relic. They are
@@ -1732,9 +1738,10 @@ class Smitele(commands.Cog):
                 embed.add_field(
                     name="Relics" if game is Game.SMITE else "Starter & Relic",
                     value=", ".join([item.name for item in relics]),
+                    inline=True,
                 )
             if aspect is not None:
-                embed.add_field(name="Aspect", value=aspect.name)
+                embed.add_field(name="Aspect", value=aspect.name, inline=True)
             if no_god_specified:
                 embed.set_footer(
                     text=no_god_specified_override

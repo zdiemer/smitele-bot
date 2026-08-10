@@ -77,16 +77,28 @@ async def render(
     if path is None or not path.forks:
         return None
 
+    # Each branch is drawn as a continuation of the shared opening rather than
+    # on a row of its own, so the picture runs wide instead of tall. Three
+    # stacked rows of six tiles made a near-square image, which Discord scales
+    # to a third of the available width and stacks the fields under — the whole
+    # embed came out tall and narrow with most of the space unused.
+    #
+    # It also reads better: the shared items *are* the start of both branches,
+    # and repeating them is how a build order is actually followed. Only the
+    # divergent part is labelled, so the repetition is not mistaken for a
+    # different decision.
+    shared = list(path.shared)
     branches = [
-        ("SHARED", "always", list(path.shared)),
-        ("AHEAD", "press", list(path.ahead)),
-        ("BEHIND", "survive", list(path.behind)),
+        ("AHEAD", "press", shared + list(path.ahead), len(shared)),
+        ("BEHIND", "survive", shared + list(path.behind), len(shared)),
     ]
-    branches = [row for row in branches if row[2]]
+    branches = [row for row in branches if len(row[2]) > row[3]]
     if not branches:
+        # No divergence left once the shared opening is taken out; the plain
+        # grid says the same thing without implying a choice.
         return None
 
-    rows = list(branches)
+    rows = [(label, note, steps) for label, note, steps, _ in branches]
     if extras:
         rows.append((extras_label, "", list(extras)))
 

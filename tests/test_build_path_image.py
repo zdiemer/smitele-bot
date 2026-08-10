@@ -78,12 +78,28 @@ class TestWhenItDraws:
 
 class TestLayout:
     def test_every_row_gets_drawn(self):
-        """Shared, ahead, behind and the extras row: four bands of tiles."""
+        """Two branches and the extras row: three bands of tiles.
+
+        The shared opening no longer gets a band of its own — each branch is
+        drawn as a continuation of it, so the picture runs wide rather than
+        tall. Discord scales a near-square image down to a fraction of the
+        available width, which is what made the embed tall and narrow.
+        """
         path = BuildPath(steps(["A"]), steps(["B"]), steps(["C"]))
         image = opened(render(path, extras=[make_item("Relic")]))
         row_height = build_path_image.TILE + build_path_image.CAPTION
-        expected = 4 * row_height + 3 * build_path_image.ROW_GAP
+        expected = 3 * row_height + 2 * build_path_image.ROW_GAP
         assert image.height == expected
+
+    def test_a_branch_carries_the_shared_opening_with_it(self):
+        """Both rows start with the items every branch buys, so each row reads
+        as a build order you can follow from the first item."""
+        path = BuildPath(steps(["A", "B"]), steps(["C"]), steps(["D"]))
+        image = opened(render(path))
+        # Two shared plus one divergent item per row.
+        assert image.width == (
+            build_path_image.MARGIN + build_path_image.GUTTER + 3 * build_path_image.TILE
+        )
 
     def test_a_row_with_no_steps_is_skipped(self):
         """A build whose branches agree on nothing has no shared row, and must
@@ -99,8 +115,9 @@ class TestLayout:
             render(BuildPath(steps(["A"]), steps(["B", "C", "D", "E"]), steps(["F"])))
         )
         assert long.width > short.width
+        # One shared item plus the four-item branch.
         assert long.width == (
-            build_path_image.MARGIN + build_path_image.GUTTER + 4 * build_path_image.TILE
+            build_path_image.MARGIN + build_path_image.GUTTER + 5 * build_path_image.TILE
         )
 
     def test_extras_widen_the_image_when_they_are_the_longest_row(self):
