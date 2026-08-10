@@ -164,6 +164,24 @@ class GameConfig:
         return made
 
 
+def peak_resident_gib() -> float:
+    """High-water mark of this process's resident memory.
+
+    Reported at the end of every run because the job's memory request is the
+    thing that decides whether it can be scheduled at all, and it has only ever
+    been set from estimates. A 12Gi request that a 5Gi job did not need is not
+    conservatism — on this cluster it is the difference between running nightly
+    and sitting Pending until a node frees up. Measuring it costs nothing, so
+    the next person to size this has a number instead of an argument.
+
+    ru_maxrss is KiB on Linux, bytes on macOS; the run that matters is the one
+    in the container, so the Linux reading is the one to trust.
+    """
+    import resource  # noqa: PLC0415  (Unix-only, and only needed here)
+
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024**2
+
+
 def queue_rating(frame: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
     """The rating and tier appropriate to each row's queue."""
     queue = pd.to_numeric(frame["match_queue_id"], errors="coerce").fillna(-1)
@@ -483,7 +501,14 @@ def count_build_plays(
             )
 
     total = fold(parts, total)
-    keep = set(total.loc[total["plays"] >= min_plays, "BuildHash"])
+    # A numpy array rather than a Python set. Pass 2 tests every row of every
+    # file against this, and on a full Smite 1 corpus it holds ~2.4M hashes: as
+    # boxed ints in a set that is ~150MB of the run's peak, against ~19MB here.
+    # It also keeps the membership test on plain uint64 — see the call site.
+    keep = (
+        total.loc[total["plays"] >= min_plays, "BuildHash"]
+        .to_numpy(dtype="uint64", na_value=0)
+    )
     print(
         f"Pass 1 done: {total.shape[0]:,} distinct builds, {len(keep):,} with "
         f">= {min_plays} plays ({time.time() - start:.0f}s)",
@@ -655,7 +680,16 @@ def main() -> int:
         rows_seen += frame.shape[0]
         # Builds that cannot survive min-plays are dropped before grouping;
         # carrying them is what made the full key too large to hold.
-        frame.loc[~frame["BuildHash"].isin(keep_builds), "IsFullBuild"] = False
+        #
+        # Tested on the raw uint64 rather than through Series.isin, which for a
+        # nullable column dispatches to pandas' masked implementation. A full
+        # Smite 1 rebuild segfaulted inside that on 2026-08-10 — not reproduced
+        # since, so this is not presented as the fix, but the plain numpy path
+        # is the one that has never faulted and it is cheaper besides. NA rows
+        # map to 0 and are already IsFullBuild False, since build_features nulls
+        # the hash for exactly those rows, so clearing them again is a no-op.
+        hashes = frame["BuildHash"].to_numpy(dtype="uint64", na_value=0)
+        frame.loc[~np.isin(hashes, keep_builds), "IsFullBuild"] = False
         build_counts, items, relic_counts, god_counts = reduce_file(
             frame, recency_weight(dates.get(path), newest, args.half_life_days)
         )
@@ -766,6 +800,7 @@ def main() -> int:
     print(f"Aggregated {rows_seen:,} player rows in {time.time() - start:.0f}s")
     for destination, rows, size in written:
         print(f"  {os.path.basename(destination)}: {rows:,} rows, {size/1e6:,.1f} MB")
+    print(f"Peak resident: {peak_resident_gib():.2f} GiB", flush=True)
     return 0
 
 

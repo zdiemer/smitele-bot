@@ -108,7 +108,7 @@ class TestARebuildThatFindsNothingEarly:
         raise, so a crawl holding only partial matches still completes."""
         keep, total = count(barren)
 
-        assert keep == set()
+        assert keep.size == 0
         assert total.empty
         assert list(total.columns) == ["BuildHash", "plays"]
 
