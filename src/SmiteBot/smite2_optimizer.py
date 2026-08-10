@@ -409,8 +409,24 @@ PASSIVE_DISCOUNT = 0.75
 # looks like the meta for one that claims to beat it, and nothing here can yet
 # tell which of those is better.
 #
-# Deciding that needs an evaluation against win rate rather than pick rate,
-# which the corpus can support and this harness does not do.
+# That evaluation now exists — `src/tools/build_eval.py`, held-out days, lift
+# against the win rate of the same god and lane in the same skill band — and it
+# still cannot answer this. Ninety train days and nine held out, 419 cells and
+# 206,761 rows: 0.1 changed not one pick, 0.25 changed one, 0.5 came out ahead
+# on six decided cells and 1.0 came out worse on four.
+#
+# The reason is worth more than the numbers. Every weight produced builds with a
+# median of *one or two* held-out plays. The stat model does not build what
+# people build, so there is almost no evidence about what happens when they run
+# its builds, and a lift computed over two games is not a measurement. This is
+# not the harness being too small; the corpus contains 206,761 rows for these
+# cells and only a handful of them are anywhere near a build the optimizer
+# would pick.
+#
+# So it stays at zero, and the honest reason has changed: not "we have no way to
+# measure this" but "the thing being measured is not played often enough to
+# measure this way". Settling it wants an experiment — serving a weighted build
+# and watching what happens — rather than another pass over the same corpus.
 EMPIRICAL_WEIGHT = 0.0
 
 # There is no blanket credit for merely having a passive, though the temptation
