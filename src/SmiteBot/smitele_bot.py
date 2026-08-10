@@ -63,6 +63,7 @@ from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 import art_cache
 import build_path_image
+import live_lobby
 import roster
 from game import DEFAULT_GAME, Game, id_value
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
@@ -604,18 +605,18 @@ class Smitele(commands.Cog):
         choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
-    # @discord.option(
-    #     name="enemies",
-    #     type=str,
-    #     description="A comma-separated list of enemies which the player is up against",
-    #     default="",
-    # )
-    # @discord.option(
-    #     name="allies",
-    #     type=str,
-    #     description="A comma-separated list of allies which the player is teamed with",
-    #     default="",
-    # )
+    @discord.option(
+        name="enemies",
+        type=str,
+        description="Comma-separated enemy gods; read from your live match if you've linked",
+        default="",
+    )
+    @discord.option(
+        name="allies",
+        type=str,
+        description="Comma-separated allied gods, so you don't duplicate the front line",
+        default="",
+    )
     @discord.option(
         name="high_mmr",
         type=bool,
@@ -629,8 +630,8 @@ class Smitele(commands.Cog):
         god_name: str,
         match_queue: str,
         role: str,
-        # enemies: str,
-        # allies: str,
+        enemies: str,
+        allies: str,
         high_mmr: bool,
         game: str,
     ):
@@ -667,25 +668,29 @@ class Smitele(commands.Cog):
         if role is not None and role != "":
             build_options.set_option("-r", role)
 
-        # try:
-        #     if enemies is not None and enemies != "":
-        #         build_options.set_option("-e", enemies)
-        # except InvalidOptionError:
-        #     await self.__send_invalid(
-        #         ctx,
-        #         f'One of "{enemies}" is not a God.',
-        #     )
-        #     return
+        for option, value, label in (("-e", enemies, "enemies"), ("-a", allies, "allies")):
+            if not value:
+                continue
+            try:
+                build_options.set_option(option, value)
+            except InvalidOptionError:
+                await self.__send_invalid(
+                    ctx, f"I don't know one of those {label}: `{value}`."
+                )
+                return
 
-        # try:
-        #     if allies is not None and allies != "":
-        #         build_options.set_option("-a", allies)
-        # except InvalidOptionError:
-        #     await self.__send_invalid(
-        #         ctx,
-        #         f'One of "{enemies}" is not a God.',
-        #     )
-        #     return
+        # Nobody typed a lobby, so go and look for one. This is the whole point
+        # of /link: naming five enemies by hand is more work than most people
+        # will do mid-game, which is why the option existed for a year and was
+        # commented out. Silent on every failure — no linked account, not in a
+        # match, the service refusing us — because a build without a matchup is
+        # the answer this command has always given.
+        lobby = None
+        if not enemies and not allies:
+            lobby = await self.__lobby_for(ctx, provider)
+            if lobby is not None:
+                build_options.enemies = lobby.enemies or None
+                build_options.allies = lobby.allies or None
 
         if high_mmr:
             if build_options.queue_id is None:
@@ -706,7 +711,11 @@ class Smitele(commands.Cog):
                 await ctx.respond(
                     embed=discord.Embed(
                         color=discord.Color.yellow(),
-                        title="Finding you a build with those settings.",
+                        title=(
+                            "Reading your live match for a build."
+                            if lobby is not None
+                            else "Finding you a build with those settings."
+                        ),
                     )
                 )
                 generated = god_builder.ml(build_options)
@@ -928,6 +937,25 @@ class Smitele(commands.Cog):
             provider.gods[build_options.god_id],
             provider=provider,
         )
+
+    async def __lobby_for(self, ctx, provider):
+        """The live match of whoever ran this command, if we can find one.
+
+        Costs two calls against someone else's service, so it only runs for a
+        user we already know the handle of — an explicit `/link`, or the
+        built-in roster. Returns None for every other outcome, including every
+        failure, and never raises.
+        """
+        handle = self.links.handle_for(
+            getattr(ctx.author, "id", None), provider.game
+        )
+        if not handle:
+            return None
+        try:
+            return await live_lobby.lookup(provider, handle)
+        except Exception as error:  # noqa: BLE001
+            print(f"live lobby lookup failed: {error}", flush=True)
+            return None
 
     @commands.slash_command(
         name="link",
