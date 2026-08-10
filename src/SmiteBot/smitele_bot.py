@@ -587,8 +587,8 @@ class Smitele(commands.Cog):
     @discord.option(
         name="god_name",
         type=str,
-        description="The god to return a build for",
-        required=True,
+        description="The god to build; taken from your live match if you leave it out",
+        default="",
         autocomplete=god_autocomplete,
     )
     @discord.option(
@@ -660,9 +660,29 @@ class Smitele(commands.Cog):
             build_type=BuildCommandType.ML, provider=provider
         )
 
+        # The lobby is read before anything else, because it can answer the one
+        # question this command cannot do without. Mid-game, the god you are
+        # playing is the single most tedious thing to retype and the one the
+        # bot is most able to just know.
+        lobby = None
+        if not god_name or not (enemies or allies):
+            lobby = await self.__lobby_for(ctx, provider)
+
+        if not god_name and lobby is not None and lobby.own_god_id is not None:
+            found = provider.gods.get(lobby.own_god_id)
+            if found is not None:
+                god_name = found.name
+
+        if not god_name:
+            await self.__send_invalid(
+                ctx,
+                "You aren't currently in a game so I can't give you a build "
+                "without a god!",
+            )
+            return
+
         try:
-            if god_name is not None and god_name != "":
-                build_options.set_option("-g", god_name)
+            build_options.set_option("-g", god_name)
         except InvalidOptionError:
             await self.__send_invalid(
                 ctx,
@@ -699,18 +719,15 @@ class Smitele(commands.Cog):
                 )
                 return
 
-        # Nobody typed a lobby, so go and look for one. This is the whole point
-        # of /link: naming five enemies by hand is more work than most people
-        # will do mid-game, which is why the option existed for a year and was
-        # commented out. Silent on every failure — no linked account, not in a
-        # match, the service refusing us — because a build without a matchup is
-        # the answer this command has always given.
-        lobby = None
-        if not enemies and not allies:
-            lobby = await self.__lobby_for(ctx, provider)
-            if lobby is not None:
-                build_options.enemies = lobby.enemies or None
-                build_options.allies = lobby.allies or None
+        # Nobody typed a lobby, so use the one already read above. This is the
+        # whole point of /link: naming five enemies by hand is more work than
+        # most people will do mid-game, which is why the option existed for a
+        # year and was commented out. Silent on every failure — no linked
+        # account, not in a match, the service refusing us — because a build
+        # without a matchup is the answer this command has always given.
+        if lobby is not None and not enemies and not allies:
+            build_options.enemies = lobby.enemies or None
+            build_options.allies = lobby.allies or None
 
         if high_mmr:
             if build_options.queue_id is None:
