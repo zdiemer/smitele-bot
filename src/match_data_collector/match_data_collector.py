@@ -96,13 +96,45 @@ class MatchDataCollector:
                     # (the flag flipped at 2026-07-07, measured 2026-08-07), so
                     # an old day answers in full here and yields nothing at all
                     # from getmatchdetailsbatch.
+                    #
+                    # Only "y" is expired. A record carrying neither flag is
+                    # not a match at all, and charging it to the retention
+                    # counter is how 2026-08-02 and 2026-08-03 each reported
+                    # "1,728 of 1,728 match IDs past retention" — 1,728 being
+                    # 12 queues x 144 windows, i.e. exactly one per request,
+                    # not a match count. Hi-Rez had answered those windows with
+                    # a *list* holding one ret_msg dict, which clears the
+                    # isinstance check above and then failed the `== "n"` test
+                    # once per window. Both days were entirely fetchable, and
+                    # were recovered a day later untouched. The distinction
+                    # matters because the two readings call for opposite
+                    # responses: past retention means the day is gone for good,
+                    # where a bad answer means ask again.
+                    usable = 0
                     for match in matches:
                         if not isinstance(match, dict):
                             continue
-                        if match.get("Active_Flag") == "n":
+                        flag = match.get("Active_Flag")
+                        if flag == "n" and match.get("Match") is not None:
                             match_ids.add(match["Match"])
-                        else:
+                            usable += 1
+                        elif flag == "y":
                             expired += 1
+                            usable += 1
+
+                    # An empty window is a real answer — nobody played in those
+                    # ten minutes — so only a non-empty payload that yielded
+                    # nothing usable counts against the run.
+                    if matches and not usable:
+                        failed += 1
+                        print(
+                            f"  ! {queue.name} at {hour:02d}:{minute*10:02d} "
+                            f"answered with {len(matches)} record(s) carrying "
+                            "no match ID",
+                            flush=True,
+                        )
+                        continue
+
                     match_count_batch += len(matches)
 
                 print(

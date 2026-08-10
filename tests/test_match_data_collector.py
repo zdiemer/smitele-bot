@@ -162,6 +162,57 @@ class TestIdFetchSurvivesFailures:
 
         assert "detail retention" not in capsys.readouterr().out
 
+    def test_an_error_inside_a_list_is_not_called_expired(self, capsys):
+        """The miscount that made a recoverable gap look permanent.
+
+        Hi-Rez also returns its errors as a one-element *list* around a ret_msg
+        dict, which clears the isinstance check that catches the bare-dict form.
+        Every entry then failed the `== "n"` test and landed in the retention
+        counter, so 2026-08-02 reported "1,728 of 1,728 match IDs past
+        retention" — one per queue-window, not per match — for a day that was
+        fetchable all along.
+        """
+        provider = Provider(
+            ids_answer=lambda *_: [{"ret_msg": "Something went wrong."}]
+        )
+        found = fetch_ids(provider)
+
+        out = capsys.readouterr().out
+        assert found == []
+        assert "detail retention" not in out, "a bad answer is not an old day"
+        assert "WARNING: 144 of 144 queue-window requests failed" in out
+        assert "this day is incomplete" in out
+
+    def test_a_window_that_half_answers_keeps_what_it_gave(self):
+        """A payload carrying real matches is used even if junk rides along."""
+        provider = Provider(
+            ids_answer=lambda _q, h, m: [
+                {"ret_msg": "partial"},
+                done(f"{h}-{m}"),
+            ]
+        )
+
+        assert len(fetch_ids(provider)) == 144
+
+    def test_an_empty_window_is_not_a_failure(self, capsys):
+        """Nobody played in those ten minutes. That is an answer, not an error,
+        and counting it would mark every quiet night incomplete."""
+        fetch_ids(Provider(ids_answer=lambda *_: []))
+
+        assert "WARNING" not in capsys.readouterr().out
+
+    def test_retention_still_counts_matches_not_windows(self, capsys):
+        """The counter has to stay per-match, which is what made the bogus
+        1,728 recognisable as a per-request tally in the first place."""
+        provider = Provider(
+            ids_answer=lambda _q, h, m: [
+                {"Match": f"{h}-{m}-{i}", "Active_Flag": "y"} for i in range(3)
+            ]
+        )
+        fetch_ids(provider)
+
+        assert "432 of 432" in capsys.readouterr().out, "144 windows x 3"
+
     def test_matches_still_in_progress_are_left_out(self):
         provider = Provider(
             ids_answer=lambda _q, h, m: [
