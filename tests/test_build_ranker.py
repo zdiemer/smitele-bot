@@ -427,3 +427,71 @@ class TestItemsAndRoles:
         ]
         stats = stats_from([build_row(1, plays=10, wins=5)], gods=gods)
         assert stats.common_role(1) == "Jungle"
+
+
+def relic_row(relics: str, plays: int, wins: int, god_id: int = 1,
+              queue_id: int = 451, role: str = "Mid", high_mmr: bool = False,
+              weight: float = 1.0) -> dict:
+    return {
+        "GodId": god_id,
+        "match_queue_id": queue_id,
+        "Role": role,
+        "HighMmr": high_mmr,
+        "Relics": relics,
+        "plays": plays,
+        "wins": wins,
+        "wplays": plays * weight,
+        "wwins": wins * weight,
+    }
+
+
+class TestRelics:
+    """Relics kept the old estimator after builds moved off it.
+
+    Which mattered more here, not less: the candidate space is dozens of pairs
+    rather than thousands of builds, so a pair with a handful of games is a
+    correspondingly larger share of the pool and correspondingly easier to pick
+    by luck. Ymir came back recommending Teleport this way.
+    """
+
+    def stats(self, rows):
+        return build_ranker.BuildStats(
+            pd.DataFrame([build_row(1, plays=10, wins=5)]),
+            pd.DataFrame([items_row(1, SIX)]),
+            pd.DataFrame(rows),
+            pd.DataFrame([]),
+        )
+
+    def test_a_thin_lucky_pair_does_not_beat_the_settled_one(self):
+        stats = self.stats([
+            relic_row("200,201", plays=4000, wins=2200),   # 55%, everyone
+            relic_row("900,901", plays=12, wins=11),       # 92%, twelve games
+        ])
+        assert stats.best_relics(god_id=1) == [200, 201]
+
+    def test_the_old_estimator_picked_the_thin_one(self):
+        """Kept so the fix cannot be quietly reverted."""
+        stats = self.stats([
+            relic_row("200,201", plays=4000, wins=2200),
+            relic_row("900,901", plays=12, wins=11),
+        ])
+        assert stats.best_relics(god_id=1, ranking="lower_bound", min_plays=0) == [
+            900,
+            901,
+        ]
+
+    def test_a_well_supported_better_pair_still_wins(self):
+        """The floor must not turn this into "recommend the most popular"."""
+        stats = self.stats([
+            relic_row("200,201", plays=4000, wins=2000),   # 50%
+            relic_row("300,301", plays=900, wins=540),     # 60%
+        ])
+        assert stats.best_relics(god_id=1) == [300, 301]
+
+    def test_a_god_nobody_plays_still_gets_relics(self):
+        """Everything below the floor: answer anyway rather than showing none."""
+        stats = self.stats([relic_row("200,201", plays=6, wins=4)])
+        assert stats.best_relics(god_id=1) == [200, 201]
+
+    def test_no_rows_means_no_relics(self):
+        assert self.stats([relic_row("200,201", 10, 5)]).best_relics(god_id=99) is None

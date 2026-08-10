@@ -205,6 +205,16 @@ OWN_RECORD_WEIGHT: float = 0.25
 # recommendation is the mistake this whole harness exists to stop making.
 MIN_CANDIDATE_PLAYS: float = 0.0
 
+# The same floor for relics, and on by default where the build one is not.
+#
+# The asymmetry is the point. A rarely-run *build* can be a genuine edge, so
+# excluding it costs something real. A rarely-brought *relic pair* almost never
+# is: the choice is close to settled per god and per lane, the candidate space
+# is dozens rather than thousands, and the tail is made of people who misclicked
+# or were experimenting. Fifty games is low enough that any pair a real player
+# would consider clears it.
+MIN_RELIC_PLAYS: float = 50.0
+
 
 class BuildStats:
     """The aggregate tables, and the queries /build makes against them."""
@@ -483,8 +493,25 @@ class BuildStats:
         queue_id: Optional[int] = None,
         role: Optional[str] = None,
         high_mmr: bool = False,
+        ranking=DEFAULT_RANKING,
+        min_plays: float = MIN_RELIC_PLAYS,
     ) -> Optional[List[int]]:
-        """The highest-ranked relic pair, by win rate rather than popularity."""
+        """The highest-ranked relic pair, by win rate rather than popularity.
+
+        Ranked the same way builds are, which it was not: this kept the old
+        lower bound after `best_build` moved off it, and inherited exactly the
+        failure that motivated the move. Relics are a *small* candidate space —
+        dozens of pairs, not thousands of builds — so the rare ones are rarer
+        still, and a pair with a handful of games could clear the bound and win.
+        That is how Ymir came back with Teleport and Anhur with Blink: not
+        builds anyone runs, just the luckiest thin sample in the pool.
+
+        The floor matters more here than it does for builds, and is on by
+        default for the same reason. Relic choice is close to settled per god
+        and per lane, so a pair nobody brings is far more likely to be noise
+        than insight — the opposite of a build, where a rare one can be a real
+        edge.
+        """
         selected = self.__filter(self.relics, god_id, queue_id, role, high_mmr)
         if not selected.shape[0]:
             return None
@@ -493,7 +520,15 @@ class BuildStats:
         if not grouped.shape[0]:
             return None
 
-        rank = agresti_coull_lower(grouped["wplays"], grouped["wwins"])
+        if min_plays > 1:
+            supported = grouped[grouped["plays"] >= min_plays]
+            # Same "only if something survives" rule used everywhere else: a
+            # god nobody plays should still get an answer, just a shakier one.
+            if supported.shape[0]:
+                grouped = supported
+
+        scorer = ranking if callable(ranking) else RANKINGS.get(ranking, shrunk_rate)
+        rank = scorer(grouped["wplays"], grouped["wwins"])
         best = grouped.index[int(np.argmax(rank))]
         return [int(value) for value in str(best).split(",") if value]
 
