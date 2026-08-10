@@ -389,22 +389,41 @@ class Context:
         except ValueError:
             return None
 
-    def optimized(self, god_id: int, role: str) -> Optional[List[int]]:
-        """The stat model's build, cached: it does not depend on the queue."""
-        key = (god_id, role)
+    def optimized(
+        self, god_id: int, role: str, empirical: Optional[float] = None
+    ) -> Optional[List[int]]:
+        """The stat model's build, cached: it does not depend on the queue.
+
+        `empirical` sweeps `smite2_optimizer.EMPIRICAL_WEIGHT`, which is the
+        question this harness was built to settle. That constant sits at zero
+        with a comment saying so in as many words: the item-value table made
+        item overlap worse at every weight tried, but overlap measures
+        agreement with what people *play* and the table measures what *wins*,
+        and nothing existed that could tell which of those to prefer.
+        """
+        key = (god_id, role, empirical)
         if key not in self.__optimized:
-            self.__optimized[key] = self.__optimize(god_id, role)
+            self.__optimized[key] = self.__optimize(god_id, role, empirical)
         return self.__optimized[key]
 
-    def __optimize(self, god_id: int, role: str) -> Optional[List[int]]:
+    def __optimize(
+        self, god_id: int, role: str, empirical: Optional[float] = None
+    ) -> Optional[List[int]]:
         god = self.god(god_id)
         if god is None:
             return None
         lane = self.lane(role)
         if self.game is Game.SMITE_2:
-            from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
+            import smite2_optimizer  # noqa: PLC0415
 
-            build = Smite2BuildOptimizer(god, self.items, role=lane).optimize()
+            if empirical is not None:
+                # `score` reads the module global per item, so setting it here
+                # is what a weight argument would be if the constant had been
+                # written as one.
+                smite2_optimizer.EMPIRICAL_WEIGHT = empirical
+            build = smite2_optimizer.Smite2BuildOptimizer(
+                god, self.items, role=lane
+            ).optimize()
             return [item.id for item in build] or None
 
         from build_optimizer import BuildOptimizer  # noqa: PLC0415
@@ -582,6 +601,14 @@ def resolve(name: str):
                 plays, wins, strength, pessimism
             )
         )
+    if name.startswith("optimizer:"):
+        # optimizer:<empirical_weight>
+        weight = float(name.split(":", 1)[1])
+
+        def strategy(cell: Cell, context: Context) -> Optional[List[int]]:
+            return context.optimized(cell.god_id, cell.role, empirical=weight)
+
+        return strategy
     if name.startswith("additive:"):
         # additive:<own_record_weight>[:<min_plays>]
         parts = name.split(":")[1:]
