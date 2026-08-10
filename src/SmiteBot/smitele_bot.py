@@ -50,6 +50,7 @@ from god_builder import (
 )
 from god_types import GodId, GodRole, GodType
 from guild_settings import GuildSettings
+from linked_players import LinkedPlayers
 from item import Item, ItemAttribute, ItemType
 from player_stats import PlayerStats
 from providers import GameProvider, Providers
@@ -62,7 +63,8 @@ from HirezAPI import PlayerRole, QueueId
 from item_tree_builder import ItemTreeBuilder
 import art_cache
 import build_path_image
-from game import Game, id_value
+import roster
+from game import DEFAULT_GAME, Game, id_value
 from status_server import DEFAULT_PORT as DEFAULT_STATUS_PORT, StatusServer
 from recommend import BuildRecommender
 
@@ -466,11 +468,13 @@ class Smitele(commands.Cog):
         _bot: commands.Bot,
         _providers: Providers,
         _settings: GuildSettings = None,
+        _links: LinkedPlayers = None,
     ) -> None:
         # Setting our intents so that Discord knows what our bot is going to do
         self.__bot = _bot
         self.providers = _providers
         self.settings = _settings or GuildSettings()
+        self.links = _links or LinkedPlayers()
         self.__running_sessions = {}
         self.__dataframe_refresher_running = False
         self.__status_server = None
@@ -923,6 +927,77 @@ class Smitele(commands.Cog):
             ctx,
             provider.gods[build_options.god_id],
             provider=provider,
+        )
+
+    @commands.slash_command(
+        name="link",
+        description="Tell the bot which account you play, so it can read your match",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @discord.option(
+        name="player",
+        type=str,
+        description="Your Smite 1 player name, or platform:handle for Smite 2",
+        required=True,
+    )
+    @game_option
+    async def link(
+        self, ctx: discord.ApplicationContext, player: str, game: str
+    ) -> None:
+        """Remember this user's handle, so nothing else has to ask for it.
+
+        Deliberately not verified against the game before storing. Checking
+        costs a request against a quota, a wrong name fails visibly on the next
+        command anyway, and a typo that blocks linking is worse than one that
+        produces an obvious "no such player".
+        """
+        provider = self.provider(ctx, game)
+        if not player.strip():
+            await self.__send_invalid(ctx, "That's an empty name.")
+            return
+
+        self.links.link(ctx.author.id, provider.game, player)
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.green(),
+                description=(
+                    f"Linked you to **{player.strip()}** on "
+                    f"{provider.game.display_name}. Commands that need a player "
+                    f"will use it, and `/build` will read your live match."
+                ),
+            ),
+            ephemeral=True,
+        )
+
+    @commands.slash_command(
+        name="unlink",
+        description="Forget the account you linked",
+        guild_ids=SLASH_COMMAND_GUILD_IDS,
+    )
+    @game_option
+    async def unlink(self, ctx: discord.ApplicationContext, game: str) -> None:
+        """Forget one game's handle, or both when no game was named."""
+        chosen = Game.from_display_name(game) if game else None
+        removed = self.links.unlink(ctx.author.id, chosen)
+
+        if removed:
+            where = chosen.display_name if chosen else "both games"
+            description = f"Forgotten, for {where}."
+        elif roster.for_game(chosen or DEFAULT_GAME).get(ctx.author.id):
+            # Being in roster.py is not something unlinking can undo, and
+            # reporting a success that changed nothing would be a lie.
+            description = (
+                "You hadn't linked an account — you're in the bot's built-in "
+                "roster, which `/unlink` can't remove. Use `/link` to override it."
+            )
+        else:
+            description = "You hadn't linked an account."
+
+        await ctx.respond(
+            embed=discord.Embed(
+                color=discord.Color.yellow(), description=description
+            ),
+            ephemeral=True,
         )
 
     @commands.slash_command(

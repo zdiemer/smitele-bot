@@ -139,7 +139,16 @@ def commands_by_name(bot):
 def test_the_bot_assembles(cogs):
     """The __main__ block's exact construction, minus the network."""
     names = commands_by_name(cogs.bot)
-    for expected in ("build", "random_build", "smitele", "edge", "trivia", "set_game"):
+    for expected in (
+        "build",
+        "random_build",
+        "smitele",
+        "edge",
+        "trivia",
+        "set_game",
+        "link",
+        "unlink",
+    ):
         assert expected in names, f"{expected} did not register"
 
 

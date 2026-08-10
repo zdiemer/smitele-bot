@@ -532,10 +532,19 @@ def candidate_pool(cell: Cell, context: Context) -> List[Tuple[List[int], float]
     pool: List[Tuple[List[int], float]] = []
     if selected.shape[0]:
         grouped = selected.groupby("BuildHash", observed=True)["plays"].sum()
-        for build_hash, plays in grouped.items():
-            items = context.stats.items_for(build_hash)
-            if len(items) == len(ITEM_COLUMNS):
-                pool.append((items, float(plays)))
+        # One reindex rather than a `.loc` per hash. The per-hash version is
+        # fine on a fortnight and quietly quadratic on a real aggregate: a
+        # single-row lookup into a million-row index, thousands of times per
+        # cell, over a hundred and seventy-five cells. It did not fail, it just
+        # never finished, which is the worse way for a harness to be wrong.
+        rows = context.stats.items.reindex(grouped.index)
+        matrix = rows[ITEM_COLUMNS].to_numpy()
+        complete = ~pd.isna(matrix).any(axis=1)
+        plays = grouped.to_numpy(dtype=float)
+        for index in np.nonzero(complete)[0]:
+            pool.append(
+                ([int(value) for value in matrix[index]], float(plays[index]))
+            )
     context.pools[key] = pool
     return pool
 
