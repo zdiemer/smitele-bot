@@ -399,6 +399,71 @@ class BuildStats:
         scores = (1.0 - own_weight) * from_items + own_weight * own_rate
         return np.where(missing, prior, scores)
 
+    def ranked_builds(
+        self,
+        god_id: int,
+        queue_id: Optional[int] = None,
+        role: Optional[str] = None,
+        high_mmr: bool = False,
+        require_starter: bool = False,
+        starter_ids: Tuple[int, ...] = (),
+        ranking=DEFAULT_RANKING,
+        min_plays: float = MIN_CANDIDATE_PLAYS,
+        limit: int = 24,
+    ) -> List[Dict]:
+        """The best builds for these filters, best first.
+
+        `best_build` answers with one, which is all `/build` ever needed while
+        it showed a single grid. Showing the conditional tree needs a *set* —
+        the branch that presses an advantage and the one that survives a
+        deficit are two more builds out of the same ranking, not a separate
+        calculation — so this exposes what the ranking already computed instead
+        of running it three times.
+        """
+        selected = self.__filter(self.builds, god_id, queue_id, role, high_mmr)
+        if not selected.shape[0]:
+            return []
+
+        grouped = selected.groupby("BuildHash", observed=True).sum(numeric_only=True)
+        if not grouped.shape[0]:
+            return []
+
+        if require_starter and len(starter_ids):
+            with_starter = self.__hashes_with_starter(grouped.index, starter_ids)
+            if any(with_starter):
+                grouped = grouped.loc[with_starter]
+        if min_plays > 1:
+            supported = grouped[grouped["plays"] >= min_plays]
+            if supported.shape[0]:
+                grouped = supported
+
+        if ranking == ADDITIVE:
+            rank = self.additive_scores(grouped)
+        else:
+            scorer = (
+                ranking if callable(ranking) else RANKINGS.get(ranking, shrunk_rate)
+            )
+            rank = scorer(grouped["wplays"], grouped["wwins"])
+
+        order = np.argsort(np.asarray(rank))[::-1][:limit]
+        out: List[Dict] = []
+        for position in order:
+            build_hash = grouped.index[int(position)]
+            items = self.items_for(build_hash)
+            if len(items) != len(ITEM_COLUMNS):
+                continue
+            row = grouped.iloc[int(position)]
+            out.append(
+                {
+                    "build_hash": build_hash,
+                    "items": items,
+                    "plays": int(row["plays"]),
+                    "wins": int(row["wins"]),
+                    "rank": float(rank[int(position)]),
+                }
+            )
+        return out
+
     def __hashes_with_starter(self, hashes, starter_ids: Tuple[int, ...]):
         """Which of these build hashes contain at least one starter item."""
         known = self.items.reindex(hashes)

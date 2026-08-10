@@ -7,6 +7,7 @@ from typing import Dict, List, NamedTuple, Set, Tuple
 
 import pandas as pd
 
+import build_engine
 import build_path
 import build_ranker
 import smite2_stats
@@ -508,7 +509,68 @@ class GodBuilder:
             f"{self.__build_stats_string(optimizer, build, god)}"
         )
 
-        return GeneratedBuild(build, relics, desc)
+        return GeneratedBuild(
+            build,
+            relics,
+            desc,
+            path=self.__aggregate_path(
+                stats, build_options, queue_id, role, starters, optimizer
+            ),
+        )
+
+    def __aggregate_path(
+        self, stats, build_options, queue_id, role, starters, optimizer
+    ):
+        """The conditional tree for a corpus build, drawn from the same ranking.
+
+        `/build` used to show a flat grid because the fork was the optimizer's
+        trick of re-scoring at two other balances, and there is no balance to
+        re-score at here. `build_engine` finds the branches further down the
+        ranking instead, so the good presentation stops being tied to the
+        weaker algorithm.
+
+        Never fatal: a build with no tree is drawn as the grid it always was,
+        which is exactly what `__send_generated_build` already does with a
+        `path` of None.
+        """
+        try:
+            candidates = stats.ranked_builds(
+                god_id=id_value(build_options.god_id),
+                queue_id=queue_id,
+                role=role,
+                high_mmr=build_options.high_mmr,
+                require_starter=True,
+                starter_ids=starters,
+            )
+            if len(candidates) < 2:
+                return None
+
+            def resolve(item_ids):
+                items = [self.__items[i] for i in item_ids if i in self.__items]
+                return items if len(items) == len(item_ids) else None
+
+            # Ordering a branch needs a scorer, and the two games' are not
+            # interchangeable — running Smite 1's caps over Smite 2's stats
+            # produces confident nonsense, which is why there are two models at
+            # all. The tree only uses it to decide what to buy first, so the
+            # cheap Smite 2 optimizer is built here rather than threaded in.
+            if self.__provider is not None and self.__provider.game is Game.SMITE_2:
+                from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
+
+                god = self.__gods[build_options.god_id]
+                s2 = Smite2BuildOptimizer(god, self.__items)
+                score, price, opens = s2.score, s2.price, None
+            else:
+                score = optimizer.score_build
+                price = optimizer.compute_item_price
+                opens = optimizer.is_completed_starter
+
+            return build_engine.path_for(
+                candidates, resolve, score, price, opens=opens
+            )
+        except Exception as error:  # noqa: BLE001
+            print(f"Could not work out a build path: {error}", flush=True)
+            return None
 
     def __build_stats_string(
         self, optimizer: BuildOptimizer, build: List[Item], god: God = None
