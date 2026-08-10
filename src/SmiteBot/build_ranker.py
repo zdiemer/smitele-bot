@@ -30,10 +30,18 @@ ever the pool: among enough thin candidates, some reach that record on luck
 alone, and the argmax finds exactly those.
 
 `src/tools/build_eval.py` settled it by holding out days. Against the shipped
-ranking, over two independent cutoffs on the Smite 1 corpus, the replacement
-below wins 69% and 75% of the cells where the two disagree — and they agree
-about 83% of the time, so this changes roughly one recommendation in six and is
-right about seven times out of ten when it does.
+ranking, the replacement below wins the cells where the two disagree 69% and 75%
+of the time on two 2023 cutoffs, and 61% of 74 decided cells on a 150-day 2026
+window — the largest of the three samples and the one that matches what the bot
+actually serves. So: this changes roughly one recommendation in two to six, and
+is right about six or seven times out of ten when it does.
+
+Worth knowing what the same run says about the alternative. Ranking builds by
+their items rather than by their own record scores a higher lift still (+5.6%
+against +5.0%), on the same 58% of decided cells — but the builds it picks have
+a median of *three* held-out plays against this one's twelve. A lift measured
+over three games is not a measurement, and a recommendation nobody has run is
+not obviously a recommendation, so `ADDITIVE` stays available and unused.
 
 What replaced it is the posterior mean of a Beta-Binomial, shrunk toward the win
 rate of the god-and-lane it was drawn from. That is the Bayes-optimal choice
@@ -42,10 +50,12 @@ with little evidence is pulled to the cell average instead of being credited
 with its luck, while a build with plenty keeps its own rate.
 
 Three things this does *not* claim, because the holdout would not support them.
-Sweeping `PRIOR_STRENGTH` moved held-out lift by less than the gap between two
-cutoffs, so the value below is a reasonable middle rather than an optimum.
-Neither ranking reliably beats simply recommending the most-played build; that
-comparison came out 52/48 one way and 36/64 the other. And at this prior
+Sweeping `PRIOR_STRENGTH` moved nothing that survives the noise — 60, 200 and
+400 came out at 61%, 61% and 62% of decided cells on the 2026 window — so the
+value below is a reasonable middle rather than an optimum. Beating the
+most-played build is established only on the recent corpus, where it loses to
+both rankings; on the 2023 sample that comparison came out 52/48 and 36/64,
+which is no result at all. And at this prior
 strength the pool problem above is improved, not solved — `tests/
 test_build_ranker.py` constructs a crowd this still gets wrong, and a much
 stronger prior that gets it right but has never been measured at production
