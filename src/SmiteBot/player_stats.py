@@ -320,15 +320,7 @@ class PlayerStats(commands.Cog):
         provider, handle = found
 
         if provider.game is Game.SMITE_2:
-            # Same limit the /live_match slash command reports: tracker.gg's
-            # sessions route is not implemented and the profile carries only a
-            # liveMatch boolean, which says whether but never what.
-            await ctx.respond(
-                embed=smite2_embeds.unavailable(
-                    "Live match details aren't available for Smite 2 — "
-                    "tracker.gg doesn't expose the lobby."
-                )
-            )
+            await self.__smite2_livematch(provider, handle, ctx)
             return
 
         player = await self.__get_player_or_return_invalid(handle, ctx)
@@ -392,19 +384,6 @@ class PlayerStats(commands.Cog):
     async def livematch(
         self, ctx: discord.ApplicationContext, player_name: str, game: str
     ):
-        if self.__smite2(ctx, game) is not None:
-            # tracker.gg's sessions route returns "not implemented", and the
-            # profile carries only a liveMatch boolean — enough to say whether
-            # someone is playing, not what they are playing. Better to say so
-            # than to answer half the question.
-            await ctx.respond(
-                embed=smite2_embeds.unavailable(
-                    "Live match details aren't available for Smite 2 — "
-                    "tracker.gg doesn't expose the lobby."
-                )
-            )
-            return
-
         if not any(player_name):
             await self.__send_invalid(
                 ctx,
@@ -412,8 +391,68 @@ class PlayerStats(commands.Cog):
             )
             return
 
+        provider = self.__smite2(ctx, game)
+        if provider is not None:
+            # This used to refuse. The reasons given were true and the
+            # conclusion was not: the sessions route is still unimplemented and
+            # the profile still carries only a boolean, but the lobby is
+            # reachable through `/matches/{platform}/{handle}/live` and the
+            # match id it returns. See `scripts/probe_live_match.py`.
+            await self.__smite2_livematch(provider, player_name, ctx)
+            return
+
         player = await self.__get_player_or_return_invalid(player_name, ctx)
         await self.__livematch_lookup(player, ctx)
+
+    async def __smite2_livematch(
+        self,
+        provider,
+        player_name: str,
+        ctx_or_message: discord.ApplicationContext | discord.Message,
+    ) -> None:
+        """The Smite 2 lobby, or a plain answer that there isn't one."""
+        from smite2.players import parse_player  # noqa: PLC0415
+
+        # Two tracker.gg requests at its pacing can outlast Discord's three
+        # second acknowledgement window, so answer it first.
+        if hasattr(ctx_or_message, "defer"):
+            await ctx_or_message.defer()
+
+        platform, handle = parse_player(player_name)
+        try:
+            match = await provider.players.live_match(platform, handle)
+        except Exception as error:  # noqa: BLE001
+            print(f"smite2 live match failed: {error}", flush=True)
+            match = None
+
+        if match is None:
+            await self.__send_response_or_message_embed(
+                ctx_or_message,
+                discord.Embed(
+                    color=discord.Color.yellow(),
+                    description=f"**{player_name}** isn't in a match right now.",
+                ),
+            )
+            return
+
+        embed = discord.Embed(
+            color=discord.Color.blue(),
+            title=f"{player_name}'s Live {match.mode_name or 'Match'} Details",
+        )
+        # Order and Chaos, matching what Smite 1's side of this command calls
+        # them, rather than tracker.gg's lowercase slugs.
+        for team, name in (("order", "🔵 Order Side"), ("chaos", "🔴 Chaos Side")):
+            side = [player for player in match.players if player.team == team]
+            if not side:
+                continue
+            embed.add_field(
+                name=name,
+                value="\n".join(
+                    f"• **{player.handle or 'Hidden Player'}** ({player.god})"
+                    for player in side
+                ),
+            )
+        await self.__send_response_or_message_embed(ctx_or_message, embed=embed)
 
     @commands.slash_command(
         name="queue_stats",
