@@ -623,6 +623,13 @@ class Smitele(commands.Cog):
         description="Whether to limit build search results to high MMR players (2000+)",
         default=False,
     )
+    @discord.option(
+        name="source",
+        type=str,
+        description="Where the build comes from; defaults to match data, falling back to the stat model",
+        choices=["matches", "stats"],
+        default="",
+    )
     @game_option
     async def build(
         self,
@@ -633,8 +640,21 @@ class Smitele(commands.Cog):
         enemies: str,
         allies: str,
         high_mmr: bool,
+        source: str,
         game: str,
     ):
+        """One build command, which picks how to answer rather than asking.
+
+        There were three. `/build` read the corpus, `/optimize` read the item
+        catalogue, `/edge` read a trained model, and a user had to know which
+        question they were asking before they could ask it — while the corpus
+        one had no answer at all for a god nobody has played lately, and the
+        catalogue one had the best presentation.
+
+        So the choice is made here instead of by the person typing. Match data
+        when there is any, the stat model when there is not, and `source:` for
+        anyone who wants to force it.
+        """
         provider = self.provider(ctx, game)
         build_options = BuildOptions(
             build_type=BuildCommandType.ML, provider=provider
@@ -707,22 +727,24 @@ class Smitele(commands.Cog):
         god_builder = GodBuilder(provider.gods, provider.items, provider)
 
         async with ctx.channel.typing():
-            try:
-                await ctx.respond(
-                    embed=discord.Embed(
-                        color=discord.Color.yellow(),
-                        title=(
-                            "Reading your live match for a build."
-                            if lobby is not None
-                            else "Finding you a build with those settings."
-                        ),
-                    )
+            await ctx.respond(
+                embed=discord.Embed(
+                    color=discord.Color.yellow(),
+                    title=(
+                        "Reading your live match for a build."
+                        if lobby is not None
+                        else "Finding you a build with those settings."
+                    ),
                 )
-                generated = god_builder.ml(build_options)
+            )
+            try:
+                generated = await self.__build_from(
+                    god_builder, build_options, source
+                )
             except BuildFailedError:
                 await self.__send_invalid(
                     ctx,
-                    "Failed to find a matching build with those options. Try being less specific?",
+                    "Couldn't put a build together for that. Try being less specific?",
                 )
                 return
 
@@ -811,132 +833,31 @@ class Smitele(commands.Cog):
         )
         return
 
-    @commands.slash_command(
-        name="optimize",
-        description="Build a god from the stat model, rather than from match data",
-        guild_ids=SLASH_COMMAND_GUILD_IDS,
-    )
-    @discord.option(
-        name="god_name",
-        type=str,
-        description="The god to build",
-        required=True,
-        autocomplete=god_autocomplete,
-    )
-    @discord.option(
-        name="role",
-        type=str,
-        description="The lane to build for, defaults to where the god is usually played",
-        choices=[p.value.title() for p in list(PlayerRole)],
-        default="",
-    )
-    @discord.option(
-        name="prioritize",
-        type=str,
-        description="Bias the build toward offence or defence",
-        choices=[p.value.lower() for p in list(BuildPrioritization)],
-        default="",
-    )
-    @discord.option(
-        name="balance",
-        type=str,
-        description="How the build splits between surviving and killing",
-        choices=[b.value for b in list(BuildBalance)],
-        default="",
-    )
-    @discord.option(
-        name="enemies",
-        type=str,
-        description="Comma-separated enemy gods, to aim the build at their damage",
-        default="",
-    )
-    @discord.option(
-        name="allies",
-        type=str,
-        description="Comma-separated allied gods, so you don't duplicate the front line",
-        default="",
-    )
-    @game_option
-    async def optimize(
-        self,
-        ctx: discord.ApplicationContext,
-        god_name: str,
-        role: str,
-        prioritize: str,
-        balance: str,
-        enemies: str,
-        allies: str,
-        game: str,
-    ):
-        """A build computed from what the items do, not from what people played.
 
-        The counterpart to `/build`: that one answers "what wins", out of the
-        corpus, and needs a corpus to answer at all. This one answers "what
-        should work", so it has something to say about a god nobody has played
-        recently, a lane nobody plays them in, or a game whose corpus is still
-        thin.
+    async def __build_from(self, god_builder, build_options, source: str):
+        """A build from whichever engine can answer, preferring match data.
+
+        The fallback is the reason this is not just `source:` with a default.
+        `/build` used to fail outright for a god nobody has played recently, or
+        in a lane nobody plays them in, or on a game whose corpus is still thin
+        — while `/optimize` sat next to it able to answer all three, if only
+        the user knew to ask it. Falling through is what makes the merged
+        command strictly better than the two it replaces rather than the union
+        of their gaps.
         """
-        provider = self.provider(ctx, game)
-        build_options = BuildOptions(
-            build_type=BuildCommandType.OPTIMIZE, provider=provider
-        )
+        if source == "stats":
+            build_options.build_type = BuildCommandType.OPTIMIZE
+            return await god_builder.optimize(build_options)
 
         try:
-            build_options.set_option("-g", god_name)
-        except InvalidOptionError:
-            await self.__send_invalid(ctx, f"{god_name} is not a God.")
-            return
-
-        if role:
-            build_options.set_option("-r", role)
-        if prioritize:
-            build_options.set_option("-p", prioritize)
-        if balance:
-            build_options.set_option("-b", balance)
-
-        for option, value, label in (
-            ("-e", enemies, "enemies"),
-            ("-a", allies, "allies"),
-        ):
-            if not value:
-                continue
-            try:
-                build_options.set_option(option, value)
-            except InvalidOptionError:
-                await self.__send_invalid(
-                    ctx, f"I don't know one of those {label}: `{value}`."
-                )
-                return
-
-        god_builder = GodBuilder(provider.gods, provider.items, provider)
-
-        # Smite 1's optimizer searches combinations and simulates time-to-kill
-        # against five gods, which is seconds of work rather than milliseconds.
-        # Typing plus a deferred response is what keeps Discord's three-second
-        # acknowledgement window from expiring underneath it.
-        async with ctx.channel.typing():
-            try:
-                await ctx.respond(
-                    embed=discord.Embed(
-                        color=discord.Color.yellow(),
-                        title=f"Crunching the numbers on {provider.gods[build_options.god_id].name}.",
-                    )
-                )
-                generated = await god_builder.optimize(build_options)
-            except BuildFailedError:
-                await self.__send_invalid(
-                    ctx,
-                    "Couldn't put a build together with those options. "
-                    "Try dropping the prioritize filter?",
-                )
-                return
-
-        await self.__send_generated_build(
-            generated,
-            ctx,
-            provider.gods[build_options.god_id],
-            provider=provider,
-        )
+            return god_builder.ml(build_options)
+        except BuildFailedError:
+            if source == "matches":
+                # They asked for match data specifically, so "there isn't any"
+                # is the answer rather than something to paper over.
+                raise
+            build_options.build_type = BuildCommandType.OPTIMIZE
+            return await god_builder.optimize(build_options)
 
     async def __lobby_for(self, ctx, provider):
         """The live match of whoever ran this command, if we can find one.
@@ -1117,138 +1038,6 @@ class Smitele(commands.Cog):
             return tuple(god.split())
         return ("easy",) if easy else ()
 
-    @commands.slash_command(
-        name="edge",
-        description="Highest win-rate builds for a god in a specific matchup",
-        guild_ids=SLASH_COMMAND_GUILD_IDS,
-    )
-    @discord.option(
-        name="god",
-        type=str,
-        description="The god you're playing",
-        autocomplete=god_autocomplete,
-    )
-    @discord.option(
-        name="against",
-        type=str,
-        description="The god you're laned against",
-        default="",
-        autocomplete=god_autocomplete,
-    )
-    @discord.option(
-        name="role",
-        type=str,
-        # The five positions, which is PlayerRole. This was a hardcoded list
-        # that had to be kept in step with the enum by hand.
-        description="Your role",
-        choices=[p.value.title() for p in list(PlayerRole)],
-        default="",
-    )
-    @game_option
-    async def edge(
-        self,
-        ctx: discord.ApplicationContext,
-        god: str,
-        against: str,
-        role: str,
-        game: str,
-    ) -> None:
-        provider = self.provider(ctx, game)
-        recommender = self.__load_recommender(provider)
-        if recommender is None:
-            await self.__send_invalid(
-                ctx,
-                f"No {provider.game.display_name} build model has been trained "
-                "yet. It is built weekly from collected match data.",
-            )
-            return
-
-        own = provider.god_by_name(god)
-        if own is None:
-            await self.__send_invalid(ctx, f"**{god}** is not a known god name!")
-            return
-
-        opponent = provider.god_by_name(against) if against else None
-        if against and opponent is None:
-            await self.__send_invalid(ctx, f"**{against}** is not a known god name!")
-            return
-
-        # Composing the build image fetches (cached) item icons, which can
-        # outrun the three seconds Discord allows before it calls the
-        # interaction failed.
-        await ctx.defer()
-
-        builds = recommender.recommend(
-            god_id=own.id.value,
-            role=role,
-            opponent_god_id=opponent.id.value if opponent else 0,
-            top_n=3,
-        )
-        resolved = [
-            (self.__resolve_items(provider, item_ids), score)
-            for item_ids, score in builds
-        ]
-        resolved = [(items, score) for items, score in resolved if any(items)]
-
-        if not any(resolved):
-            await ctx.respond(
-                embed=discord.Embed(
-                    color=discord.Color.red(),
-                    description=f"No builds recorded for **{own.name}** in the "
-                    "collected matches.",
-                )
-            )
-            return
-
-        best, best_score = resolved[0]
-        matchup = f" vs {opponent.name}" if opponent is not None else ""
-
-        with await self.__make_build_image(best) as build_bytes:
-            files = [discord.File(build_bytes, filename=self.BUILD_IMAGE_FILE)]
-            embed = discord.Embed(
-                color=discord.Color.blue(),
-                title=f"Best {own.name} Build{matchup}",
-                description=f"Hey {ctx.user.mention}, this build wins "
-                f"**{best_score:.0%}** of the time"
-                + (f" against **{opponent.name}**" if opponent is not None else "")
-                + (f" in **{role}**" if role else "")
-                + ".",
-            )
-            embed.set_image(url=f"attachment://{self.BUILD_IMAGE_FILE}")
-
-            await self.__attach_thumbnail(
-                embed,
-                files,
-                own.icon_url,
-                *paths.game_cache_parts(provider.game),
-                "gods",
-                "icons",
-            )
-            embed.add_field(
-                name="Items", value=", ".join(item.name for item in best), inline=False
-            )
-
-            # Runners-up as text rather than three more images: one attachment
-            # per message, and three build images would bury the best one.
-            if len(resolved) > 1:
-                embed.add_field(
-                    name="Also strong here",
-                    value="\n".join(
-                        f"**{score:.0%}**: " + ", ".join(item.name for item in items)
-                        for items, score in resolved[1:]
-                    ),
-                    inline=False,
-                )
-
-            embed.set_footer(
-                # Observational data: these builds are associated with winning,
-                # which is not the same as causing it. Saying so on the card
-                # keeps the number honest.
-                text=f"Ranked from builds players actually ran (model AUC "
-                f"{recommender.test_auc:.2f}). Correlation, not causation."
-            )
-            await ctx.respond(files=files, embed=embed)
-
     @staticmethod
     def __resolve_items(
         provider: GameProvider, item_ids: List[int]
@@ -1264,6 +1053,12 @@ class Smitele(commands.Cog):
             if item_id in provider.items
         ]
 
+    # Kept without a caller, deliberately and briefly. `/edge` was the only
+    # thing that loaded the model, and the merged `/build` does not score with
+    # it yet because the number it produces is an uncalibrated sigmoid — it has
+    # never been checked against how often those builds actually win. Deleting
+    # the loader would mean rewriting it, including the mtime stamping that
+    # fixed the bot serving whichever model it started with.
     def __load_recommender(self, provider: GameProvider):
         """The trained model for one game, reloaded when the trainer replaces it.
 

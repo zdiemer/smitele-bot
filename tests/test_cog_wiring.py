@@ -143,7 +143,6 @@ def test_the_bot_assembles(cogs):
         "build",
         "random_build",
         "smitele",
-        "edge",
         "trivia",
         "set_game",
         "link",
@@ -194,7 +193,7 @@ def test_required_options_come_before_optional_ones(cogs):
 
 
 @pytest.mark.parametrize(
-    "command", ["build", "random_build", "smitele", "edge", "trivia"]
+    "command", ["build", "random_build", "smitele", "trivia"]
 )
 def test_the_game_option_is_present(cogs, command):
     options = [o.name for o in commands_by_name(cogs.bot)[command].options]
@@ -205,8 +204,6 @@ def test_the_game_option_is_present(cogs, command):
     ("build", "god_name"),
     ("random_build", "god_name"),
     ("smitele", "god"),
-    ("edge", "god"),
-    ("edge", "against"),
 ])
 def test_god_options_have_autocomplete(cogs, command, option):
     """There was no autocomplete anywhere before this; god names were free text
