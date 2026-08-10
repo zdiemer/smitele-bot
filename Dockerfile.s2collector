@@ -63,9 +63,20 @@ ENV XDG_CACHE_HOME=/home/smitele/.cache
 # Fetch at build time, not at run time. The CronJob runs with
 # readOnlyRootFilesystem, so a first-run download would have nowhere to land —
 # and a nightly job should not pull a browser before it starts.
+#
+# The loop checks whether the browser is installed, not what `fetch` returned.
+# It returns 0 even when the download fails — a TLS error against the GitHub
+# release ("[SSL] record layer failure") prints Error: and still exits clean —
+# so `fetch && break` broke on the first attempt every time and these five
+# retries had never once run. The build then failed at the verification below,
+# which is the only reason this was visible at all.
 RUN set -eu; \
     for attempt in 1 2 3 4 5; do \
-      python -m camoufox fetch && break; \
+      python -m camoufox fetch || true; \
+      if python -c "from camoufox.pkgman import installed_verstr; installed_verstr()" \
+           >/dev/null 2>&1; then \
+        break; \
+      fi; \
       echo "camoufox fetch failed (attempt ${attempt}/5), retrying" >&2; \
       sleep $((attempt * 5)); \
       if [ "${attempt}" = "5" ]; then \

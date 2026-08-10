@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/zdiemer/smitele-bot
-  tag: "1.8.24"
+  tag: "1.8.25"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -181,16 +181,16 @@ trainer:
   enabled: false
   image:
     repository: ghcr.io/zdiemer/smitele-bot-trainer
-    # Normally "" so this tracks image.tag, keeping the trainer and the bot
-    # that scores its output on the same code.
+    # Empty so this tracks image.tag, keeping the trainer and the bot that
+    # scores its output on the same code.
     #
-    # Pinned to 1.6.4 for the 1.7.0 release because that build was skipped —
-    # an empty tag here would point the CronJob at a trainer image that was
-    # never pushed, and next Sunday's run would ImagePullBackOff. 1.6.4 trains
-    # Smite 1 correctly; it simply lacks the --game flag, which only matters
-    # once there is a Smite 2 corpus worth training on. Clear this back to ""
-    # after the next `./build.sh`.
-    tag: "1.6.4"
+    # Was pinned to 1.6.4 through the 1.7.0 release, whose build was skipped —
+    # an empty tag would have pointed the CronJob at a trainer image that was
+    # never pushed. Unpinned at 1.8.25, whose `./build.sh` did push
+    # smitele-bot-trainer:1.8.25; verified present in GHCR before clearing
+    # this, since the failure mode is a Sunday-morning ImagePullBackOff that
+    # nothing notices until the model is a week stale.
+    tag: ""
   # 04:40 Sunday UTC — after the daily collector, well away from it.
   schedule: "40 4 * * 0"
   timeZone: "Etc/UTC"
