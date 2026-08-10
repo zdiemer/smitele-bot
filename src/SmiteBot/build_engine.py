@@ -91,6 +91,77 @@ def offensive_share(items: Sequence[Any]) -> Optional[float]:
     return offence / total if total > 0 else None
 
 
+def protection_split(items: Sequence[Any]) -> Optional[float]:
+    """The share of a build's protections that are physical.
+
+    None when it bought none, which is a real answer rather than a missing
+    one — a full damage build has no protection split to align with anything.
+    """
+    physical = magical = 0.0
+    for item in items:
+        for prop in getattr(item, "item_properties", None) or []:
+            name = getattr(prop.attribute, "name", str(prop.attribute)).upper()
+            value = float(prop.flat_value or 0.0)
+            if "PHYSICAL_PROTECTION" in name:
+                physical += value
+            elif "MAGICAL_PROTECTION" in name:
+                magical += value
+
+    total = physical + magical
+    return physical / total if total > 0 else None
+
+
+def matchup_fit(
+    items: Sequence[Any],
+    context,
+    carries_anti_heal: Optional[Callable[[Sequence[Any]], bool]] = None,
+) -> float:
+    """How well a build suits the lobby, on a scale where zero is indifferent.
+
+    This is the whole trick for using a matchup with `/build`. The corpus knows
+    which builds win and knows nothing about who they were played against; the
+    lobby knows who you are against and nothing about what wins. Trying to
+    combine them by *filtering* the corpus is what the old raw-frame path did,
+    and it does not survive contact with reality: the aggregate does not carry
+    enemy composition, so filtering means scanning every player row, which
+    Smite 2 cannot do at all.
+
+    Scoring composes instead. The ranking decides which builds are good, and
+    this decides which of the good ones to show. A build is never invented or
+    excluded because of the lobby — it is reordered — so the answer stays
+    something that actually won.
+
+    Deliberately small in magnitude. It breaks ties between builds the ranking
+    already considers close, and must not promote a mediocre build for having
+    the right protections.
+    """
+    if context is None or not getattr(context, "known", False):
+        return 0.0
+
+    score = 0.0
+
+    # Anti-heal against a healer. The largest single thing a lobby can tell
+    # you, and the one the stat models both treat as a requirement rather than
+    # a preference.
+    if getattr(context, "wants_anti_heal", False) and carries_anti_heal is not None:
+        try:
+            if carries_anti_heal(items):
+                score += 1.0
+        except Exception:  # noqa: BLE001 — an unreadable passive is not a crash
+            pass
+
+    # Protections aimed at the damage actually being dealt. `physical_share` is
+    # 0.5 when the lobby is unknown, which makes this term zero rather than a
+    # nudge in an arbitrary direction.
+    share = protection_split(items)
+    wanted = getattr(context, "physical_share", 0.5)
+    if share is not None:
+        # Perfectly aligned scores 0.5, perfectly wrong scores -0.5.
+        score += 0.5 - abs(share - wanted)
+
+    return score
+
+
 def branches(
     candidates: Sequence[Dict],
     resolve: Callable[[Sequence[int]], Optional[List[Any]]],
@@ -133,6 +204,41 @@ def branches(
     if ahead is None or behind is None:
         return None
     return {"neutral": neutral, "ahead": ahead, "behind": behind}
+
+
+# How far a matchup may reorder the ranking. One place per unit of fit, so a
+# perfectly-aimed build can climb past two the ranking put above it and no
+# further. The ranking is measured against held-out win rates; this is not, so
+# it gets to break ties rather than overrule them.
+MATCHUP_WEIGHT: float = 2.0
+
+
+def for_lobby(
+    candidates: Sequence[Dict],
+    resolve: Callable[[Sequence[int]], Optional[List[Any]]],
+    context,
+    carries_anti_heal: Optional[Callable[[Sequence[Any]], bool]] = None,
+) -> Sequence[Dict]:
+    """Reorder a ranking so the lobby breaks its near-ties.
+
+    Position in the ranking is the cost, rather than the ranking's own score:
+    those scores are win rates a few points apart and a lobby term would either
+    vanish against them or swamp them, depending on the god. Ranks are the same
+    distance apart for everyone.
+    """
+    if context is None or not getattr(context, "known", False) or not candidates:
+        return candidates
+
+    scored = []
+    for position, candidate in enumerate(candidates):
+        items = resolve(candidate.get("items") or [])
+        fit = (
+            matchup_fit(items, context, carries_anti_heal) if items else 0.0
+        )
+        scored.append((position - MATCHUP_WEIGHT * fit, position, candidate))
+
+    scored.sort(key=lambda entry: (entry[0], entry[1]))
+    return [candidate for _, _, candidate in scored]
 
 
 def path_for(

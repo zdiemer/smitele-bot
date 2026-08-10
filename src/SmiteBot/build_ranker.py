@@ -315,16 +315,31 @@ class BuildStats:
             )
             rank = scorer(grouped["wplays"], grouped["wwins"])
         best_hash = grouped.index[int(np.argmax(rank))]
-        row = grouped.loc[best_hash]
+        return self.__described(
+            grouped,
+            grouped.loc[best_hash],
+            best_hash,
+            self.items_for(best_hash),
+            float(np.max(rank)),
+        )
 
+    def __described(self, grouped, row, build_hash, items, rank: float) -> Dict:
+        """One candidate, with everything /build's description quotes.
+
+        Shared by `best_build` and `ranked_builds` so a build reordered by a
+        matchup carries the same figures as one that was not — the alternative
+        was the second query returning a thinner dict, and the description
+        quietly reporting the wrong build's win rate.
+        """
         wins = float(row["wins"])
+        rated = float(row.get("rated_wins", 0.0))
         return {
-            "build_hash": best_hash,
-            "items": self.items_for(best_hash),
+            "build_hash": build_hash,
+            "items": items,
             "plays": int(row["plays"]),
             "wins": int(row["wins"]),
             "win_rate": float(row["wins"]) / max(float(row["plays"]), 1.0),
-            "rank": float(np.max(rank)),
+            "rank": rank,
             "unique_builds": int(grouped.shape[0]),
             # Stat sums are over winning rows, so the divisor is the win count.
             "avg_kills": float(row.get("sum_Kills_Player", 0.0)) / max(wins, 1.0),
@@ -332,14 +347,10 @@ class BuildStats:
             "avg_assists": float(row.get("sum_Assists", 0.0)) / max(wins, 1.0),
             "avg_damage": float(row.get("sum_Damage_Player", 0.0)) / max(wins, 1.0),
             "avg_rating": (
-                float(row.get("sum_rating", 0.0)) / float(row["rated_wins"])
-                if float(row.get("rated_wins", 0.0)) > 0
-                else 0.0
+                float(row.get("sum_rating", 0.0)) / rated if rated > 0 else 0.0
             ),
             "avg_tier": (
-                float(row.get("sum_tier", 0.0)) / float(row["rated_wins"])
-                if float(row.get("rated_wins", 0.0)) > 0
-                else 0.0
+                float(row.get("sum_tier", 0.0)) / rated if rated > 0 else 0.0
             ),
         }
 
@@ -452,15 +463,11 @@ class BuildStats:
             items = self.items_for(build_hash)
             if len(items) != len(ITEM_COLUMNS):
                 continue
-            row = grouped.iloc[int(position)]
             out.append(
-                {
-                    "build_hash": build_hash,
-                    "items": items,
-                    "plays": int(row["plays"]),
-                    "wins": int(row["wins"]),
-                    "rank": float(rank[int(position)]),
-                }
+                self.__described(
+                    grouped, grouped.iloc[int(position)], build_hash, items,
+                    float(rank[int(position)]),
+                )
             )
         return out
 

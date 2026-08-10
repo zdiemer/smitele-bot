@@ -185,3 +185,99 @@ class TestBuildingThePath:
             )
             is None
         )
+
+
+class TestMatchupFit:
+    """Reordering a ranking by the lobby, without letting it overrule one."""
+
+    def lobby(self, physical_share=0.5, wants_anti_heal=False, known=True):
+        return types.SimpleNamespace(
+            physical_share=physical_share,
+            wants_anti_heal=wants_anti_heal,
+            known=known,
+        )
+
+    def test_no_lobby_is_indifferent(self):
+        assert build_engine.matchup_fit(MIXED, None) == 0.0
+
+    def test_an_unknown_lobby_is_indifferent(self):
+        """team_context reports 0.5 physical when it knows nothing, which must
+        read as "no opinion" rather than "half and half is correct"."""
+        assert build_engine.matchup_fit(MIXED, self.lobby(known=False)) == 0.0
+
+    def test_physical_protections_score_higher_against_physical_damage(self):
+        physical = [item(20, prop("PHYSICAL_PROTECTION", 70))]
+        magical = [item(21, prop("MAGICAL_PROTECTION", 70))]
+        against_physical = self.lobby(physical_share=1.0)
+        assert build_engine.matchup_fit(physical, against_physical) > (
+            build_engine.matchup_fit(magical, against_physical)
+        )
+
+    def test_the_preference_reverses_against_magical_damage(self):
+        physical = [item(22, prop("PHYSICAL_PROTECTION", 70))]
+        magical = [item(23, prop("MAGICAL_PROTECTION", 70))]
+        against_magical = self.lobby(physical_share=0.0)
+        assert build_engine.matchup_fit(magical, against_magical) > (
+            build_engine.matchup_fit(physical, against_magical)
+        )
+
+    def test_a_build_with_no_protections_is_not_penalised(self):
+        """A damage build has no split to align; it should score neutral rather
+        than losing to every bruiser build in the pool."""
+        assert build_engine.matchup_fit(DAMAGE, self.lobby(physical_share=1.0)) == 0.0
+
+    def test_anti_heal_counts_only_when_a_healer_is_present(self):
+        carries = lambda items: True  # noqa: E731
+        with_healer = self.lobby(wants_anti_heal=True)
+        without = self.lobby(wants_anti_heal=False)
+        assert build_engine.matchup_fit(DAMAGE, with_healer, carries) > (
+            build_engine.matchup_fit(DAMAGE, without, carries)
+        )
+
+    def test_an_unreadable_passive_does_not_raise(self):
+        def explode(_items):
+            raise ValueError("no")
+
+        build_engine.matchup_fit(DAMAGE, self.lobby(wants_anti_heal=True), explode)
+
+
+class TestReorderingForALobby:
+    def lobby(self, physical_share=0.5, known=True):
+        return types.SimpleNamespace(
+            physical_share=physical_share, wants_anti_heal=False, known=known
+        )
+
+    def test_no_lobby_leaves_the_ranking_alone(self):
+        pool = candidates(DAMAGE, TANK)
+        assert build_engine.for_lobby(pool, resolver(DAMAGE, TANK), None) == pool
+
+    def test_a_near_tie_is_broken_by_the_lobby(self):
+        """The build aimed at the right damage type climbs past the one above
+        it, which is the whole point."""
+        physical = [item(30, prop("PHYSICAL_PROTECTION", 70))]
+        magical = [item(31, prop("MAGICAL_PROTECTION", 70))]
+        pool = candidates(magical, physical)
+        reordered = build_engine.for_lobby(
+            pool, resolver(magical, physical), self.lobby(physical_share=1.0)
+        )
+        assert reordered[0]["items"] == [physical[0].id]
+
+    def test_it_cannot_promote_a_build_from_far_down_the_ranking(self):
+        """A perfect fit is worth two places, not twenty. The ranking is
+        measured against held-out win rates and this is not."""
+        magical = [item(32, prop("MAGICAL_PROTECTION", 70))]
+        physical = [item(33, prop("PHYSICAL_PROTECTION", 70))]
+        pool = candidates(*([magical] * 6), physical)
+        reordered = build_engine.for_lobby(
+            pool, resolver(magical, physical), self.lobby(physical_share=1.0)
+        )
+        assert reordered[0]["items"] == [magical[0].id]
+
+    def test_ties_keep_their_original_order(self):
+        """Two builds the lobby cannot separate must come back in ranking
+        order, or the same request would answer differently twice."""
+        pool = candidates(DAMAGE, MIXED, TANK)
+        reordered = build_engine.for_lobby(
+            pool, resolver(DAMAGE, MIXED, TANK), self.lobby(physical_share=0.5)
+        )
+        assert [c["items"] for c in reordered] == [c["items"] for c in pool]

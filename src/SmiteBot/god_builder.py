@@ -418,7 +418,7 @@ class GodBuilder:
         )
 
         starters = tuple(item.id for item in self.__items.values() if item.is_starter)
-        best = stats.best_build(
+        query = dict(
             god_id=id_value(build_options.god_id),
             queue_id=queue_id,
             role=role,
@@ -426,6 +426,18 @@ class GodBuilder:
             require_starter=True,
             starter_ids=starters,
         )
+
+        # Ranked once and reused: the description, the build shown, and the
+        # tree's branches all come out of the same ordering, so they cannot
+        # disagree about which build is best.
+        candidates = stats.ranked_builds(**query)
+        context = self.__team_context(build_options)
+        if context is not None and context.known:
+            candidates = build_engine.for_lobby(
+                candidates, self.__resolve_items, context, self.__carries_anti_heal
+            )
+
+        best = candidates[0] if candidates else stats.best_build(**query)
         if best is None or not any(best["items"]):
             raise BuildFailedError
 
@@ -516,6 +528,34 @@ class GodBuilder:
             path=self.__aggregate_path(
                 stats, build_options, queue_id, role, starters, optimizer
             ),
+        )
+
+    def __resolve_items(self, item_ids):
+        """Recorded item ids as catalogue items, or None if any has gone.
+
+        A build referencing an item removed since the corpus recorded it cannot
+        be shown faithfully, so it drops out rather than being shown short.
+        """
+        items = [self.__items[i] for i in item_ids if i in self.__items]
+        return items if len(items) == len(item_ids) else None
+
+    def __carries_anti_heal(self, items) -> bool:
+        """Whether a build brings anti-heal, in whichever game's terms.
+
+        The two express it completely differently — a passive attribute on the
+        item in Smite 1, text on the wiki page in Smite 2 — so this is the seam
+        rather than a shared notion.
+        """
+        if self.__provider is not None and self.__provider.game is Game.SMITE_2:
+            import smite2_stats  # noqa: PLC0415
+
+            return any(smite2_stats.carries_anti_heal(item) for item in items)
+
+        from passive_parser import PassiveAttribute  # noqa: PLC0415
+
+        return any(
+            PassiveAttribute.ANTIHEAL in (item.passive_properties or [])
+            for item in items
         )
 
     def __aggregate_path(
@@ -903,16 +943,17 @@ class GodBuilder:
     def ml(self, build_options: BuildOptions) -> GeneratedBuild:
         # The aggregate is the intended path: it covers the whole corpus, which
         # is far too large to hold as rows. The raw-frame version below remains
-        # for installs where no aggregate has been built yet, and for the team
-        # composition filters, which need per-match detail the aggregate
-        # deliberately does not keep.
+        # only for installs where no aggregate has been built yet.
+        #
+        # A lobby used to divert here too, on the reasoning that filtering by
+        # team composition needs per-match detail the aggregate does not keep.
+        # True, and the wrong conclusion: Smite 2 has no raw frame at all, so
+        # that branch raised BuildFailedError for it — /build broke precisely
+        # when it learned the most about what the player was up against. The
+        # aggregate now takes the matchup as a *scoring* input instead, which
+        # composes rather than filters and works for both games.
         stats = self.__provider.build_stats
-        if (
-            stats is not None
-            and not build_options.was_random_god()
-            and not build_options.enemies
-            and not build_options.allies
-        ):
+        if stats is not None and not build_options.was_random_god():
             return self.__ml_from_aggregate(build_options, stats)
 
         if self.__provider.player_matches is None:
