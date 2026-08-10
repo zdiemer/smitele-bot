@@ -1,0 +1,15 @@
+# Images are built and pushed from a laptop via build.sh; CI only proves a PR
+# (usually a Renovate bump) still builds the main bot image: base tag exists,
+# Pipfile.lock resolves under pipenv install --deploy. The derived images
+# (train/s2collector/web) build FROM this one and are exercised by build.sh.
+name: build
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f Dockerfile .

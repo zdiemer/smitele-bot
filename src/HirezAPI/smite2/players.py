@@ -30,6 +30,13 @@ CACHE_SECONDS = 180
 # does not get. Held far longer on purpose.
 PROFILE_CACHE_SECONDS = 900
 
+# A lobby's roster is fixed the moment the match starts, so the only thing this
+# staleness can cost is answering for a match that has just ended — a minute of
+# that is worth far more than re-fetching for every command. It also bounds what
+# a linked player can spend: `/build` asks on every invocation, and without a
+# cache a chatty channel would put the crawl's request budget on the floor.
+LIVE_MATCH_CACHE_SECONDS = 60
+
 FIRST_MATCH_FILE = "first_match.json"
 PAGE_COUNT_FILE = "page_count.json"
 
@@ -128,6 +135,69 @@ class MatchSummary:
     assists: int
     skill_rating: Optional[float]
     skill_rating_delta: Optional[float]
+
+
+@dataclass
+class LivePlayer:
+    god: str
+    team: str
+    handle: str
+
+
+@dataclass
+class LiveMatch:
+    """A lobby in progress, as much of it as tracker.gg will say.
+
+    `team` is `order` or `chaos` rather than a number, and `own_team` is what
+    turns the ten players into allies and enemies — which is the one thing the
+    Smite 1 path cannot do without guessing, since `getmatchplayerdetails`
+    labels no lanes.
+    """
+
+    match_id: str
+    mode: str
+    mode_name: str
+    ranked: bool
+    own_god: str
+    own_team: str
+    players: List[LivePlayer]
+
+    @property
+    def allies(self) -> List[str]:
+        """Team-mates' gods, excluding the player themselves."""
+        found = [p.god for p in self.players if p.team == self.own_team]
+        try:
+            found.remove(self.own_god)
+        except ValueError:
+            pass
+        return found
+
+    @property
+    def enemies(self) -> List[str]:
+        return [p.god for p in self.players if p.team and p.team != self.own_team]
+
+
+def _live_player(segment: Dict[str, Any]) -> Optional[LivePlayer]:
+    """One player out of a match segment, or None if it is not a player row.
+
+    A match carries twelve segments and only ten of them are players; the god
+    name is what distinguishes them, not the segment type, which is `overview`
+    for both the per-player rows and the lobby's own summary.
+    """
+    metadata = segment.get("metadata") or {}
+    god = metadata.get("godName")
+    if not god:
+        return None
+    attributes = segment.get("attributes") or {}
+    platform_info = metadata.get("platformInfo")
+    handle = ""
+    if isinstance(platform_info, dict):
+        handle = platform_info.get("platformUserHandle") or ""
+    return LivePlayer(
+        god=str(god),
+        team=str(attributes.get("teamId") or metadata.get("teamId") or ""),
+        handle=str(handle),
+    )
 
 
 class PlayerLookups:
@@ -275,6 +345,67 @@ class PlayerLookups:
                 if len(out) >= limit:
                     break
         return self.__store(key, out)
+
+    async def live_match(
+        self, platform: str, handle: str
+    ) -> Optional["LiveMatch"]:
+        """The lobby this player is in, or None if they are not in one.
+
+        Two requests: one to learn the match id and which side the player is
+        on, one to read the other nine. Cached briefly because a lobby changes
+        only when the match ends, and because `/build` will ask for this on
+        every invocation from a linked player — the same reason the rate
+        limiter is held by the provider rather than per command.
+
+        Not-in-a-match is the common answer and costs exactly one request, and
+        the negative is cached too. Any failure returns None: a build should
+        lose its matchup, never its response.
+        """
+        key = f"live:{platform}:{handle}"
+        cached = self.__cached(key, LIVE_MATCH_CACHE_SECONDS)
+        if cached is not None:
+            return cached or None
+
+        try:
+            async with self.__client_factory() as client:
+                own = await client.live_match(platform, handle)
+                match_id = ((own.get("attributes") or {}).get("id")) if own else None
+                if not match_id:
+                    # Cache the negative as a falsy sentinel; None would mean
+                    # "not asked yet" and re-request on every command.
+                    self.__store(key, False)
+                    return None
+                mine = _live_player(own)
+                match = await client.match(str(match_id))
+        except Exception as error:  # noqa: BLE001 — never fatal to a command
+            self.__log(f"live match lookup failed: {error}")
+            return None
+
+        players = [
+            player
+            for player in (
+                _live_player(segment) for segment in (match.get("segments") or [])
+            )
+            if player is not None
+        ]
+        if mine is None or not players:
+            self.__store(key, False)
+            return None
+
+        metadata = match.get("metadata") or {}
+        attributes = match.get("attributes") or {}
+        return self.__store(
+            key,
+            LiveMatch(
+                match_id=str(match_id),
+                mode=str(attributes.get("gamemode") or ""),
+                mode_name=str(metadata.get("gamemodeName") or ""),
+                ranked=bool(metadata.get("isRanked")),
+                own_god=mine.god,
+                own_team=mine.team,
+                players=players,
+            ),
+        )
 
     async def page_count(self, platform: str, handle: str) -> int:
         """How many pages of history a player has.

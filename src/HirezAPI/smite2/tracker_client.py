@@ -664,6 +664,37 @@ class TrackerClient:
         )
         return body.get("data") or {}
 
+    async def live_match(self, platform: str, handle: str) -> Dict[str, Any]:
+        """The match this player is in right now, or an empty dict.
+
+        This is the only route that names a live match. The profile says
+        `metadata.liveMatch: true` and stops there, the match list contains only
+        `closed` matches, and `/profile/…/{live,livematch,session}` do not
+        exist — all three checked against a real live match rather than assumed,
+        by `scripts/probe_live_match.py`.
+
+        The response is *not* a lobby: it is one `overview` segment for this
+        player alone, carrying their god, their team, and the match id. Pass
+        that id to `match()` for the other nine.
+        """
+        body = await self.get_json(
+            f"/api/v2/{GAME_SLUG}/standard/matches/{platform}/{handle}/live"
+        )
+        return (body or {}).get("data") or {}
+
+    async def match(self, match_id: str) -> Dict[str, Any]:
+        """One match by id, running or finished.
+
+        A live one carries `isLive: true`, `state: "pending"`, `isSnapshot:
+        true` and no `winningTeamId`; the ten player segments are already
+        populated with gods and teams, so a lobby is readable long before the
+        result is.
+        """
+        body = await self.get_json(
+            f"/api/v2/{GAME_SLUG}/standard/matches/{match_id}"
+        )
+        return (body or {}).get("data") or {}
+
     async def segments(
         self, platform: str, handle: str, kind: str
     ) -> List[Dict[str, Any]]:
