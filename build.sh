@@ -51,7 +51,12 @@ fi
 # Skipped with SKIP_TRAINER=1, since it is a slow ~800MB layer and most changes
 # don't touch training.
 if [[ "${SKIP_TRAINER:-0}" != "1" ]]; then
-  TRAINER_REPO="$(awk -F'"' '/smitele-bot-trainer/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
+  # Match the `repository:` key, not the image name anywhere in the file, and
+  # stop at the first hit. Grepping for the name alone also matched a *comment*
+  # mentioning the image, and the two lines were joined into
+  # "…trainer\nsmitele-bot-trainer:1.8.25;:1.9.0" — a tag docker rejects, after
+  # the bot image had already built and pushed.
+  TRAINER_REPO="$(awk '/^[[:space:]]*repository:[[:space:]]*.*smitele-bot-trainer/{print $2; exit}' "${HERE}/values.yaml" | tr -d '"')"
   TRAINER_IMAGE="${TRAINER_REPO:-ghcr.io/zdiemer/smitele-bot-trainer}:${TAG}"
 
   if command -v docker >/dev/null; then
