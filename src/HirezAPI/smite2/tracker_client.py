@@ -708,56 +708,6 @@ class TrackerClient:
         )
         return body.get("data") or []
 
-    async def page_count(
-        self, platform: str, handle: str, ceiling: int = 4096, known: int = 0
-    ) -> int:
-        """How many pages of history a player has, found by search rather than walk.
-
-        Verified before relying on it: pages are dense below the end and empty
-        above — an active player returned 25 matches at `next=256` and nothing
-        at 512 — with timestamps decreasing monotonically and no overlap between
-        pages. So the count is findable: double until an empty page brackets it,
-        then bisect. That is ~18 requests against the 250+ a sequential walk
-        would cost for a player with two years of history.
-
-        Each probe abandons its response after the first match, so it costs a
-        fraction of the 2.9 MB a full page transfers.
-
-        `known` is a previous answer for this player. A history only ever grows,
-        so the page that had matches last time still does, which makes an old
-        count a *correct lower bound* rather than a cache that can go stale —
-        and starting the doubling there turns ~24 probes into ~3. Verified
-        rather than trusted, because an account can be reset or a handle reused,
-        and the fallback costs one request.
-        """
-
-        async def has_matches(page: int) -> bool:
-            async for _ in self.iter_matches(platform, handle, page):
-                # Breaking closes the generator, which unwinds the streaming
-                # context manager and aborts the rest of the download.
-                return True
-            return False
-
-        low = high = 0
-        if known > 0 and await has_matches(known - 1):
-            low, high = known - 1, known
-        else:
-            if not await has_matches(0):
-                return 0
-            low, high = 0, 1
-
-        while high < ceiling and await has_matches(high):
-            low, high = high, high * 2
-
-        # low has matches, high does not (or is the ceiling).
-        while low + 1 < high:
-            middle = (low + high) // 2
-            if await has_matches(middle):
-                low = middle
-            else:
-                high = middle
-        return low + 1
-
 
 def leaderboard_players(items: Iterable[Dict[str, Any]]) -> List[tuple]:
     """`(platform, identifier)` pairs out of a leaderboard page.

@@ -35,7 +35,7 @@ Smite-1-only rather than broken.
 | `/build`, `/edge` | ✅ | ✅ once the crawl and aggregate have run |
 | `/random_build` | ✅ | ✅ |
 | `/optimize` | ✅ | ✅ |
-| `/queue_stats`, `/rank`, `/worshippers`, `/match_history`, `/first_match` | ✅ Hi-Rez | ✅ tracker.gg, per player |
+| `/queue_stats`, `/rank`, `/worshippers`, `/match_history` | ✅ Hi-Rez | ✅ tracker.gg, per player |
 | `/live_match` | ✅ | ❌ tracker.gg does not expose the lobby |
 
 ### `/build` versus `/optimize`

@@ -6,14 +6,11 @@ right for aggregate build win rates and wrong for "how has this player done on
 Anubis". Asked per player, the same source answers exactly and completely.
 
 Everything here is cached briefly, because a Discord user pressing a command
-twice should not cost two multi-megabyte transfers, and `/first_match` is cached
-forever, because the first match two people played together does not change.
+twice should not cost two multi-megabyte transfers.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -25,9 +22,9 @@ from smite2.tracker_client import PLATFORMS
 # short and applies only to the match list.
 CACHE_SECONDS = 180
 
-# Aggregates — profiles, per-god segments, how deep a history goes — do not move
-# in three minutes, and every request the bot spends is one the nightly crawl
-# does not get. Held far longer on purpose.
+# Aggregates — profiles, per-god segments — do not move in three minutes, and
+# every request the bot spends is one the nightly crawl does not get. Held far
+# longer on purpose.
 PROFILE_CACHE_SECONDS = 900
 
 # A lobby's roster is fixed the moment the match starts, so the only thing this
@@ -36,15 +33,6 @@ PROFILE_CACHE_SECONDS = 900
 # a linked player can spend: `/build` asks on every invocation, and without a
 # cache a chatty channel would put the crawl's request budget on the floor.
 LIVE_MATCH_CACHE_SECONDS = 60
-
-FIRST_MATCH_FILE = "first_match.json"
-PAGE_COUNT_FILE = "page_count.json"
-
-# How deep /first_match will search before giving up. An active player reaches
-# ~256 pages over two years, so 512 is already generous; the old 4096 bought
-# nothing and cost three extra probes per player on every single call, because
-# the doubling search walks to the ceiling before it can bisect.
-MAX_PAGES = 512
 
 
 def parse_player(value: str, default_platform: str = "steam") -> Tuple[str, str]:
@@ -217,45 +205,10 @@ def _live_player(segment: Dict[str, Any]) -> Optional[LivePlayer]:
 class PlayerLookups:
     """tracker.gg per-player reads, with the caching the bot needs."""
 
-    def __init__(self, client_factory, cache_dir: Optional[str] = None, silent=False):
+    def __init__(self, client_factory, silent=False):
         self.__client_factory = client_factory
         self.__cache: Dict[str, Tuple[float, Any]] = {}
         self.__silent = silent
-        self.__first_match_path = (
-            os.path.join(cache_dir, FIRST_MATCH_FILE) if cache_dir else None
-        )
-        self.__page_count_path = (
-            os.path.join(cache_dir, PAGE_COUNT_FILE) if cache_dir else None
-        )
-        self.__first_match: Dict[str, Any] = self.__restore(self.__first_match_path)
-        self.__page_counts: Dict[str, Any] = self.__restore(self.__page_count_path)
-
-    @staticmethod
-    def __restore(path: Optional[str]) -> Dict[str, Any]:
-        """A remembered mapping, or an empty one. Never raises: both of these
-        are optimisations, and a bad file should cost requests, not the bot."""
-        if not path:
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                loaded = json.load(handle)
-        except (OSError, ValueError):
-            return {}
-        return loaded if isinstance(loaded, dict) else {}
-
-    def __persist(self, path: Optional[str], data: Dict[str, Any]) -> None:
-        """Write-to-partial then rename, because the bot and the web pods read
-        these files without coordinating and a torn read is worse than a miss."""
-        if not path:
-            return
-        partial = f"{path}.partial"
-        try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with open(partial, "w", encoding="utf-8") as handle:
-                json.dump(data, handle)
-            os.replace(partial, path)
-        except OSError as error:
-            self.__log(f"could not persist {os.path.basename(path)}: {error}")
 
     def __log(self, message: str) -> None:
         if not self.__silent:
@@ -449,109 +402,6 @@ class PlayerLookups:
                 snapshot_at=snapshot_at,
             ),
         )
-
-    async def page_count(self, platform: str, handle: str) -> int:
-        """How many pages of history a player has.
-
-        Remembered on disk as well as in memory, because the answer is a
-        *monotonic* one: a history only grows, so yesterday's count is still a
-        correct lower bound today. Handing it back as the search's starting
-        point turns roughly twenty-four probes into three, which is the
-        difference between `/first_match` costing a third of an hour's
-        allowance and costing almost none of it.
-        """
-        key = f"pages:{platform}:{handle}"
-        cached = self.__cached(key, PROFILE_CACHE_SECONDS)
-        if cached is not None:
-            return cached
-        remembered = int(self.__page_counts.get(key) or 0)
-        async with self.__client_factory() as client:
-            count = await client.page_count(
-                platform, handle, ceiling=MAX_PAGES, known=remembered
-            )
-        if count and count != remembered:
-            self.__page_counts[key] = count
-            self.__persist(self.__page_count_path, self.__page_counts)
-        return self.__store(key, count)
-
-    # --- /first_match ----------------------------------------------------
-
-    @staticmethod
-    def __pair_key(one: Tuple[str, str], two: Tuple[str, str]) -> str:
-        return "|".join(sorted((f"{one[0]}:{one[1]}", f"{two[0]}:{two[1]}")))
-
-    def cached_first_match(
-        self, one: Tuple[str, str], two: Tuple[str, str]
-    ) -> Optional[Dict[str, Any]]:
-        return self.__first_match.get(self.__pair_key(one, two))
-
-    def __remember_first_match(
-        self, one: Tuple[str, str], two: Tuple[str, str], value: Dict[str, Any]
-    ) -> None:
-        self.__first_match[self.__pair_key(one, two)] = value
-        self.__persist(self.__first_match_path, self.__first_match)
-
-    async def first_shared_match(
-        self, one: Tuple[str, str], two: Tuple[str, str], budget: int = 40
-    ) -> Optional[Dict[str, Any]]:
-        """The earliest match these two players appear in together.
-
-        Two properties make this affordable. History is ordered — page N is
-        strictly older than page N-1, with no overlap — and a page past the end
-        is empty, so the oldest page is found by doubling then bisecting rather
-        than by walking every page. And the answer never changes, so it is
-        written to disk and never recomputed.
-
-        The search then walks *backwards from the oldest page*, because two
-        people who have played together for a while first did so near the start
-        of the shorter history. `budget` bounds the pages read so one
-        interaction cannot run away.
-        """
-        remembered = self.cached_first_match(one, two)
-        if remembered is not None:
-            return remembered
-
-        async with self.__client_factory() as client:
-            deepest = min(
-                await client.page_count(*one, ceiling=MAX_PAGES),
-                await client.page_count(*two, ceiling=MAX_PAGES),
-            )
-            if deepest == 0:
-                return None
-
-            found = None
-            for offset in range(min(budget, deepest)):
-                page = deepest - 1 - offset
-                if page < 0:
-                    break
-                theirs = {}
-                async for match in client.iter_matches(*one, page):
-                    theirs[match["attributes"]["id"]] = match
-                if not theirs:
-                    continue
-                shared = []
-                async for match in client.iter_matches(*two, page):
-                    if match["attributes"]["id"] in theirs:
-                        shared.append(match)
-                if shared:
-                    # Oldest on the page, since a page runs newest-first.
-                    found = min(
-                        shared, key=lambda m: m["metadata"].get("timestamp") or ""
-                    )
-                    break
-
-            if found is None:
-                return None
-
-        result = {
-            "match_id": found["attributes"]["id"],
-            "timestamp": found["metadata"].get("timestamp"),
-            "mode": found["metadata"].get("gamemodeName")
-            or found["attributes"].get("gamemode"),
-            "duration": found["metadata"].get("duration"),
-        }
-        self.__remember_first_match(one, two, result)
-        return result
 
 
 def _summarise(

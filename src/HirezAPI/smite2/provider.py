@@ -73,11 +73,7 @@ class Smite2Provider:
         # Per-player reads go to tracker.gg rather than to the corpus. The
         # corpus is a snowball sample and cannot answer "how has this player
         # done on Anubis"; asked per player, the same source answers exactly.
-        self.players = PlayerLookups(
-            self.__tracker_client,
-            cache_dir=os.path.dirname(paths.game_data_file(self.game, "x")),
-            silent=silent,
-        )
+        self.players = PlayerLookups(self.__tracker_client, silent=silent)
 
     def __log(self, message: str) -> None:
         if not self.__silent:
@@ -107,9 +103,9 @@ class Smite2Provider:
         The *limiter* is shared for a related reason. A client is built per
         command, and a fresh limiter has never issued a request, so its first
         `wait()` returns immediately — which meant the bot had no effective
-        pacing at all and one `/first_match` could spend a hundred requests as
-        fast as the network allowed. Holding it here makes the gap a property
-        of the address rather than of the command.
+        pacing at all and a command reading many pages could spend a hundred
+        requests as fast as the network allowed. Holding it here makes the gap
+        a property of the address rather than of the command.
         """
         if self.__limiter is None:
             self.__limiter = RateLimiter()

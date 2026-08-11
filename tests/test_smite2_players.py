@@ -177,19 +177,6 @@ class TestEmbeds:
         embed = embeds.match_history("steam", "42", matches)
         assert "Win" in embed.fields[0].value
 
-    def test_first_match_without_a_result_explains_the_bound(self):
-        embed = embeds.first_match(("steam", "1"), ("steam", "2"), None, 40)
-        assert "40 pages" in embed.description
-
-    def test_first_match_with_a_result(self):
-        embed = embeds.first_match(
-            ("steam", "1"),
-            ("steam", "2"),
-            {"timestamp": "2026-08-06T13:39:00+00:00", "mode": "Assault", "duration": 1200},
-            40,
-        )
-        assert "Assault" in embed.description
-
 
 class TestPlayerParsing:
     @pytest.mark.parametrize(

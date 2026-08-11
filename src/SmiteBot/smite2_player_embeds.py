@@ -9,7 +9,7 @@ else, so they share no code either.
 from __future__ import annotations
 
 import datetime
-from typing import Iterable, List, Optional, Tuple
+from typing import List, Optional
 
 import discord
 
@@ -220,27 +220,3 @@ def match_history(
             inline=False,
         )
     return embed
-
-
-def first_match(
-    one: Tuple[str, str], two: Tuple[str, str], found: Optional[dict], searched: int
-) -> discord.Embed:
-    left = _handle(*one)
-    right = _handle(*two)
-    if found is None:
-        return discord.Embed(
-            color=discord.Color.gold(),
-            title="No match found together",
-            description=(
-                f"Couldn't find a match **{left}** and **{right}** both played "
-                f"in, within the oldest {searched} pages of each history."
-            ),
-        )
-    return discord.Embed(
-        color=discord.Color.blue(),
-        title=f"{left} and {right} first played together",
-        description=(
-            f"{_when(found['timestamp'])} in **{found.get('mode') or 'a match'}**"
-            f" lasting {_duration(found.get('duration') or 0)}."
-        ),
-    )
