@@ -104,6 +104,7 @@ class RallyHereCapture:
         self.state: Dict[str, Any] = {}
         self._last_token: Optional[str] = None
         self._seen_hosts: set[str] = set()
+        self._seen_auth: set[str] = set()
 
     # --- diagnostics: are we even seeing the game's traffic? ----------------
     def _note_host(self, host: str) -> None:
@@ -118,6 +119,15 @@ class RallyHereCapture:
         self._note_host(host)
         if not _is_rh_host(host):
             return
+        # Auth endpoints: record HOW the client mints/renews its token -- the
+        # request path, the Basic client credential it presents, and the body --
+        # so YOU can refresh YOUR OWN token without relaunching the game every
+        # few hours. This is the app credential your own client already uses on
+        # your behalf; keeping your own session alive with it for personal use
+        # is the point. Do not publish it or point it at players who aren't you
+        # and yours -- that's the line the README draws.
+        if any(hint in flow.request.path.lower() for hint in AUTH_HINTS):
+            self._capture_auth_request(flow)
         auth = flow.request.headers.get("Authorization", "")
         if not auth.lower().startswith("bearer "):
             return
@@ -125,6 +135,35 @@ class RallyHereCapture:
         if token and token != self._last_token:
             self._last_token = token
             self._on_token(token, f"{flow.request.scheme}://{host}")
+
+    def _capture_auth_request(self, flow: http.HTTPFlow) -> None:
+        """Record a login/token request verbatim: the recipe to renew a token."""
+        authz = flow.request.headers.get("Authorization", "")
+        try:
+            body: Any = json.loads(flow.request.get_text() or "null")
+        except (ValueError, TypeError):
+            body = flow.request.get_text()
+        entry: Dict[str, Any] = {
+            "method": flow.request.method,
+            "url": f"{flow.request.scheme}://{flow.request.pretty_host}{flow.request.path}",
+            "authorization": authz,
+            "body": body,
+        }
+        # The token endpoint's Basic header decodes to client_id:client_secret.
+        if authz.lower().startswith("basic "):
+            try:
+                entry["client_basic_decoded"] = base64.b64decode(
+                    authz.split(" ", 1)[1]
+                ).decode("utf-8", "replace")
+            except (binascii.Error, ValueError):
+                pass
+        key = json.dumps([entry["method"], entry["url"], entry["body"]], default=str, sort_keys=True)
+        if key in self._seen_auth:
+            return
+        self._seen_auth.add(key)
+        self.state.setdefault("auth_requests", []).append(entry)
+        self._write()
+        print(f"[capture] auth request: {entry['method']} {entry['url']}", file=sys.stderr)
 
     def response(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host

@@ -136,10 +136,25 @@ python scripts/probe_rallyhere.py ... --proxy http://100.121.204.109:3129
 A `200` direct but `401` through the VPS means RallyHere pins the bearer to an
 IP/geo — worth knowing before any repeated probing.
 
-## The refresh token is the point (Plan B only)
+## Renewing your token without relaunching the game
 
-The access token dies in minutes to ~an hour; the **refresh token** the addon
-grabs from the auth response lives far longer. Capture it once and you can mint
-fresh access tokens yourself — the game needn't be running — until it expires.
-That's fine for a one-shot investigation on your own account; it's the exact
-loop `docs/smite2-live-data.md` warns off a *deployed* bot for ToS reasons.
+The access token lasts ~6 hours; re-capturing it means launching the game under
+mitmproxy every time, which is tedious for a personal tool. To renew without
+that, the addon also records the client's **auth requests** into
+`rh_capture.json` under `auth_requests` — each login/token call's method, URL,
+body, and the `Authorization: Basic` header (decoded to `client_id:client_secret`
+in `client_basic_decoded`). That's the recipe your own client uses to mint a
+token; replaying it lets you refresh your own session headlessly.
+
+Note the RallyHere spec exposes no plain `grant_type=refresh_token` endpoint, so
+what the capture shows is the ground truth of how *this* client renews —
+whether a refresh call or a re-login with a fresh Steam ticket. Read
+`auth_requests` to see which.
+
+**Scope this to yourself.** That Basic value is the application's embedded
+credential, shared across all clients. Using it to keep *your own* session alive
+for *your own* (and consenting friends') data is a personal-use call you're
+entitled to make. Publishing the secret, or pointing a headless minter at
+players who aren't you and yours, is the line — it's the unauthorized automated
+client `docs/smite2-live-data.md` warns gets the endpoint locked down for
+everyone, and it risks bans tied back to your real account.
