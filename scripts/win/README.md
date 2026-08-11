@@ -76,8 +76,18 @@ Work it in this order; only the last is genuine pinning:
    `SSL_CERT_FILE` / `CURL_CA_BUNDLE`. Set one to a bundle that includes
    `%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem` and restart Steam. Works
    unless the app hardcodes its CA path.
-3. **Append to the game's bundle.** Find `cacert.pem` / `ca-bundle.crt` in the
-   Smite 2 install dir and append `mitmproxy-ca-cert.pem` to it.
+3. **Append to the game's bundle** — `Add-MitmCA.ps1` does this for you. It finds
+   every multi-cert bundle in the Smite 2 install, backs each up, and appends
+   mitmproxy's CA:
+
+   ```powershell
+   .\Add-MitmCA.ps1 -List     # preview what it found, change nothing
+   .\Add-MitmCA.ps1           # append (keeps a .rhbak of each original)
+   .\Add-MitmCA.ps1 -Revert   # undo
+   ```
+
+   Restart Steam + Smite 2 afterward so the client reloads the bundle. (Pass
+   `-GamePath` if your install isn't at the default Steam location.)
 4. **Still rejected after all of that → true pinning** (`CURLOPT_PINNEDPUBLICKEY`
    or a custom verify callback). That's the wall; see below.
 
