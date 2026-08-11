@@ -31,12 +31,17 @@ Plan B.
 ## Plan B — MITM the game only, never the system
 
 `Capture-RHToken.ps1` runs mitmproxy as a **plain local listener on
-127.0.0.1:8080** and changes nothing else. It captures nothing until you route
-an app to it.
+127.0.0.1:8080**. It does not touch the WinINET system proxy (so your browser is
+safe). The client's TLS fingerprint (JA4 `t13d3113h1…`, no GREASE,
+OpenSSL-style cipher list, ALPN http/1.1) identifies it as **libcurl + OpenSSL**
+— which ignores the WinINET proxy but **honors the `HTTP_PROXY`/`HTTPS_PROXY`
+env vars**. So by default the script sets those (at User scope, restored on
+exit) and you just restart Steam:
 
 ```powershell
 pip install mitmproxy            # or: winget install mitmproxy.mitmproxy
-.\Capture-RHToken.ps1            # trusts the mitmproxy CA on first run
+.\Capture-RHToken.ps1            # sets HTTP(S)_PROXY, trusts the CA, listens
+# -> then FULLY quit Steam (tray -> Exit) and relaunch it, then start Smite 2.
 ```
 
 Confirm the listener works, independently of the game:
@@ -45,35 +50,48 @@ Confirm the listener works, independently of the game:
 curl.exe -x http://127.0.0.1:8080 http://example.com
 ```
 
-A flow line should appear in the mitmproxy window. Once it does, the only task
-left is routing the **game** to the proxy — and because Smite 2 ignores the
-Windows system proxy, use a socket-level forwarder:
-
-- **Proxifier** (30-day trial) or **ProxyCap**: add proxy `127.0.0.1:8080` type
-  HTTPS, then a rule sending `Smite2.exe` (and any EOS / RallyHere helper `.exe`)
-  to it. This forces the app's TCP through the proxy whether or not it honors
-  any proxy setting.
-
-Then start Smite 2 and watch for:
+Then watch for:
 
 ```
 [capture] first flow to <host>...rally-here.io  <-- RallyHere
 ```
 
-The addon logs the first flow to **every** host (not just RallyHere), so if you
-route the game and still see nothing, the game isn't going through the forwarder
-— fix the Proxifier rule. If you see a `rally-here.io` attempt that fails on a
-TLS/certificate error, that's **certificate pinning** (below).
+The addon logs the first flow to **every** host, so if you route the game and
+still see nothing, it isn't inheriting the env vars — confirm you restarted
+Steam *after* the script set them. If the env-var route just doesn't take, run
+`.\Capture-RHToken.ps1 -NoProxyEnv` and force `Smite2.exe` through
+`127.0.0.1:8080` with **Proxifier** (30-day trial) or **ProxyCap** at the socket
+layer instead — that works regardless of what the client honors.
+
+### The cert step is the real obstacle, and it's usually not pinning
+
+Because the client is **OpenSSL**, it does **not** read the Windows cert store by
+default — it validates against a **bundled `cacert.pem`**. So trusting
+mitmproxy's CA in Windows (which the script does) may not be enough on its own.
+Work it in this order; only the last is genuine pinning:
+
+1. **Trust in Windows** — already done by the script; some curl builds do use the
+   native store (`CURLSSLOPT_NATIVE_CA`), so try it first.
+2. **Point OpenSSL's env override at mitmproxy's CA.** OpenSSL/libcurl honor
+   `SSL_CERT_FILE` / `CURL_CA_BUNDLE`. Set one to a bundle that includes
+   `%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem` and restart Steam. Works
+   unless the app hardcodes its CA path.
+3. **Append to the game's bundle.** Find `cacert.pem` / `ca-bundle.crt` in the
+   Smite 2 install dir and append `mitmproxy-ca-cert.pem` to it.
+4. **Still rejected after all of that → true pinning** (`CURLOPT_PINNEDPUBLICKEY`
+   or a custom verify callback). That's the wall; see below.
 
 ## What Wireshark can and can't do here
 
 Wireshark captures packets but **cannot read the token** — it's inside the TLS
 stream, and you have no key to decrypt it (the game won't emit an
 `SSLKEYLOGFILE`). What it *can* do, passively and without any interception, is
-read the **`server_name` (SNI)** out of the TLS ClientHello — which is exactly
-the `<env-id>.rally-here.io` env host, and confirms the game is talking to
-RallyHere at all. So Wireshark is a fine way to get the env host and prove the
-traffic exists; it is not a way to get the token. Filter: `tls.handshake.extensions_server_name contains "rally-here"`.
+read the **`server_name` (SNI)** out of the TLS ClientHello. That's how the env
+host was found: the API is `api-smite2.titanforgegames.com` (Titan Forge fronts
+its RallyHere env behind that CNAME, on Azure — the `rally-here.io` DNS lookups
+are the SDK resolving sibling services). Wireshark gets you the env host and
+proves the traffic exists; it is not a way to get the token. Filter:
+`tls.handshake.extensions_server_name contains "titanforgegames"`.
 
 ## The pinning wall
 
