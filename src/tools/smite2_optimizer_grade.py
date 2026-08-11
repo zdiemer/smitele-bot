@@ -42,9 +42,18 @@ alone:
   builds are Pareto-efficient against what people run, and they strictly beat a
   median of five corpus builds. Where the DPS axes are exactly what the role
   wants, the stat-model optimizer already keeps up with human build knowledge.
-- Solo at 50% is real signal: the dominated builds are ones the optimizer
-  over-tanks, where a more damage-leaning corpus build wins on the ehp*damage
-  product. Worth feeding back into the solo profile.
+- Solo at 50% looked at first like the optimizer over-tanking, but the
+  corpus reversed it on inspection, and the reversal is the useful part.
+  Across solo builds, win rate correlates +0.22 with effective HP and -0.22
+  with damage: the winning solo builds are *tankier*, not more damage-leaning,
+  so shifting the solo profile toward damage would move away from what wins.
+  Yet within a single god, EHP alone is a near-random ranker (0.508
+  concordance on the deep Smite 1 corpus) while the ehp*damage product and raw
+  kill speed both order builds well (~0.573). Tankier gods and builds win
+  between gods; damage still separates builds within one. The product axis is
+  right to keep, and the honest conclusion is *no profile change* — the 50% is
+  a real-but-imperfect axis meeting an optimizer that targets corpus averages,
+  not a defect a hand-tuned constant should paper over.
 - Support at 45% is the metric's blind spot, not the optimizer's failure. The
   support vector is (effective HP, cooldown rate) by design — utility, auras and
   crowd control are deliberately absent, kept in the optimizer — so a corpus
