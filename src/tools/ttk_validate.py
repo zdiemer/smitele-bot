@@ -108,6 +108,11 @@ is that reduced weave is not modelling aim, it is de-weighting a bruiser's
 offensive stat-sticks toward the survival its lane rewards — which is the
 role-shaped scoring these roles need, stood in for by one constant each
 until the vector exists.
+
+Across all five roles at once, with the calibrated ROLE_WEAVE applied: 259
+cells, median rho -0.18, correctly signed in 186 and best-third-faster in
+188. That is where the sim stands before any role-shaped objective, working
+from the corpus and the game's own numbers alone.
 """
 
 from __future__ import annotations
