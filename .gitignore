@@ -1,6 +1,9 @@
 # Note: this also covers config.json, which holds the Discord token and the
 # Hi-Rez dev ID / auth key.
 *.json
+# …but renovate.json is tracked config, not state — without this negation the
+# blanket rule silently dropped it from the onboarding commit.
+!/renovate.json
 
 # …but the item value tables are source, not state. They are calibration —
 # generated once by src/tools/derive_item_value.py, then read and reviewed like
