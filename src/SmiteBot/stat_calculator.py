@@ -272,8 +272,23 @@ class BuildStatCalculator:
                 value = stats.get_stat(stat)
                 cap = self.FLAT_ITEM_ATTRIBUTE_CAPS[stat]
                 if stat == ItemAttribute.ATTACK_SPEED:
-                    attack_speed = self.god.god.get_stat_at_level(stat, 20)
-                    value = attack_speed + attack_speed * value
+                    # The merged stat is the god's absolute attack speed plus
+                    # the *sum of item multipliers*. Converting by treating the
+                    # whole thing as a multiplier counted the base twice over —
+                    # a plain hunter build came out at 4.07 attacks a second
+                    # and every build in the corpus sat at the fire cap, which
+                    # erased attack speed as a difference between builds.
+                    base = self.god.god.get_stat_at_level(stat, self.god.level)
+                    multiplier = max(value - base, 0.0)
+                    value = base * (1 + multiplier)
+                    if float(f"{value:.2f}") > float(f"{cap:.2f}"):
+                        stats.overcapped_stats[stat] = value
+                    # Always written back as the absolute: leaving the raw
+                    # multiplier in place whenever a build happened to stay
+                    # under the cap fed 0.85 to anything reading it as
+                    # attacks-per-second.
+                    stats.set_stat(stat, min(value, cap))
+                    continue
                 if stat in (
                     ItemAttribute.MAGICAL_PENETRATION,
                     ItemAttribute.PHYSICAL_PENETRATION,
@@ -346,32 +361,50 @@ class BuildStatCalculator:
             )
             stats.remove_stat(ItemAttribute.PROTECTIONS)
         if self.god.god.id == GodId.OLORUN:
-            magic_power = stats.get_stat(ItemAttribute.MAGICAL_POWER)
-            crit_chance = (
-                (0.15 + (int((magic_power - 150) / 10) * 0.01))
-                if magic_power >= 150
+            # Touch of Fate, final values: 20% critical chance on reaching 100
+            # Magical Power from items, 2% more per 12 beyond, capped at 100%
+            # (reached at 580). The 15%-at-150 formula here was two patches
+            # stale. Magical gods have no base power, so the power stat is
+            # item power. His crits deal 140%, enforced by the damage side.
+            magic_power = (
+                stats.get_stat(ItemAttribute.MAGICAL_POWER)
+                if stats.has_stat(ItemAttribute.MAGICAL_POWER)
                 else 0
             )
-            # Capped at 70%, so min. max() made 70% a floor instead, giving
-            # Olorun at least 70% crit at any magic power — including none.
-            stats.set_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE, min(0.70, crit_chance))
+            crit_chance = (
+                0.20 + ((magic_power - 100) / 12) * 0.02 if magic_power >= 100 else 0
+            )
+            stats.set_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE, min(1.0, crit_chance))
         for item in self.god.build:
-            # Evolved Transcendence
-            if item.id == 15767:
+            # Evolved Transcendence, both id generations: Physical Power equal
+            # to 2% of Maximum Mana. This checked only the retired id with a
+            # made-up 3%, so the build everyone actually runs got nothing.
+            if item.id in (15767, 25675):
                 mana = stats.get_stat(ItemAttribute.MANA)
-                stats.add_or_set_stat(ItemAttribute.PHYSICAL_POWER, mana * 0.03)
-            # The Heavy Executioner
-            if item.id == 22960:
-                attack_speed = stats.get_stat(ItemAttribute.ATTACK_SPEED)
-                stats.set_stat(ItemAttribute.ATTACK_SPEED, min(1.9, attack_speed))
-            # Silverbranch Bow
-            if item.id == 14084:
-                attack_speed = stats.get_stat(ItemAttribute.ATTACK_SPEED)
-                cap = self.FLAT_ITEM_ATTRIBUTE_CAPS[ItemAttribute.ATTACK_SPEED]
-                if attack_speed > cap:
+                stats.add_or_set_stat(ItemAttribute.PHYSICAL_POWER, mana * 0.02)
+            # Evolved Book of Thoth: Magical Power equal to 7% of *item* mana,
+            # which is total mana less what the god has bare.
+            if item.id == 25673:
+                item_mana = stats.get_stat(ItemAttribute.MANA) - (
+                    self.god.god.get_stat_at_level(ItemAttribute.MANA, self.god.level)
+                )
+                if item_mana > 0:
                     stats.add_or_set_stat(
-                        ItemAttribute.PHYSICAL_POWER, 2 * ((attack_speed - cap) / 0.02)
+                        ItemAttribute.MAGICAL_POWER, item_mana * 0.07
                     )
+            # Devoted Deathbringer's glyph: crit chance is multiplied by 1.2,
+            # and every 5% over 100% becomes 5 Physical Power. The percent cap
+            # in _fix_overcapped would clamp to 100% and lose the overflow, so
+            # both halves are applied here.
+            if item.id == 25931 and stats.has_stat(
+                ItemAttribute.CRITICAL_STRIKE_CHANCE
+            ):
+                crit = stats.get_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE) * 1.2
+                if crit > 1.0:
+                    stats.add_or_set_stat(
+                        ItemAttribute.PHYSICAL_POWER, ((crit - 1.0) / 0.05) * 5
+                    )
+                stats.set_stat(ItemAttribute.CRITICAL_STRIKE_CHANCE, min(crit, 1.0))
             # Sovereignty
             if item.id == 7528:
                 stats.add_or_set_stat(ItemAttribute.PHYSICAL_PROTECTION, 15)
@@ -397,6 +430,7 @@ class DamageCalculator:
         pct_red: float = 0,
         damage_mit: float = 0,
         crit_bonus: float = 1.75,
+        red_flat: float = 0,
     ) -> Tuple[float, bool]:
         power_type = (
             ItemAttribute.PHYSICAL_POWER
@@ -407,8 +441,8 @@ class DamageCalculator:
         crit_chance = 0
         has_qins = False
         for item in attacking_god.build:
-            # Deathbringer and glyphs
-            if item.id in (7545, 21500, 21501):
+            # Deathbringer and its glyphs, Devoted included
+            if item.id in (7545, 21500, 21501, 25931):
                 # Deathbringer increase Critical Strike bonus damage by 25%
                 crit_bonus += 0.25
             # Qin's Sais
@@ -446,18 +480,9 @@ class DamageCalculator:
                     ItemAttribute.CRITICAL_STRIKE_CHANCE
                 )
 
-        # Olorun's crits come from his passive, not the crit stat: item
-        # magical power converts to chance (20% at 100 power, +2% per 12
-        # over), and the bonus damage is capped at 140% rather than 175%.
-        # Magical gods have no base power, so their power *is* item power.
+        # Olorun's converted crits deal 140%, not the usual 175%; the chance
+        # itself is set by the stat calculator from his passive.
         if attacking_god.god.id == GodId.OLORUN:
-            olorun_power = (
-                attacking_stats.get_stat(ItemAttribute.MAGICAL_POWER)
-                if attacking_stats.has_stat(ItemAttribute.MAGICAL_POWER)
-                else 0
-            )
-            if olorun_power >= 100:
-                crit_chance = min(0.20 + (olorun_power - 100) / 12 * 0.02, 1.0)
             crit_bonus = min(crit_bonus, 1.40)
 
         is_crit = random.randrange(0, 100) < (crit_chance * 100)
@@ -520,7 +545,7 @@ class DamageCalculator:
                 else ItemAttribute.MAGICAL_PROTECTION
             ),
             pct_red,
-            0,
+            red_flat,
             attacking_god_penetration.percent,
             attacking_god_penetration.flat,
             damage_mit,
@@ -536,7 +561,17 @@ class DamageCalculator:
         defending_god: GodBuild,
         assume_item_passives_stacked: bool = False,
         max_seconds: float = 999.0,
+        kit=None,
+        steroid=None,
     ) -> float:
+        """Seconds for the attacker to kill the defender.
+
+        Basics-only by default. Passing `kit` (an `ability_kit.AbilityKit`)
+        adds the god's damaging abilities to the same timeline — cast the
+        moment they come off cooldown, with ability-triggered item passives
+        riding along — and `steroid` (an `ability_kit.Steroid`) folds in the
+        god's own uptime-averaged contribution to their basics.
+        """
         attacking_god_stats = BuildStatCalculator(
             attacking_god
         ).calculate_god_build_stats()
@@ -548,18 +583,78 @@ class DamageCalculator:
         has_silverbranch = False
         has_executioner = False
         has_heavy_executioner = False
+        has_demonic_grip = False
+        has_obow = False
+        has_duality = False
+        has_telkhines = False
+        has_cyclopean = False
+        has_manikin = False
+        has_hecate = False
+        has_tahuti = False
         for item in attacking_god.build:
+            # Odysseus' Bow: every fourth basic chains for 15 + 60% of Basic
+            # Attack Power (the full computed basic, not the power stat).
+            # Item-effect damage: no crit, no on-hit triggers.
+            if item.id == 10482:
+                has_obow = True
+            # Duality: every 3s the next basic adds 30% of Basic Attack Power
+            # as Physical Ability damage.
+            if item.id == 26147:
+                has_duality = True
+            # Telkhines Ring: flat bonus magical damage on every basic.
+            if item.id == 25761:
+                has_telkhines = True
+            # Cyclopean Ring: 9% max-health magical damage, once per 8s,
+            # reduced 2s per basic landed on a god.
+            if item.id == 23869:
+                has_cyclopean = True
+            # Manikin Mace: each basic applies a 60-over-2s burn, and up to
+            # four burns run concurrently.
+            if item.id == 19513:
+                has_manikin = True
+            # Ring of Hecate: +5% magical power per basic landed, additive to
+            # 15% at three stacks.
+            if item.id == 26321:
+                has_hecate = True
+            # Rod of Tahuti and its glyphs: the scaling term is worth 15%
+            # more against targets below 60% health.
+            if item.id in (7600, 22941, 21484):
+                has_tahuti = True
+            # Ornate Arrow: 1.25% attack speed and 1% critical chance per 100
+            # gold held, twenty stacks. Banked gold is a game state the sim
+            # cannot see, so it rides the stacked-passives assumption, where a
+            # level 20 carry holds that much.
+            if item.id == 19650 and assume_item_passives_stacked:
+                base = attacking_god.god.get_stat_at_level(
+                    ItemAttribute.ATTACK_SPEED, attacking_god.level
+                )
+                current = attacking_god_stats.get_stat(ItemAttribute.ATTACK_SPEED)
+                attacking_god_stats.set_stat(
+                    ItemAttribute.ATTACK_SPEED, current + base * 0.25
+                )
+                crit = (
+                    attacking_god_stats.get_stat(
+                        ItemAttribute.CRITICAL_STRIKE_CHANCE
+                    )
+                    if attacking_god_stats.has_stat(
+                        ItemAttribute.CRITICAL_STRIKE_CHANCE
+                    )
+                    else 0
+                )
+                attacking_god_stats.set_stat(
+                    ItemAttribute.CRITICAL_STRIKE_CHANCE, min(crit + 0.20, 1.0)
+                )
             # Death's Temper
             if item.id == 19587:
                 if assume_item_passives_stacked:
                     basic_damage = attacking_god_stats.get_stat(
                         ItemAttribute.BASIC_ATTACK_DAMAGE
                     )
-                    # 7% increased Basic Attack Damage, stacking 10 times
-                    # (3.5% was the launch value; it was buffed).
+                    # 7% increased Basic Attack Damage, stacking 5 times per
+                    # the item's own text (the wiki still shows the old 10).
                     attacking_god_stats.set_stat(
                         ItemAttribute.BASIC_ATTACK_DAMAGE,
-                        basic_damage + basic_damage * 0.07 * 10,
+                        basic_damage + basic_damage * 0.07 * 5,
                     )
             # Demon Blade
             if item.id == 12674:
@@ -579,12 +674,16 @@ class DamageCalculator:
             # Silverbranch Bow
             if item.id == 14084:
                 has_silverbranch = True
-            # The Executioner, The Ferocious Executioner
-            if item.id in (7575, 23135):
+            # The Executioner, Ferocious and Envenomed: 7% physical protection
+            # reduction a hit, four stacks
+            if item.id in (7575, 23135, 25932):
                 has_executioner = True
             # The Heavy Executioner
             if item.id == 22960:
                 has_heavy_executioner = True
+            # Demonic Grip: the magical analogue, 10% a hit, three stacks
+            if item.id == 8564 and attacking_god.god.type == GodType.MAGICAL:
+                has_demonic_grip = True
 
         has_berserkers = False
         has_mail_of_renewal = False
@@ -655,6 +754,121 @@ class DamageCalculator:
             if attacking_god.god.type == GodType.PHYSICAL
             else 0
         )
+        og_magical_power = (
+            attacking_god_stats.get_stat(ItemAttribute.MAGICAL_POWER)
+            if attacking_god_stats.has_stat(ItemAttribute.MAGICAL_POWER)
+            else 0
+        )
+
+        attacker_is_physical = attacking_god.god.type == GodType.PHYSICAL
+
+        def proc_damage(amount: float, magical: bool, red: float, mit: float) -> float:
+            """One item proc through the defender's protections.
+
+            A proc of the attacker's own damage type rides the attacker's
+            penetration and any protection reduction already on the target;
+            an off-type proc meets the bare protections.
+            """
+            same_type = magical != attacker_is_physical
+            pen = (
+                attacking_god_stats.get_stat(
+                    ItemAttribute.MAGICAL_PENETRATION
+                    if magical
+                    else ItemAttribute.PHYSICAL_PENETRATION
+                )
+                if same_type
+                and attacking_god_stats.has_stat(
+                    ItemAttribute.MAGICAL_PENETRATION
+                    if magical
+                    else ItemAttribute.PHYSICAL_PENETRATION
+                )
+                else _Penetration(0, 0)
+            )
+            return BaseCalculator.damage_dealt(
+                amount,
+                defending_god_stats.get_stat(
+                    ItemAttribute.MAGICAL_PROTECTION
+                    if magical
+                    else ItemAttribute.PHYSICAL_PROTECTION
+                ),
+                red if same_type else 0,
+                0,
+                pen.percent,
+                pen.flat,
+                mit,
+                0,
+            )
+
+        hits_landed = 0
+        duality_ready = 0.0
+        cyclopean_cd = 0.0
+        manikin_burns: List[float] = []
+        hecate_stacks = 0
+        telkhines_bonus = 5 + 3 * attacking_god.level
+
+        # The god's own steady-state contribution, if the caller supplied one.
+        steroid_attack_speed = steroid.attack_speed if steroid else 0.0
+        steroid_flat = steroid.flat_basic if steroid else 0.0
+        steroid_prot_strip = steroid.prot_strip if steroid else 0.0
+        if steroid and steroid.power_multiplier != 1.0:
+            og_power *= steroid.power_multiplier
+            og_magical_power *= steroid.power_multiplier
+            for power_stat in (
+                ItemAttribute.PHYSICAL_POWER,
+                ItemAttribute.MAGICAL_POWER,
+            ):
+                if attacking_god_stats.has_stat(power_stat):
+                    attacking_god_stats.set_stat(
+                        power_stat,
+                        attacking_god_stats.get_stat(power_stat)
+                        * steroid.power_multiplier,
+                    )
+        if steroid and steroid.power_scale_basic:
+            steroid_flat += og_power * steroid.power_scale_basic
+
+        # Ability rotation state: abilities are cast the moment they are off
+        # cooldown, each paying a short lockout before basics resume.
+        has_heartseeker = False
+        has_polynomicon = False
+        has_hydras = False
+        has_titans = False
+        bluestone_flat = 0.0
+        has_brooch = False
+        has_crusher = False
+        heartseeker_first = True
+        bluestone_first = True
+        hydras_window = 0.0
+        poly_window = 0.0
+        poly_icd = 0.0
+        casts = []
+        if kit is not None:
+            for item in attacking_god.build:
+                if item.id == 12680:
+                    has_heartseeker = True
+                if item.id == 25766:
+                    has_polynomicon = True
+                if item.id == 8550:
+                    has_hydras = True
+                if item.id == 7523:
+                    has_titans = True
+                # Bluestone Pendant / Brooch / Corrupted: flat damage over
+                # time per damaging ability, taken in full on the first
+                # application and halved on the follow-ups.
+                if item.id == 23855:
+                    bluestone_flat = 40.0
+                if item.id == 23859:
+                    bluestone_flat = 160.0
+                    has_brooch = True
+                if item.id == 23860:
+                    bluestone_flat = 300.0
+                if item.id == 23858:
+                    has_crusher = True
+            cdr = (
+                attacking_god_stats.get_stat(ItemAttribute.COOLDOWN_REDUCTION)
+                if attacking_god_stats.has_stat(ItemAttribute.COOLDOWN_REDUCTION)
+                else 0.0
+            )
+            casts = [{"ability": a, "ready": 0.0} for a in kit.damaging]
 
         base_attack_speed = attacking_god_stats.get_stat(ItemAttribute.ATTACK_SPEED)
         if ItemAttribute.ATTACK_SPEED in attacking_god_stats.overcapped_stats:
@@ -690,9 +904,92 @@ class DamageCalculator:
             # on the item is a flat stat the build already counted.
             attack_speed = BaseCalculator.attack_speed(
                 base_attack_speed,
-                increase=0,
+                increase=steroid_attack_speed,
                 decrease=len(midgardian_stacks) * 0.08,
             )
+
+            # Cast anything off cooldown before swinging. Each cast pays a
+            # short lockout, opens the empowered-basic windows, and drags its
+            # ability item passives along.
+            for cast in casts:
+                if seconds < cast["ready"]:
+                    continue
+                ability = cast["ability"]
+                magical_ability = ability.scaling_stat == "magical"
+                ability_power = (
+                    attacking_god_stats.get_stat(
+                        ItemAttribute.MAGICAL_POWER
+                        if magical_ability
+                        else ItemAttribute.PHYSICAL_POWER
+                    )
+                    if attacking_god_stats.has_stat(
+                        ItemAttribute.MAGICAL_POWER
+                        if magical_ability
+                        else ItemAttribute.PHYSICAL_POWER
+                    )
+                    else 0
+                )
+                amount = ability.total_base + ability.total_scaling * ability_power
+                if has_crusher:
+                    amount += og_power * 0.35 * (1.0 if bluestone_first else 0.5)
+                if bluestone_flat:
+                    amount += bluestone_flat * (1.0 if bluestone_first else 0.5)
+                    if has_brooch:
+                        amount += max(defending_health, 0) * 0.10 * (
+                            1.0 if bluestone_first else 0.5
+                        )
+                    bluestone_first = False
+                if has_heartseeker:
+                    # 2% of max health, ramping to 6% at 250 Physical Power;
+                    # follow-ups within 3s pay 75%.
+                    ramp = (
+                        0.02
+                        if og_power <= 150
+                        else min(0.02 + ((og_power - 150) / 100) * 0.04, 0.06)
+                    )
+                    amount += (
+                        defending_god_stats.get_stat(ItemAttribute.HEALTH)
+                        * ramp
+                        * (1.0 if heartseeker_first else 0.75)
+                    )
+                    heartseeker_first = False
+                # Titan's Bane: the first cast in each window carries 20%
+                # penetration; with a rotation's cadence that is close to
+                # every cast, so it rides them all, capped with the rest.
+                extra_pen = 0.20 if has_titans and not magical_ability else 0.0
+                pen_stat = (
+                    ItemAttribute.MAGICAL_PENETRATION
+                    if magical_ability
+                    else ItemAttribute.PHYSICAL_PENETRATION
+                )
+                pen = (
+                    attacking_god_stats.get_stat(pen_stat)
+                    if attacking_god_stats.has_stat(pen_stat)
+                    else _Penetration(0, 0)
+                )
+                dealt = BaseCalculator.damage_dealt(
+                    amount,
+                    defending_god_stats.get_stat(
+                        ItemAttribute.MAGICAL_PROTECTION
+                        if magical_ability
+                        else ItemAttribute.PHYSICAL_PROTECTION
+                    ),
+                    red_pct if magical_ability != attacker_is_physical else 0,
+                    steroid_prot_strip,
+                    min(pen.percent + extra_pen, 0.40),
+                    pen.flat,
+                    damage_mit,
+                    0,
+                )
+                defending_health -= dealt
+                seconds += 0.4
+                cast["ready"] = seconds + ability.cooldown * (1 - cdr)
+                if has_hydras:
+                    hydras_window = seconds + 8.0
+                if has_polynomicon:
+                    poly_window = seconds + 8.0
+                if defending_health <= 0:
+                    return seconds
 
             # Silverbranch: 3 Physical Power per 0.02 attack speed over the
             # 2.5 cap, itself capped at 120 bonus power.
@@ -703,11 +1000,13 @@ class DamageCalculator:
                     og_power + min(3 * (overcap / 0.02), 120.0),
                 )
 
-            # Set prot reduction based on Executioner stacks
+            # Set prot reduction based on Executioner-style stacks
             if has_executioner:
                 red_pct = 0.07 * executioner_stacks
             elif has_heavy_executioner:
                 red_pct = 0.175 * executioner_stacks
+            elif has_demonic_grip:
+                red_pct = 0.10 * executioner_stacks
 
             # Reset Demon Blade's penetration if it's expired
             if seconds >= demon_blade_exp:
@@ -728,8 +1027,20 @@ class DamageCalculator:
             midgardian_stacks[:] = [s for s in midgardian_stacks if not expire_stack(s)]
 
             # Overcapped attack speed feeds Silverbranch, but swings still
-            # come at most 2.5 a second.
-            fire_rate = min(attack_speed, 2.5)
+            # come at most 2.5 a second — 1.9 under Heavy Executioner, whose
+            # heavy swings trade rate for its doubled protection strip.
+            fire_rate = min(attack_speed, 1.9 if has_heavy_executioner else 2.5)
+
+            # Hecate ramps the attacker's power and Tahuti pays out against a
+            # wounded target; both recomputed from the original so neither
+            # compounds on itself or survives a Renewal heal it shouldn't.
+            if (has_hecate or has_tahuti) and og_magical_power:
+                multiplier = 1.0 + 0.05 * hecate_stacks
+                if has_tahuti and defending_health < initial_health * 0.6:
+                    multiplier *= 1.15
+                attacking_god_stats.set_stat(
+                    ItemAttribute.MAGICAL_POWER, og_magical_power * multiplier
+                )
 
             # Calculate damage
             if progression is not None and progression.has_progression:
@@ -742,6 +1053,7 @@ class DamageCalculator:
                     red_pct,
                     damage_mit,
                     crit_bonus,
+                    red_flat=steroid_prot_strip,
                 )
                 seconds += (1 / fire_rate) * progression.swing_time[p_idx]
                 p_idx = 1 + p_idx if p_idx < len(progression.damage) else 0
@@ -754,8 +1066,104 @@ class DamageCalculator:
                     pct_red=red_pct,
                     damage_mit=damage_mit,
                     crit_bonus=crit_bonus,
+                    red_flat=steroid_prot_strip,
                 )
                 seconds += 1 / fire_rate
+
+            # Hydra's empowered basic: +25% on the first swing after a cast.
+            if has_hydras and pre_fire_seconds < hydras_window:
+                dmg *= 1.25
+                hydras_window = 0.0
+
+            # Polynomicon: the first basic within 8s of a cast carries 75% of
+            # magical power as magical damage, at most once every 2s.
+            if (
+                has_polynomicon
+                and pre_fire_seconds < poly_window
+                and pre_fire_seconds >= poly_icd
+            ):
+                poly_icd = pre_fire_seconds + 2.0
+                poly_window = 0.0
+                dmg += proc_damage(
+                    0.75
+                    * (
+                        attacking_god_stats.get_stat(ItemAttribute.MAGICAL_POWER)
+                        if attacking_god_stats.has_stat(ItemAttribute.MAGICAL_POWER)
+                        else 0
+                    ),
+                    True,
+                    red_pct,
+                    damage_mit,
+                )
+
+            if steroid_flat:
+                dmg += proc_damage(
+                    steroid_flat, not attacker_is_physical, red_pct, damage_mit
+                )
+
+            hits_landed += 1
+            swing_interval = seconds - pre_fire_seconds
+
+            # "Basic Attack Power" as the wiki defines it — the full computed
+            # basic before crit — which is what O-bow and Duality scale from.
+            if has_obow or has_duality:
+                power_type = (
+                    ItemAttribute.PHYSICAL_POWER
+                    if attacker_is_physical
+                    else ItemAttribute.MAGICAL_POWER
+                )
+                basic_attack_power = BaseCalculator.basic_attack_damage(
+                    attacking_god.god.stats.basic_attack.base_damage,
+                    attacking_god.god.stats.basic_attack.per_level,
+                    attacking_god.level,
+                    attacking_god_stats.get_stat(power_type)
+                    if attacking_god_stats.has_stat(power_type)
+                    else 0,
+                    attacking_god.god.stats.basic_attack.scaling,
+                )
+                if has_obow and hits_landed % 4 == 0:
+                    dmg += proc_damage(
+                        15 + 0.60 * basic_attack_power,
+                        not attacker_is_physical,
+                        red_pct,
+                        damage_mit,
+                    )
+                if has_duality and pre_fire_seconds >= duality_ready:
+                    duality_ready = pre_fire_seconds + 3
+                    dmg += proc_damage(
+                        0.30 * basic_attack_power, False, red_pct, damage_mit
+                    )
+
+            if has_telkhines:
+                dmg += proc_damage(telkhines_bonus, True, red_pct, damage_mit)
+
+            # Cyclopean's clock runs on both time and hits: 8s, less 2s for
+            # every basic landed on a god — the proc's own hit included.
+            if has_cyclopean:
+                if cyclopean_cd <= 0:
+                    dmg += proc_damage(
+                        defending_god_stats.get_stat(ItemAttribute.HEALTH) * 0.09,
+                        True,
+                        red_pct,
+                        damage_mit,
+                    )
+                    cyclopean_cd = 8.0
+                cyclopean_cd -= swing_interval + 2.0
+
+            # Manikin burns tick at 30 a second each, up to four running.
+            if has_manikin:
+                manikin_burns[:] = [b for b in manikin_burns if b > pre_fire_seconds]
+                if len(manikin_burns) < 4:
+                    manikin_burns.append(pre_fire_seconds + 2.0)
+                dmg += proc_damage(
+                    30.0 * len(manikin_burns) * swing_interval,
+                    not attacker_is_physical,
+                    red_pct,
+                    damage_mit,
+                )
+
+            if has_hecate:
+                hecate_stacks = min(hecate_stacks + 1, 3)
 
             regenerated_health = (defending_hp5 / 5) * (seconds - pre_fire_seconds)
             defending_health -= dmg
@@ -772,11 +1180,13 @@ class DamageCalculator:
 
                 demon_blade_exp = pre_fire_seconds + 4
 
-            # Update Executioenr stacks
+            # Update Executioner-style stacks
             if has_executioner:
                 executioner_stacks = min(executioner_stacks + 1, 4)
             elif has_heavy_executioner:
                 executioner_stacks = min(executioner_stacks + 1, 2)
+            elif has_demonic_grip:
+                executioner_stacks = min(executioner_stacks + 1, 3)
 
             # Proc defender's Berserker's: Berserk triggers *below* 60%
             # health for 5% mitigation (and attack speed a defender that

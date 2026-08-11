@@ -83,6 +83,7 @@ import pandas as pd  # noqa: E402
 
 import build_accuracy  # noqa: E402
 from build_ranker import BuildStats, shrunk_rate  # noqa: E402
+from ability_kit import STEROIDS, parse_kit  # noqa: E402
 from stat_calculator import DamageCalculator, GodBuild  # noqa: E402
 
 DEFENDER_ROLES = ("Solo", "Jungle", "Mid", "Support", "Carry")
@@ -139,14 +140,24 @@ def ttk_score(
     build_hash,
     defenders: List[Tuple[str, GodBuild]],
     trials: int,
+    stacked: bool = False,
+    abilities: bool = False,
 ) -> float:
     """Summed mean TTK against every defender, deterministically seeded."""
+    kit = parse_kit(attacker.god) if abilities else None
+    steroid = STEROIDS.get(attacker.god.name) if abilities else None
     total = 0.0
     for role, defender in defenders:
         acc = 0.0
         for trial in range(trials):
             random.seed(f"{build_hash}:{role}:{trial}")
-            acc += DamageCalculator.calculate_basic_ttk(attacker, defender)
+            acc += DamageCalculator.calculate_basic_ttk(
+                attacker,
+                defender,
+                assume_item_passives_stacked=stacked,
+                kit=kit,
+                steroid=steroid,
+            )
         total += acc / trials
     return total
 
@@ -170,6 +181,8 @@ def validate_cell(
     min_plays: int,
     limit: int,
     trials: int,
+    stacked: bool = False,
+    abilities: bool = False,
 ) -> Optional[Dict]:
     god = gods.get(god_id)
     if god is None:
@@ -198,7 +211,10 @@ def validate_cell(
                 "plays": cand["plays"],
                 "wins": cand["wins"],
                 "win_rate": cand["win_rate"],
-                "ttk": ttk_score(attacker, cand["build_hash"], defenders, trials),
+                "ttk": ttk_score(
+                    attacker, cand["build_hash"], defenders, trials, stacked,
+                    abilities,
+                ),
             }
         )
     if len(rows) < 8:
@@ -238,6 +254,16 @@ def main() -> int:
     parser.add_argument("--min-plays", type=int, default=30)
     parser.add_argument("--limit", type=int, default=60, help="builds per cell")
     parser.add_argument("--trials", type=int, default=5)
+    parser.add_argument(
+        "--stacked",
+        action="store_true",
+        help="assume gold- and kill-fed item passives are at full stacks",
+    )
+    parser.add_argument(
+        "--abilities",
+        action="store_true",
+        help="cast the god's damaging abilities on cooldown alongside basics",
+    )
     parser.add_argument("--max-gods", type=int, default=0, help="0 = all")
     parser.add_argument("--out", default=None, help="write full per-build rows as JSON")
     args = parser.parse_args()
@@ -275,7 +301,8 @@ def main() -> int:
         for god_id in god_ids:
             cell = validate_cell(
                 stats, gods, items, god_id, role, args.queue,
-                defenders, args.min_plays, args.limit, args.trials,
+                defenders, args.min_plays, args.limit, args.trials, args.stacked,
+                args.abilities,
             )
             if cell is None:
                 continue
