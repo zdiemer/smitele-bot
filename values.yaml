@@ -447,9 +447,6 @@ web:
       - smite.diemer.codes
     tls:
       enabled: true
-      certResolver: duckdns
-      domain: zachd.duckdns.org
-      wildcardSan: "*.zachd.duckdns.org"
   resources:
     requests:
       cpu: 50m
