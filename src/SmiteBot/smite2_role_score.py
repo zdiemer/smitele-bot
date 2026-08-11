@@ -83,6 +83,97 @@ def defender_of(stats) -> Defender:
     )
 
 
+def corpus_defenders(aggregate, gods: Dict[int, God], items: Dict[int, Item]):
+    """The frontline and backline the corpus says a build will face.
+
+    Returns `(frontline, backline)` as `Defender`s — the component-wise median
+    durability of the solo and carry lanes' most-played builds — or `(None,
+    None)` if the aggregate cannot supply them. The bot builds these once and
+    reuses them, since they change only when a new aggregate is written.
+    """
+    import numpy as np  # noqa: PLC0415 — kept local so the module imports without it
+
+    def role_median(role: str):
+        pool = aggregate.builds[
+            aggregate.builds["Role"].astype(str).str.lower() == role
+        ]
+        if not pool.shape[0]:
+            return None
+        by_god = (
+            pool.groupby("GodId", observed=True)["plays"].sum().sort_values(
+                ascending=False
+            )
+        )
+        defs = []
+        for god_id in by_god.index[:15]:
+            god = gods.get(int(god_id))
+            if god is None:
+                continue
+            for cand in aggregate.ranked_builds(
+                int(god_id),
+                role=role.capitalize(),
+                ranking=lambda wp, ww: np.asarray(wp),
+                min_plays=20,
+                limit=1,
+            ):
+                build = [items[i] for i in cand["items"] if i in items]
+                if len(build) == 6:
+                    defs.append(defender_of(build_stats(god, build)))
+        return median_defender(defs)
+
+    frontline = role_median("solo")
+    backline = role_median("carry")
+    return frontline, backline
+
+
+def dominates_by(strong: RoleVector, weak: RoleVector, margin: float) -> bool:
+    """Pareto domination with a tolerance: better on every axis by `margin`.
+
+    Exact dominance is brittle — a build a hair better on every axis at once
+    "wins" though the two are practically equal, which is how grading against
+    played builds first manufactured optimizer flaws that were not there.
+    Requiring each axis to be better by a fraction `margin` keeps only defeats
+    worth acting on. Zero margin recovers exact Pareto dominance.
+    """
+    ge = all(
+        a >= b * (1.0 + margin) or (a == b == 0)
+        for a, b in zip(strong.axes, weak.axes)
+    )
+    gt = any(a > b * (1.0 + margin) for a, b in zip(strong.axes, weak.axes))
+    return ge and gt
+
+
+def preferred_build_index(
+    vectors: Sequence[RoleVector], margin: float = 0.05
+) -> int:
+    """Which candidate to serve, given the optimizer's default is index 0.
+
+    The optimizer's own pick is kept unless a sibling *meaningfully* dominates
+    it — better on every axis the role cares about by at least `margin` (5% by
+    default, the same tolerance the offline grade settled on). Then the
+    dominating candidate is preferred, choosing one that nothing else
+    dominates so the served build is itself efficient. Ties, thin margins and
+    the no-domination case all fall back to the optimizer's default, so the
+    vector overrides only a build it can prove is beaten by a real gap, never
+    merely reshuffles among near-equal builds.
+    """
+    if not vectors:
+        return 0
+    default = vectors[0]
+    dominators = [
+        i for i in range(1, len(vectors)) if dominates_by(vectors[i], default, margin)
+    ]
+    if not dominators:
+        return 0
+    for i in dominators:
+        if not any(
+            j != i and dominates_by(vectors[j], vectors[i], margin)
+            for j in range(len(vectors))
+        ):
+            return i
+    return dominators[0]
+
+
 def median_defender(defenders: Sequence[Defender]) -> Optional[Defender]:
     """The component-wise median of several defenders.
 

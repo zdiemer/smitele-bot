@@ -68,3 +68,32 @@ class TestMeanEffectiveHealth:
         stats = _stats(HEALTH=2000, PHYSICAL_PROTECTION=100, MAGICAL_PROTECTION=0)
         # physical 4000, magical 2000 -> 3000.
         assert s2.mean_effective_health(stats) == pytest.approx(3000.0)
+
+
+class TestPreferredBuildIndex:
+    """The selector that lets the vector overrule only a dominated default."""
+
+    def V(self, *axes):
+        return s2.RoleVector(tuple(axes), tuple(f"a{i}" for i in range(len(axes))))
+
+    def test_keeps_the_default_when_it_is_not_dominated(self):
+        # Default is best on axis 0; alternatives trade, none dominate it.
+        vs = [self.V(3, 1), self.V(1, 3), self.V(2, 2)]
+        assert s2.preferred_build_index(vs) == 0
+
+    def test_switches_when_an_alternative_dominates_the_default(self):
+        # Candidate 2 beats the default on both axes.
+        vs = [self.V(1, 1), self.V(1, 2), self.V(2, 2)]
+        assert s2.preferred_build_index(vs) == 2
+
+    def test_prefers_a_dominator_that_nothing_else_dominates(self):
+        # Both 1 and 2 dominate the default; 2 also dominates 1, so pick 2.
+        vs = [self.V(1, 1), self.V(2, 2), self.V(3, 3)]
+        assert s2.preferred_build_index(vs) == 2
+
+    def test_a_tie_keeps_the_default(self):
+        vs = [self.V(2, 2), self.V(2, 2)]
+        assert s2.preferred_build_index(vs) == 0
+
+    def test_empty_is_zero(self):
+        assert s2.preferred_build_index([]) == 0

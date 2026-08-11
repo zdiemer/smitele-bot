@@ -58,6 +58,13 @@ def _tier_or_none(avg_tier) -> TierId | None:
         return None
 
 
+# The lanes where the role vector may overrule the Smite 2 optimizer at request
+# time: those where it catches per-build outliers rather than disagreeing with
+# the whole role. See `__role_preferred_primary` for why solo and support are
+# out.
+_ROLE_VECTOR_OVERRIDE = frozenset({PlayerRole.CARRY, PlayerRole.MID, PlayerRole.JUNGLE})
+
+
 class BuildBalance(Enum):
     """How a build splits its slots between surviving and killing.
 
@@ -402,6 +409,13 @@ class GodBuilder:
         self.__gods = gods
         self.__items = items
         self.__provider = provider
+        # Corpus-median opponents for the role vector, derived from the S2
+        # aggregate the first time /build's optimizer path wants them and kept
+        # until the aggregate is replaced. `None` until built; a two-tuple of
+        # `(frontline, backline)` after, either of which may itself be `None`
+        # when the corpus cannot supply that lane.
+        self.__s2_defenders = None
+        self.__s2_defenders_stamp = None
 
     def __ml_from_aggregate(
         self, build_options: BuildOptions, stats
@@ -1569,6 +1583,74 @@ class GodBuilder:
         )
         return GeneratedBuild(ordered, relics, desc, path=path)
 
+    def __s2_defender_pair(self):
+        """Corpus-median (frontline, backline) for the role vector, cached.
+
+        Rebuilt only when the provider swaps in a new aggregate — identity of
+        the `build_stats` object is the stamp, since `load_build_stats`
+        reassigns it wholesale on a refresh. `(None, None)` whenever there is no
+        aggregate to derive them from, which the caller reads as "cannot judge".
+        """
+        stats = self.__provider.build_stats
+        if stats is None:
+            return (None, None)
+        if self.__s2_defenders is None or self.__s2_defenders_stamp is not id(stats):
+            import smite2_role_score  # noqa: PLC0415
+
+            gods = {id_value(god.id): god for god in self.__gods.values()}
+            self.__s2_defenders = smite2_role_score.corpus_defenders(
+                stats, gods, self.__items
+            )
+            self.__s2_defenders_stamp = id(stats)
+        return self.__s2_defenders
+
+    def __role_preferred_primary(
+        self, god: God, role, candidates: List[List[Item]]
+    ) -> List[Item]:
+        """The build to feature, letting the role vector overrule a beaten one.
+
+        `candidates[0]` is the optimizer's own pick; the rest are its builds at
+        other balances. The role vector — kill speed, effective HP, burst and
+        penetration on that lane's axes, graded against corpus win rates — only
+        replaces the optimizer's build when a sibling dominates it by a real
+        margin on every axis. It never merely reshuffles among efficient builds,
+        so where the optimizer already builds well (measured: carry and mid,
+        essentially always) nothing changes.
+
+        Only carry, mid and jungle are subject to it, and the boundary is
+        principled rather than cautious. This override is for per-build
+        *outliers* — the occasional build the optimizer leaves a real gap on —
+        and in those three lanes it fires that way, on roughly one build in
+        twenty-four. Solo and support are excluded because there it does not
+        catch outliers, it disagrees *systematically*: support's vector is
+        (effective HP, cooldown rate) with utility deliberately absent, so its
+        "domination" is the metric blind to what a support is for; and solo's
+        single-axis ehp*damage prefers the tank end of every build (seven of
+        eight), a role-level balance opinion that only marginally out-orders
+        kill speed and belongs in offline profile analysis, not a runtime swap
+        of nearly every build. A per-request override should correct mistakes,
+        not re-argue a role.
+        """
+        if role is None or role not in _ROLE_VECTOR_OVERRIDE:
+            return candidates[0]
+        frontline, backline = self.__s2_defender_pair()
+        if frontline is None or backline is None:
+            return candidates[0]
+        import smite2_role_score  # noqa: PLC0415
+
+        vectors = [
+            smite2_role_score.role_vector(role.value, god, build, frontline, backline)
+            for build in candidates
+        ]
+        index = smite2_role_score.preferred_build_index(vectors)
+        if index != 0:
+            print(
+                f"role vector overrode the optimizer's {role.value} {god.name} "
+                f"build: its default was dominated by a balance alternative.",
+                flush=True,
+            )
+        return candidates[index]
+
     def __optimize_smite2(self, build_options: BuildOptions) -> GeneratedBuild:
         """The best Smite 2 build this model can find for a god in a lane.
 
@@ -1632,10 +1714,19 @@ class GodBuilder:
                 balance=ratio,
             ).optimize(6, pool=pool)
 
+        damage_build = at(BuildBalance.DAMAGE.ratio)
+        tank_build = at(BuildBalance.TANK.ratio)
+
+        # Let the role vector overrule the default only when a balance
+        # alternative Pareto-dominates it on the lane's win-correlated axes.
+        build = self.__role_preferred_primary(
+            god, role, [build, damage_build, tank_build]
+        )
+
         path = build_path.fork(
             build,
-            at(BuildBalance.DAMAGE.ratio),
-            at(BuildBalance.TANK.ratio),
+            damage_build,
+            tank_build,
             optimizer.score,
             optimizer.price,
         )
