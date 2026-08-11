@@ -15,6 +15,20 @@ credentials:
   # "not in a match" while tracker.gg's ~10 min snapshot catches up. Leave
   # empty to answer from tracker.gg alone.
   steamApiKey: ""
+  # Optional. A RallyHere session captured off your own Smite 2 client
+  # (scripts/win/README.md), which reads presence and live sessions from the
+  # backend itself — seconds fresh, against tracker.gg's ~10 minutes.
+  #
+  # `clientBasic` is the `client_id:client_secret` the capture decodes out of
+  # the client's login request; without it the token works until it expires
+  # (~6h) and cannot be renewed. These SEED /data/rh_state.json, where the bot
+  # keeps the access token it renews for itself — so pasting a fresh capture
+  # here is how you recover a dead session, and leaving it alone across
+  # restarts is correct.
+  rallyHere:
+    token: ""
+    refreshToken: ""
+    clientBasic: ""
 
 # Only needed once the NAS share exists and you flip these on. Same TrueNAS
 # user the other charts use.

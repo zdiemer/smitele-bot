@@ -19,6 +19,40 @@ credentials:
   # asking Steam whether the player is running Smite 2 right now. Empty means
   # the bot answers from tracker.gg alone, as it always has.
   steamApiKey: ""
+  # The RallyHere session, captured off your own Smite 2 client with
+  # `scripts/win/` (see its README). This is what reads Smite 2 presence and
+  # sessions straight from the backend tracker.gg is downstream of — seconds
+  # fresh, where tracker.gg's snapshot is ~10 minutes old. Empty means the bot
+  # answers from tracker.gg and Steam alone, exactly as it did before.
+  #
+  # These SEED a state file at /data/rh_state.json; they are not the live
+  # credential. The bot renews its own access token every ~6 hours and writes
+  # the result there, which a read-only Secret cannot hold. Consequences worth
+  # knowing:
+  #
+  #   * Changing `token`/`refreshToken` here rolls the bot (the Secret checksum
+  #     annotation) and re-seeds from the new capture. That is how you recover
+  #     a session whose refresh token stopped working: capture again, put it
+  #     here.
+  #   * Leaving them untouched changes nothing on a restart — the state file
+  #     wins, holding a token newer than this one.
+  #   * Deleting /data/rh_state.json re-seeds from these on the next start.
+  #     Harmless: measured 2026-08-11, renewal returns the *same* refresh
+  #     token, so the one here stays good.
+  #
+  # `clientBasic` is the client's own `client_id:client_secret`, decoded from
+  # the login request the capture records. Without it the token still reads for
+  # its remaining ~6 hours and then cannot be renewed. Do not publish it — it
+  # is the application's embedded credential, and pointing a headless minter at
+  # players who are not you and your consenting friends is the line
+  # docs/smite2-live-data.md draws.
+  rallyHere:
+    token: ""
+    refreshToken: ""
+    clientBasic: ""
+    # Only for a different RallyHere environment; empty uses Smite 2's
+    # api-smite2.titanforgegames.com.
+    baseUrl: ""
   # Where tracker.gg traffic leaves from. Empty means the host's own address,
   # which is what every deployment did before this existed. Contains a password,
   # so it belongs in values.local.yaml with the rest.
