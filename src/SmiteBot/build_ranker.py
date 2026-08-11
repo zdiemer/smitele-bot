@@ -220,6 +220,17 @@ MIN_RELIC_PLAYS: float = 50.0
 # be a misclick than an edge.
 MIN_STARTER_PLAYS: float = 50.0
 
+# The absolute floor is calibrated to Smite 1, where a cell's relic pool runs
+# thousands of plays deep and fifty games genuinely separates settled choices
+# from misclicks. Smite 2's corpus is a fraction of that size, and there the
+# same fifty stopped filtering: Apollo's mid pool held Beads at 315 plays and
+# Phantom Shell at 59, Shell cleared the floor and won the shrinkage on luck —
+# the exact failure the floor exists to stop, one corpus smaller. So a
+# candidate must also hold its own against the pool it is in: at least this
+# share of the most-played option's games. Relative, it scales with corpus
+# size instead of being tuned to one.
+RELATIVE_SUPPORT_FLOOR: float = 0.2
+
 
 class BuildStats:
     """The aggregate tables, and the queries /build makes against them."""
@@ -538,7 +549,10 @@ class BuildStats:
             return None
 
         if min_plays > 1:
-            supported = grouped[grouped["plays"] >= min_plays]
+            floor = max(
+                min_plays, float(grouped["plays"].max()) * RELATIVE_SUPPORT_FLOOR
+            )
+            supported = grouped[grouped["plays"] >= floor]
             # Same "only if something survives" rule used everywhere else: a
             # god nobody plays should still get an answer, just a shakier one.
             if supported.shape[0]:
@@ -575,7 +589,10 @@ class BuildStats:
             return None
 
         if min_plays > 1:
-            supported = grouped[grouped["plays"] >= min_plays]
+            floor = max(
+                min_plays, float(grouped["plays"].max()) * RELATIVE_SUPPORT_FLOOR
+            )
+            supported = grouped[grouped["plays"] >= floor]
             if supported.shape[0]:
                 grouped = supported
 

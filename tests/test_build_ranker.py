@@ -551,3 +551,46 @@ class TestStarters:
 
     def test_an_empty_table_is_treated_as_absent(self):
         assert self.stats([]).best_starter(god_id=1) is None
+
+
+class TestRelativeSupportFloor:
+    """The absolute floor is tuned to Smite 1's pool sizes; Smite 2's pools
+    are a tenth the depth and a 59-play fluke cleared fifty. A candidate must
+    also hold a share of the leader's games."""
+
+    def stats(self, rows):
+        return build_ranker.BuildStats(
+            pd.DataFrame([build_row(1, plays=10, wins=5)]),
+            pd.DataFrame([items_row(1, SIX)]),
+            pd.DataFrame(rows),
+            pd.DataFrame([]),
+        )
+
+    def test_the_apollo_mid_shape_is_filtered(self):
+        """59 plays clears the absolute floor but not 20% of the 315 leader."""
+        stats = self.stats([
+            relic_row("100,0", plays=315, wins=165),   # 52.4%, the settled pick
+            relic_row("200,0", plays=304, wins=158),   # 52.0%
+            relic_row("900,0", plays=59, wins=36),     # 61.0%, the fluke
+        ])
+        assert stats.best_relics(god_id=1)[0] == 100
+
+    def test_a_real_contender_is_not_filtered(self):
+        stats = self.stats([
+            relic_row("100,0", plays=4000, wins=2000),  # 50%
+            relic_row("300,0", plays=900, wins=540),    # 60%, well over 20%
+        ])
+        assert stats.best_relics(god_id=1)[0] == 300
+
+    def test_starters_get_the_same_treatment(self):
+        stats = build_ranker.BuildStats(
+            pd.DataFrame([build_row(1, plays=10, wins=5)]),
+            pd.DataFrame([items_row(1, SIX)]),
+            pd.DataFrame([]),
+            pd.DataFrame([]),
+            starters=pd.DataFrame([
+                starter_row(500, plays=315, wins=165),
+                starter_row(900, plays=59, wins=36),
+            ]),
+        )
+        assert stats.best_starter(god_id=1) == 500
