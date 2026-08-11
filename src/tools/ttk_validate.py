@@ -171,6 +171,19 @@ def corpus_defenders(
     return out
 
 
+# How much of a fight each role spends auto-attacking, feeding the sim's weave
+# fraction. Carries weave at full uptime; casters and burst assassins spend
+# most of a fight on abilities and movement. Swept against the validation cells
+# with --sweep-weave; these are the values that maximised corpus agreement.
+ROLE_WEAVE = {
+    "Carry": 1.0,
+    "Solo": 0.6,
+    "Jungle": 0.5,
+    "Mid": 0.4,
+    "Support": 0.4,
+}
+
+
 def ttk_score(
     attacker: GodBuild,
     build_hash,
@@ -178,6 +191,7 @@ def ttk_score(
     trials: int,
     stacked: bool = False,
     abilities: bool = False,
+    weave: float = 1.0,
 ) -> float:
     """Summed mean TTK against every defender, deterministically seeded."""
     kit = parse_kit(attacker.god) if abilities else None
@@ -193,6 +207,7 @@ def ttk_score(
                 assume_item_passives_stacked=stacked,
                 kit=kit,
                 steroid=steroid,
+                weave=weave,
             )
         total += acc / trials
     return total
@@ -219,6 +234,7 @@ def validate_cell(
     trials: int,
     stacked: bool = False,
     abilities: bool = False,
+    weave: float = 1.0,
 ) -> Optional[Dict]:
     god = gods.get(god_id)
     if god is None:
@@ -249,7 +265,7 @@ def validate_cell(
                 "win_rate": cand["win_rate"],
                 "ttk": ttk_score(
                     attacker, cand["build_hash"], defenders, trials, stacked,
-                    abilities,
+                    abilities, weave,
                 ),
             }
         )
@@ -302,6 +318,18 @@ def main() -> int:
     )
     parser.add_argument("--max-gods", type=int, default=0, help="0 = all")
     parser.add_argument("--out", default=None, help="write full per-build rows as JSON")
+    parser.add_argument(
+        "--weave",
+        type=float,
+        default=None,
+        help="override the per-role weave fraction (default: ROLE_WEAVE by role)",
+    )
+    parser.add_argument(
+        "--sweep-weave",
+        default=None,
+        help="comma-separated weave values to grid-search, reporting median rho "
+        "at each; picks nothing, just measures",
+    )
     args = parser.parse_args()
 
     here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -320,9 +348,12 @@ def main() -> int:
         names = ", ".join(item.name for item in defender.build)
         print(f"  {role:8s} {defender.god.name}: {names}")
 
-    results = []
-    for role in args.roles.split(","):
-        role = role.strip()
+    def weave_for(role: str) -> float:
+        if args.weave is not None:
+            return args.weave
+        return ROLE_WEAVE.get(role, 1.0)
+
+    def god_ids_for(role: str) -> List[int]:
         pool = stats.builds[stats.builds["Role"].astype(str) == role]
         if args.queue is not None:
             pool = pool[pool["match_queue_id"] == args.queue]
@@ -331,14 +362,43 @@ def main() -> int:
             .sum()
             .sort_values(ascending=False)
         )
-        god_ids = [int(g) for g in by_god.index]
-        if args.max_gods:
-            god_ids = god_ids[: args.max_gods]
-        for god_id in god_ids:
+        ids = [int(g) for g in by_god.index]
+        return ids[: args.max_gods] if args.max_gods else ids
+
+    roles = [r.strip() for r in args.roles.split(",")]
+
+    # A weave grid-search reports median rho at each value per role and stops;
+    # it calibrates ROLE_WEAVE rather than picking anything itself.
+    if args.sweep_weave:
+        grid = [float(w) for w in args.sweep_weave.split(",")]
+        for role in roles:
+            print(f"\n== {role}: weave sweep ==")
+            for w in grid:
+                rhos = []
+                for god_id in god_ids_for(role):
+                    cell = validate_cell(
+                        stats, gods, items, god_id, role, args.queue,
+                        defenders, args.min_plays, args.limit, args.trials,
+                        args.stacked, args.abilities, w,
+                    )
+                    if cell is not None:
+                        rhos.append(cell["rho_shrunk"])
+                if rhos:
+                    arr = np.array(rhos)
+                    print(
+                        f"  weave={w:.2f}  median rho={np.nanmedian(arr):+.3f}  "
+                        f"neg {int((arr < 0).sum())}/{len(arr)}",
+                        flush=True,
+                    )
+        return 0
+
+    results = []
+    for role in roles:
+        for god_id in god_ids_for(role):
             cell = validate_cell(
                 stats, gods, items, god_id, role, args.queue,
                 defenders, args.min_plays, args.limit, args.trials, args.stacked,
-                args.abilities,
+                args.abilities, weave_for(role),
             )
             if cell is None:
                 continue

@@ -563,6 +563,7 @@ class DamageCalculator:
         max_seconds: float = 999.0,
         kit=None,
         steroid=None,
+        weave: float = 1.0,
     ) -> float:
         """Seconds for the attacker to kill the defender.
 
@@ -571,7 +572,22 @@ class DamageCalculator:
         moment they come off cooldown, with ability-triggered item passives
         riding along — and `steroid` (an `ability_kit.Steroid`) folds in the
         god's own uptime-averaged contribution to their basics.
+
+        `weave` is the fraction of between-cast time the attacker actually
+        spends auto-attacking. A carry weaves basics at essentially full
+        uptime, so 1.0; a mage or an assassin spends most of a fight aiming
+        abilities and repositioning, so their basics land at a fraction of
+        the cadence a full-uptime model assumes. Below 1.0 each basic stands
+        for proportionally more real time — abilities still fire on their real
+        cooldowns, so a lower weave shifts the kill onto the kit, which is what
+        a caster's damage actually looks like. This is the one dial the
+        four-role validation pointed at: high-attack-speed Mid and Solo cells
+        ordered worse precisely because the sim wove their basics like a
+        carry's. See `ttk_validate` for the swept values.
         """
+        # A fight with no attacking at all never ends; clamp to a floor rather
+        # than divide by zero when a caller passes weave down to nothing.
+        weave = max(weave, 0.05)
         attacking_god_stats = BuildStatCalculator(
             attacking_god
         ).calculate_god_build_stats()
@@ -752,6 +768,7 @@ class DamageCalculator:
         og_power = (
             attacking_god_stats.get_stat(ItemAttribute.PHYSICAL_POWER)
             if attacking_god.god.type == GodType.PHYSICAL
+            and attacking_god_stats.has_stat(ItemAttribute.PHYSICAL_POWER)
             else 0
         )
         og_magical_power = (
@@ -1055,7 +1072,7 @@ class DamageCalculator:
                     crit_bonus,
                     red_flat=steroid_prot_strip,
                 )
-                seconds += (1 / fire_rate) * progression.swing_time[p_idx]
+                seconds += (1 / fire_rate) * progression.swing_time[p_idx] / weave
                 p_idx = 1 + p_idx if p_idx < len(progression.damage) else 0
             else:
                 dmg, is_crit = DamageCalculator.calculate_basic_damage_dealt(
@@ -1068,7 +1085,7 @@ class DamageCalculator:
                     crit_bonus=crit_bonus,
                     red_flat=steroid_prot_strip,
                 )
-                seconds += 1 / fire_rate
+                seconds += (1 / fire_rate) / weave
 
             # Hydra's empowered basic: +25% on the first swing after a cast.
             if has_hydras and pre_fire_seconds < hydras_window:

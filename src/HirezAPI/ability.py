@@ -102,7 +102,10 @@ class Ability(object):
         try:
             return [float(cool.strip()) for cool in cd_str.replace("s", "").split("/")]
         except ValueError:
-            print(f"Error while extracting cooldowns from {cd_str}")
+            # Some abilities state a non-numeric cooldown ("Dependent on Halos"
+            # for Heimdallr's Bifrost). An empty list is the honest answer and
+            # already the contract; the old debug print just flooded any caller
+            # that parses the whole roster.
             return []
 
     __cost_modifiers = ["+ 1 arrow per shot", "per shot", "Omi", "Rage", "every 0.5s."]
