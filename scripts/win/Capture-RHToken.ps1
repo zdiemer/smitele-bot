@@ -38,10 +38,40 @@ $ErrorActionPreference = "Stop"
 $addon = Join-Path $PSScriptRoot "capture_rh_token.py"
 $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 
-if (-not (Get-Command mitmdump -ErrorAction SilentlyContinue)) {
-    Write-Error "mitmdump not found. Install it first:  pip install mitmproxy   (or: winget install mitmproxy.mitmproxy)"
+# winget/pip drop mitmdump somewhere that an already-open shell hasn't picked up
+# in its PATH. Refresh PATH from the registry, then, failing that, look in the
+# handful of places these installers actually use — so "it's installed but not
+# found" stops being a reason to reopen the terminal.
+function Resolve-Mitmdump {
+    $cmd = Get-Command mitmdump -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") +
+        ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $cmd = Get-Command mitmdump -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $roots = @(
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Links",
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Packages",
+        "$env:LOCALAPPDATA\Programs\Python",
+        "$env:APPDATA\Python",
+        "$env:ProgramFiles\mitmproxy"
+    ) | Where-Object { Test-Path $_ }
+    foreach ($root in $roots) {
+        $hit = Get-ChildItem -Path $root -Filter mitmdump.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+    return $null
+}
+
+$mitm = Resolve-Mitmdump
+if (-not $mitm) {
+    Write-Error "mitmdump not found even after refreshing PATH and searching the usual install dirs. Install it (pip install mitmproxy, or winget install mitmproxy.mitmproxy) and, if you just did, open a new PowerShell window and re-run."
     return
 }
+Write-Host "Using mitmdump: $mitm" -ForegroundColor DarkGray
 
 # Nudge WinINET so running apps notice the proxy change without a reboot.
 if (-not ("Native.WinInet" -as [type])) {
@@ -62,7 +92,7 @@ function Invoke-ProxyRefresh {
 $cert = "$env:USERPROFILE\.mitmproxy\mitmproxy-ca-cert.cer"
 if (-not (Test-Path $cert)) {
     Write-Host "Generating mitmproxy's CA cert (brief mitmdump launch)..." -ForegroundColor Cyan
-    $gen = Start-Process -FilePath "mitmdump" -ArgumentList "--listen-port", "$Port" -PassThru -NoNewWindow
+    $gen = Start-Process -FilePath $mitm -ArgumentList "--listen-port", "$Port" -PassThru -NoNewWindow
     for ($i = 0; $i -lt 10 -and -not (Test-Path $cert); $i++) { Start-Sleep -Milliseconds 500 }
     Stop-Process -Id $gen.Id -Force -ErrorAction SilentlyContinue
 }
@@ -96,7 +126,7 @@ try {
     Write-Host "Watching for RallyHere tokens -- Ctrl+C to stop and restore the proxy." -ForegroundColor Green
     Write-Host ""
 
-    & mitmdump --listen-port $Port -s $addon
+    & $mitm --listen-port $Port -s $addon
 }
 finally {
     Set-ItemProperty -Path $regPath -Name ProxyEnable -Value $prevEnable
