@@ -81,6 +81,23 @@ are what moved the ability-led cells: Medusa, inverted at +0.45 through
 every item fix, sits at +0.18 with her rotation modelled — the rest of her
 gap is the sim's remaining blind spot for ability-item interplay, not a
 reason to distrust the carry signal.
+
+Every role, --stacked --abilities, same day:
+
+    Carry:  median -0.31, negative in 27/34 cells
+    Solo:   median -0.23, negative in 55/74
+    Mid:    median -0.20, negative in 34/52
+    Jungle: median -0.10, negative in 41/58
+
+Solo ordering this well on raw TTK — before the planned TTK-times-EHP
+hybrid — was not expected. The known bias, measured rather than assumed:
+correlating each cell's rho against how much attack speed its corpus builds
+carry gives +0.37 (Mid) and +0.40 (Solo) — the *high*-attack-speed cells
+order worse — against -0.14 for Carry. The sim weaves basics at full uptime
+between casts, which only carries actually do, so attack speed is worth
+more in the sim than in the hands of a god who also aims, casts and
+repositions. The next dial is a per-role weave fraction, sweepable against
+exactly these cells.
 """
 
 from __future__ import annotations
