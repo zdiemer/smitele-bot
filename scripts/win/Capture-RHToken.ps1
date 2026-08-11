@@ -1,32 +1,35 @@
 <#
 .SYNOPSIS
-    Point Windows' proxy at mitmproxy, run the RallyHere token-capture addon,
-    and put the proxy back when you Ctrl+C.
+    Run mitmproxy with the RallyHere token-capture addon as a plain local
+    listener. It does NOT touch your system proxy -- nothing else on the machine
+    is affected and your browser can never be stranded.
 
 .DESCRIPTION
-    Turns the manual "sniff a warm token off the client" step into one command.
-    It sets the WinINET system proxy to a local mitmproxy, runs mitmdump with
-    capture_rh_token.py, and restores the previous proxy on exit no matter how
-    you leave (Ctrl+C included).
+    mitmproxy listens on 127.0.0.1:<Port> and captures nothing until you *route*
+    an app through it. Game clients (Unreal/RallyHere) generally ignore the
+    Windows system proxy, so the reliable way to route ONLY the game is a
+    socket-level forwarder like Proxifier or ProxyCap:
 
-    Run this, then start (or restart) Smite 2. Each time the client mints a
-    fresh token the console prints it, the env host, and a paste-ready probe
-    command; everything also lands in rh_capture.json.
+        proxy:  127.0.0.1:<Port>   type HTTPS
+        rule:   Smite2.exe (and any EOS / RallyHere helper .exe)  ->  that proxy
 
-    ONE-TIME SETUP: mitmproxy's CA cert must be trusted or the game's TLS will
-    reject the interception. This script installs it into your user Trusted Root
-    store on first run (a Windows dialog will ask you to confirm).
+    Sanity-check the listener itself, without the game:
 
-    IF NO rally-here.io FLOWS APPEAR but other hosts do, the game is ignoring
-    the WinINET proxy (some Unreal/libcurl clients do). See README.md for the
-    env-var and transparent-proxy fallbacks.
+        curl.exe -x http://127.0.0.1:<Port> http://example.com
+
+    A flow line should appear in this window. If it does, mitmproxy is fine and
+    the only question is routing the game to it.
+
+    HEADS UP -- TLS PINNING. If Smite 2 pins its certificates, mitmproxy cannot
+    decrypt even when the traffic is routed correctly: you will see the
+    connection attempt fail rather than a clean flow. Try Find-RHToken.ps1
+    FIRST -- it may pull the token from a log with no interception at all.
 
 .PARAMETER Port
-    Local port for mitmproxy. Default 8080.
+    Listen port. Default 8080.
 
 .PARAMETER Out
-    Where the addon writes the capture JSON. Default rh_capture.json next to
-    this script.
+    Capture JSON path. Default rh_capture.json next to this script.
 #>
 [CmdletBinding()]
 param(
@@ -36,12 +39,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $addon = Join-Path $PSScriptRoot "capture_rh_token.py"
-$regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 
-# winget/pip drop mitmdump somewhere that an already-open shell hasn't picked up
-# in its PATH. Refresh PATH from the registry, then, failing that, look in the
-# handful of places these installers actually use — so "it's installed but not
-# found" stops being a reason to reopen the terminal.
+# winget/pip drop mitmdump somewhere an already-open shell hasn't picked up in
+# its PATH. Refresh from the registry, then search the dirs these installers use.
 function Resolve-Mitmdump {
     $cmd = Get-Command mitmdump -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -73,67 +73,40 @@ if (-not $mitm) {
 }
 Write-Host "Using mitmdump: $mitm" -ForegroundColor DarkGray
 
-# Nudge WinINET so running apps notice the proxy change without a reboot.
-if (-not ("Native.WinInet" -as [type])) {
-    Add-Type -Namespace Native -Name WinInet -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("wininet.dll", SetLastError = true)]
-public static extern bool InternetSetOption(System.IntPtr h, int opt, System.IntPtr buf, int len);
-'@
-}
-function Invoke-ProxyRefresh {
-    # 39 = INTERNET_OPTION_SETTINGS_CHANGED, 37 = INTERNET_OPTION_REFRESH
-    [Native.WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null
-    [Native.WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
-}
-
-# One-time: generate + trust the mitmproxy CA. The CA is written when mitmdump
-# starts up, so force it by launching briefly and stopping — '--version' exits
-# before the certstore initialises and won't create it.
+# One-time: generate + trust the mitmproxy CA. Generate it in a HIDDEN, separate
+# window (not -NoNewWindow) so force-killing it can't disturb the console the
+# real mitmdump then runs in. '--version' won't do it: the CA is written when
+# the certstore initialises at proxy startup.
 $cert = "$env:USERPROFILE\.mitmproxy\mitmproxy-ca-cert.cer"
 if (-not (Test-Path $cert)) {
-    Write-Host "Generating mitmproxy's CA cert (brief mitmdump launch)..." -ForegroundColor Cyan
-    $gen = Start-Process -FilePath $mitm -ArgumentList "--listen-port", "$Port" -PassThru -NoNewWindow
-    for ($i = 0; $i -lt 10 -and -not (Test-Path $cert); $i++) { Start-Sleep -Milliseconds 500 }
+    Write-Host "Generating mitmproxy's CA cert (brief hidden launch)..." -ForegroundColor Cyan
+    $gen = Start-Process -FilePath $mitm `
+        -ArgumentList "--listen-host", "127.0.0.1", "--listen-port", "$Port" `
+        -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 20 -and -not (Test-Path $cert); $i++) { Start-Sleep -Milliseconds 500 }
     Stop-Process -Id $gen.Id -Force -ErrorAction SilentlyContinue
 }
 if (Test-Path $cert) {
     $trusted = Get-ChildItem Cert:\CurrentUser\Root |
         Where-Object { $_.Subject -like "*mitmproxy*" }
     if (-not $trusted) {
-        Write-Host "Installing mitmproxy CA into your Trusted Root store (confirm the dialog)..." -ForegroundColor Cyan
+        Write-Host "Trusting mitmproxy CA in your user store (confirm the dialog)..." -ForegroundColor Cyan
         Import-Certificate -FilePath $cert -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
     }
 } else {
     Write-Warning "mitmproxy CA cert not found at $cert. If capture fails on TLS, run 'mitmdump' once, then trust that file."
 }
 
-# Snapshot the current proxy so we can put it back exactly.
-$prev = Get-ItemProperty -Path $regPath
-$prevEnable = if ($null -ne $prev.ProxyEnable) { $prev.ProxyEnable } else { 0 }
-$prevServer = $prev.ProxyServer
+$env:RH_CAPTURE_OUT = $Out
 
-try {
-    Set-ItemProperty -Path $regPath -Name ProxyServer -Value "127.0.0.1:$Port"
-    Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 1
-    Invoke-ProxyRefresh
-    # Also export for libcurl-based children launched from THIS shell.
-    $env:HTTP_PROXY = "http://127.0.0.1:$Port"
-    $env:HTTPS_PROXY = $env:HTTP_PROXY
-    $env:RH_CAPTURE_OUT = $Out
+Write-Host ""
+Write-Host "mitmproxy is listening on 127.0.0.1:$Port. Your system proxy is UNCHANGED." -ForegroundColor Green
+Write-Host "It stays silent until you route an app to it:" -ForegroundColor Green
+Write-Host "  - Route Smite2.exe through 127.0.0.1:$Port with Proxifier/ProxyCap, then start the game." -ForegroundColor Green
+Write-Host "  - Sanity check now:  curl.exe -x http://127.0.0.1:$Port http://example.com" -ForegroundColor DarkGray
+Write-Host "Ctrl+C to stop (nothing to restore -- no system settings were changed)." -ForegroundColor Green
+Write-Host ""
 
-    Write-Host ""
-    Write-Host "Proxy is on 127.0.0.1:$Port. Now start (or restart) Smite 2." -ForegroundColor Green
-    Write-Host "Watching for RallyHere tokens -- Ctrl+C to stop and restore the proxy." -ForegroundColor Green
-    Write-Host ""
-
-    & $mitm --listen-port $Port -s $addon
-}
-finally {
-    Set-ItemProperty -Path $regPath -Name ProxyEnable -Value $prevEnable
-    if ($null -ne $prevServer) {
-        Set-ItemProperty -Path $regPath -Name ProxyServer -Value $prevServer
-    }
-    Remove-Item Env:\HTTP_PROXY, Env:\HTTPS_PROXY -ErrorAction SilentlyContinue
-    Invoke-ProxyRefresh
-    Write-Host "`nProxy restored." -ForegroundColor Yellow
-}
+# Bind loopback explicitly so there is no IPv4/IPv6 '*' ambiguity for clients
+# connecting to 127.0.0.1.
+& $mitm --listen-host 127.0.0.1 --listen-port $Port -s $addon
