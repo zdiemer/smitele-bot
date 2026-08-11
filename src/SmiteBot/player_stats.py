@@ -426,20 +426,35 @@ class PlayerStats(commands.Cog):
             match = None
 
         if match is None:
+            # tracker.gg is the only lobby source there is, and its live
+            # snapshots refresh on a roughly ten minute cadence — so before
+            # answering a flat no, ask Steam whether the player is running
+            # the game at all. Steam answers in seconds where tracker lags
+            # minutes; it just cannot see past "running" into "in a match".
+            from smite2 import steam  # noqa: PLC0415
+
+            playing = (
+                await steam.running_smite2(handle) if platform == "steam" else None
+            )
+            if playing:
+                description = (
+                    f"**{player_name}** is in Smite 2 right now, but "
+                    f"tracker.gg hasn't posted their lobby yet. Its live "
+                    f"status lags several minutes behind a match starting, "
+                    f"so ask again shortly."
+                )
+            else:
+                description = (
+                    f"**{player_name}** isn't in a match that tracker.gg "
+                    f"can see yet. Its live status often lags several "
+                    f"minutes behind the start of a match, so it's worth "
+                    f"retrying if you know they're in one."
+                )
             await self.__send_response_or_message_embed(
                 ctx_or_message,
                 discord.Embed(
                     color=discord.Color.yellow(),
-                    # tracker.gg is the only source there is, and its live
-                    # snapshots refresh on a roughly ten minute cadence, so
-                    # saying "isn't in a match" alone reads as a wrong answer
-                    # to someone who is standing in the fountain.
-                    description=(
-                        f"**{player_name}** isn't in a match that tracker.gg "
-                        f"can see yet. Its live status often lags several "
-                        f"minutes behind the start of a match, so it's worth "
-                        f"retrying if you know they're in one."
-                    ),
+                    description=description,
                 ),
             )
             return

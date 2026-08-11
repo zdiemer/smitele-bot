@@ -10,6 +10,11 @@ credentials:
   discordToken: ""
   hirezDevId: ""
   hirezAuthKey: ""
+  # Optional. A Steam Web API key (steamcommunity.com/dev/apikey) lets
+  # /livematch say "playing Smite 2, lobby not posted yet" instead of a flat
+  # "not in a match" while tracker.gg's ~10 min snapshot catches up. Leave
+  # empty to answer from tracker.gg alone.
+  steamApiKey: ""
 
 # Only needed once the NAS share exists and you flip these on. Same TrueNAS
 # user the other charts use.

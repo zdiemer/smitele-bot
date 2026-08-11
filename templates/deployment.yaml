@@ -50,6 +50,15 @@ spec:
               drop: ["ALL"]
           env:
             {{- include "smitele-bot.credentialEnv" . | nindent 12 }}
+            {{- if .Values.credentials.steamApiKey }}
+            # Only the bot: the fast "are they even running Smite 2" probe
+            # belongs to /livematch, not to any batch workload.
+            - name: SMITELE_STEAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "smitele-bot.fullname" . }}
+                  key: steamApiKey
+            {{- end }}
             {{- if and .Values.bot.useEgressProxy .Values.credentials.egressProxy }}
             {{- include "smitele-bot.egressEnv" . | nindent 12 }}
             {{- end }}

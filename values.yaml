@@ -14,6 +14,11 @@ credentials:
   discordToken: ""
   hirezDevId: ""
   hirezAuthKey: ""
+  # A Steam Web API key (steamcommunity.com/dev/apikey). Optional: with one,
+  # /livematch can tell "tracker.gg is lagging" apart from "not playing" by
+  # asking Steam whether the player is running Smite 2 right now. Empty means
+  # the bot answers from tracker.gg alone, as it always has.
+  steamApiKey: ""
   # Where tracker.gg traffic leaves from. Empty means the host's own address,
   # which is what every deployment did before this existed. Contains a password,
   # so it belongs in values.local.yaml with the rest.
