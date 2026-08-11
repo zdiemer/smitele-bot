@@ -46,7 +46,8 @@
 param(
     [int]$Port = 8080,
     [string]$Out = "$PSScriptRoot\rh_capture.json",
-    [switch]$NoProxyEnv
+    [switch]$NoProxyEnv,
+    [string]$OnlyHost = 'titanforgegames\.com'
 )
 
 $ErrorActionPreference = "Stop"
@@ -187,12 +188,24 @@ try {
         Write-Host ""
         Write-Host "mitmproxy listening on 127.0.0.1:$Port. -NoProxyEnv set: route Smite2.exe here with Proxifier/ProxyCap." -ForegroundColor Green
     }
-    Write-Host "Sanity check:  curl.exe -x http://127.0.0.1:$Port http://example.com" -ForegroundColor DarkGray
+    Write-Host "Sanity check (hits the intercepted host):" -ForegroundColor DarkGray
+    Write-Host "  curl.exe -x http://127.0.0.1:$Port -k https://api-smite2.titanforgegames.com/" -ForegroundColor DarkGray
+    Write-Host "  -> should log a flow here and return 404. Confirms interception + the allow-hosts match." -ForegroundColor DarkGray
     Write-Host "Ctrl+C to stop." -ForegroundColor Green
     Write-Host ""
 
     # Bind loopback explicitly -- no IPv4/IPv6 '*' ambiguity for 127.0.0.1 clients.
-    & $mitm --listen-host 127.0.0.1 --listen-port $Port -s $addon
+    $mitmArgs = @("--listen-host", "127.0.0.1", "--listen-port", "$Port", "-s", $addon)
+    if ($OnlyHost) {
+        # The env vars route EVERY libcurl app (nvidia, Steam, ...) through us.
+        # Only MITM the game's host; blind-tunnel the rest so they aren't broken
+        # or noisy. The curl sanity check to example.com is tunneled too, so it
+        # won't show a decrypted flow -- test against the real host instead once
+        # the game is up. Pass -OnlyHost '' to intercept everything.
+        Write-Host "Intercepting only hosts matching /$OnlyHost/ (everything else is tunneled)." -ForegroundColor DarkGray
+        $mitmArgs += @("--allow-hosts", $OnlyHost)
+    }
+    & $mitm @mitmArgs
 }
 finally {
     if (-not $NoProxyEnv) { Restore-ProxyEnv }
