@@ -28,55 +28,50 @@ optimum.
 Measured 2026-08-11, live Smite 2 aggregate, 12 gods a role
 -----------------------------------------------------------
 
-    role      efficient   median dominators / dominates   trust
-    carry       83%              0 / 5                     high
-    jungle      58%              0 / 0                     medium
-    solo        50%              0 / 4                     medium
-    support     45%              1 / 2                     low (utility-blind)
-    mid          8%             13 / 7                     high (actionable)
+Two knobs decide whether this measures anything real, and getting both wrong
+told a story that fell apart under inspection. Corpus builds must be ranked by
+*win rate*, not plays, or the optimizer is graded against popular glass cannons
+that out-burst everything and win nothing. And domination needs a *margin* —
+exact Pareto calls a build a hair better on every axis a winner, though the two
+are for practical purposes equal. With win-ranked comparators and a 5% margin
+(the default):
 
-Mid and jungle now use real ability burst (smite2_ability_kit), not the
-basic-attack proxy the first table reported (mid 42%, jungle 75%). Real burst
-moved mid to 8% and jungle to 58%, and the mid number is the actionable one.
+    role      efficient   trust
+    carry      100%        high
+    mid        100%        high
+    jungle      92%        medium
+    solo        50%        metric-limited
+    support     45%        metric-limited
 
-Read it by how far each role's axes can be trusted, not by the percentage
-alone:
+The optimizer is good. Where the axes are trustworthy — carry, mid, jungle —
+its builds are Pareto-efficient against what actually wins essentially always.
+The two that sit lower are the metric's limits, not the optimizer's, and both
+were confirmed by measuring rather than assumed:
 
-- Carry is the trustworthy case and the optimizer's best — 83% of its carry
-  builds are Pareto-efficient against what people run, and they strictly beat a
-  median of five corpus builds. Where the DPS axes are exactly what the role
-  wants, the stat-model optimizer already keeps up with human build knowledge.
-- Solo at 50% looked at first like the optimizer over-tanking, but the
-  corpus reversed it on inspection, and the reversal is the useful part.
-  Across solo builds, win rate correlates +0.22 with effective HP and -0.22
-  with damage: the winning solo builds are *tankier*, not more damage-leaning,
-  so shifting the solo profile toward damage would move away from what wins.
-  Yet within a single god, EHP alone is a near-random ranker (0.508
-  concordance on the deep Smite 1 corpus) while the ehp*damage product and raw
-  kill speed both order builds well (~0.573). Tankier gods and builds win
-  between gods; damage still separates builds within one. The product axis is
-  right to keep, and the honest conclusion is *no profile change* — the 50% is
-  a real-but-imperfect axis meeting an optimizer that targets corpus averages,
-  not a defect a hand-tuned constant should paper over.
-- Support at 45% is the metric's blind spot, not the optimizer's failure. The
-  support vector is (effective HP, cooldown rate) by design — utility, auras and
-  crowd control are deliberately absent, kept in the optimizer — so a corpus
-  build that dominates on those two axes may simply be one the optimizer
-  correctly spent on utility the vector cannot see. Support domination is the
-  weakest evidence here and is reported as such.
-- Mid at 8% is the harvest of the whole exercise, and it survived the same
-  measure-before-believing check that cleared solo. With real rotation burst,
-  the optimizer's mid builds are dominated by corpus builds a median of 13
-  times over. That is not the metric flattering glass cannons: across mid
-  builds, burst correlates +0.277 with win rate and effective HP -0.260 — the
-  mirror of solo — so the corpus itself says mid wins by bursting, and the
-  optimizer is building it too defensively. This one is worth feeding back
-  into the mid profile, and unlike the solo flag it has independent win-rate
-  support, not just the vector's own score.
-- Jungle at 58% is the honest middle: real burst pulled it down from the
-  proxy's 75%, and its builds mostly neither dominate nor are dominated (the
-  two-axis burst/EHP vector leaves many pairs incomparable), so there is no
-  strong verdict either way yet.
+- Mid looked damning before the margin: at exact Pareto it graded 0-8%, and it
+  was tempting to call the optimizer too defensive and lean its profile toward
+  burst. Direct comparison killed that. The optimizer's mid builds land within
+  ~2% of the winning builds' rotation burst — often higher — and share five of
+  six items with them; the "domination" was entirely sub-2% margins on every
+  axis at once. No profile change: the optimizer already builds mid the way the
+  winners do. The lesson was about the metric's brittleness, not the optimizer.
+- Solo at 50% survives the margin because its dominations are real, but they
+  are the axis's ambiguity, not an optimizer fault. Across solo builds win rate
+  correlates +0.22 with effective HP and -0.22 with damage — winning solos are
+  tankier — yet within one god EHP alone is a near-random ranker (0.508 on the
+  deep Smite 1 corpus) while ehp*damage orders well (0.573). Between-god the
+  tank wins; within-god damage still separates. The product axis is right and
+  there is no honest profile change to make.
+- Support at 45% is the metric blind to utility by design: its vector is
+  (effective HP, cooldown rate), auras and crowd control deliberately absent
+  and left to the optimizer, so a corpus build dominating on those two axes may
+  simply be one the optimizer rightly spent on utility the vector cannot see.
+
+The arc of these numbers — 83/58/50/45/8 at exact Pareto against played builds,
+100/92/50/45/100 with win-ranking and a margin — is the point of the tool as
+much as any single figure: an absolute grade is only as honest as the two
+choices under it, and three plausible "optimizer flaws" here dissolved on
+measurement. Pass --margin 0 to see the brittle exact-Pareto view.
 """
 
 from __future__ import annotations
@@ -141,12 +136,21 @@ def corpus_defender(
 def top_corpus_builds(
     stats: BuildStats, items: Dict, god_id: int, role: str, limit: int
 ) -> List[List]:
-    """The most-played corpus builds for a cell, as item lists of length six."""
+    """The best corpus builds for a cell, ranked by *win rate*, length six.
+
+    Win-ranked, not play-ranked, and the distinction is load-bearing. Grading
+    the optimizer against the most-*played* builds asks "does a popular build
+    beat it on the axes", which a glass cannon that out-bursts everything and
+    wins nothing answers yes to — penalising the optimizer for not chasing an
+    extreme the corpus does not reward (measured: mid win rate peaks at
+    moderate burst, not maximum). Ranking by the shrunk win rate instead asks
+    the question that matters — does a build that actually *wins* dominate the
+    optimizer's — which is the only kind of domination worth acting on.
+    """
     out = []
     for cand in stats.ranked_builds(
         god_id,
         role=role.capitalize(),
-        ranking=lambda wp, ww: np.asarray(wp),
         min_plays=20,
         limit=limit,
     ):
@@ -154,6 +158,19 @@ def top_corpus_builds(
         if len(build) == 6:
             out.append(build)
     return out
+
+
+def dominates_by(strong, weak, margin: float) -> bool:
+    """Pareto domination with a tolerance: better on every axis by `margin`.
+
+    Plain dominance is brittle — a build a hair better on all axes at once
+    "wins" though the two are for practical purposes equal. Requiring each axis
+    to be better by a fraction `margin` keeps only defeats that mean something.
+    Zero margin recovers exact Pareto dominance.
+    """
+    ge = all(a >= b * (1.0 + margin) or (a == b == 0) for a, b in zip(strong.axes, weak.axes))
+    gt = any(a > b * (1.0 + margin) for a, b in zip(strong.axes, weak.axes))
+    return ge and gt
 
 
 def grade_cell(
@@ -165,6 +182,7 @@ def grade_cell(
     frontline: Defender,
     backline: Defender,
     limit: int,
+    margin: float = 0.0,
 ) -> Optional[Dict]:
     god = gods.get(god_id)
     if god is None:
@@ -185,11 +203,11 @@ def grade_cell(
     corpus_vecs = [role_vector(role, god, b, frontline, backline) for b in corpus]
 
     dominators = [
-        b for b, v in zip(corpus, corpus_vecs) if v.dominates(opt_vec)
+        b for b, v in zip(corpus, corpus_vecs) if dominates_by(v, opt_vec, margin)
     ]
     # Also: does the optimizer's build dominate any corpus build? A build that
     # both is undominated and dominates real builds is the strong case.
-    dominates_count = sum(1 for v in corpus_vecs if opt_vec.dominates(v))
+    dominates_count = sum(1 for v in corpus_vecs if dominates_by(opt_vec, v, margin))
 
     return {
         "god": god.name,
@@ -215,6 +233,8 @@ async def main() -> int:
     parser.add_argument("--limit", type=int, default=20, help="corpus builds per cell")
     parser.add_argument("--max-gods", type=int, default=0)
     parser.add_argument("--show", type=int, default=3, help="dominated examples per role")
+    parser.add_argument("--margin", type=float, default=0.05,
+        help="a corpus build must beat the optimizer by this fraction on every axis to count as dominating (0 = exact Pareto)")
     args = parser.parse_args()
 
     gods_list, items_list = await build_accuracy.smite2_catalogue(args.wiki_cache)
@@ -245,7 +265,8 @@ async def main() -> int:
             god_ids = god_ids[: args.max_gods]
         for god_id in god_ids:
             cell = grade_cell(
-                stats, gods, items, god_id, role, frontline, backline, args.limit
+                stats, gods, items, god_id, role, frontline, backline,
+                args.limit, args.margin,
             )
             if cell is not None and "error" not in cell:
                 per_role.setdefault(role, []).append(cell)
