@@ -193,6 +193,11 @@ def _live_player(segment: Dict[str, Any]) -> Optional[LivePlayer]:
     handle = ""
     if isinstance(platform_info, dict):
         handle = platform_info.get("platformUserHandle") or ""
+    if not handle:
+        # The live route carries the handle directly on the segment metadata
+        # rather than nested under platformInfo; without this, every player in
+        # a live lobby rendered as "Hidden Player".
+        handle = metadata.get("platformUserHandle") or ""
     return LivePlayer(
         god=str(god),
         team=str(attributes.get("teamId") or metadata.get("teamId") or ""),
@@ -375,7 +380,26 @@ class PlayerLookups:
                     # "not asked yet" and re-request on every command.
                     self.__store(key, False)
                     return None
+                # `/live` answers with a whole match object whose `segments`
+                # hold the caller's own row — not with a bare segment, which
+                # is what the original probe recorded. Passing the match dict
+                # to `_live_player` found no godName in the match's own
+                # metadata and returned None, so the command answered "isn't
+                # in a match" for players standing in the fountain. Both
+                # shapes are accepted: a bare segment first, then the rows.
                 mine = _live_player(own)
+                if mine is None:
+                    mine = next(
+                        (
+                            player
+                            for player in (
+                                _live_player(segment)
+                                for segment in (own.get("segments") or [])
+                            )
+                            if player is not None
+                        ),
+                        None,
+                    )
                 match = await client.match(str(match_id))
         except Exception as error:  # noqa: BLE001 — never fatal to a command
             self.__log(f"live match lookup failed: {error}")

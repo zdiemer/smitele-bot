@@ -430,7 +430,16 @@ class PlayerStats(commands.Cog):
                 ctx_or_message,
                 discord.Embed(
                     color=discord.Color.yellow(),
-                    description=f"**{player_name}** isn't in a match right now.",
+                    # tracker.gg is the only source there is, and its live
+                    # status runs minutes behind the lobby — saying "isn't in
+                    # a match" alone reads as a wrong answer to someone who is
+                    # standing in the fountain.
+                    description=(
+                        f"**{player_name}** isn't in a match that tracker.gg "
+                        f"can see yet. Its live status often lags a few "
+                        f"minutes behind the start of a match — worth "
+                        f"retrying if you know they're in one."
+                    ),
                 ),
             )
             return

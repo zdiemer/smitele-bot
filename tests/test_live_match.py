@@ -152,3 +152,52 @@ class TestSplittingTheLobby:
         )
         assert partial.enemies == []
         assert partial.allies == []
+
+
+class TestTheLiveRouteShape:
+    """What `/matches/{platform}/{handle}/live` actually returns.
+
+    The original probe recorded a bare overview segment; the route observed on
+    2026-08-11 (a real Assault lobby) answers with a whole match object whose
+    `segments` list holds the caller's row, and carries the handle directly on
+    segment metadata rather than under platformInfo. Feeding the match object
+    itself to `_live_player` finds no godName and yielded None — which the
+    caller read as "not in a match", for a player standing in the fountain.
+    """
+
+    LIVE_BODY = {
+        "attributes": {"id": "dbc9d829", "gamemode": "assault", "region": "nae"},
+        "metadata": {"state": "pending", "isLive": True},
+        "segments": [
+            {
+                "type": "overview",
+                "attributes": {
+                    "platformSlug": "steam",
+                    "platformUserIdentifier": "76561197993375857",
+                },
+                "metadata": {
+                    "teamId": "order",
+                    "god": "sobek",
+                    "godName": "Sobek",
+                    "platformUserHandle": "StarFoxA",
+                },
+            }
+        ],
+    }
+
+    def test_the_match_object_is_not_itself_a_player(self):
+        assert _live_player(self.LIVE_BODY) is None
+
+    def test_the_own_row_is_found_inside_the_segments(self):
+        found = [
+            p
+            for p in (_live_player(s) for s in self.LIVE_BODY["segments"])
+            if p is not None
+        ]
+        assert len(found) == 1
+        assert found[0].god == "Sobek"
+        assert found[0].team == "order"
+
+    def test_the_handle_is_read_from_segment_metadata(self):
+        found = _live_player(self.LIVE_BODY["segments"][0])
+        assert found.handle == "StarFoxA"
