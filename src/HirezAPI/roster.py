@@ -82,6 +82,42 @@ DISCORD_TO_SMITE2: Dict[int, str] = {
     145309655122313216: "steam:76561198068087809",  # tyjelly69
 }
 
+# Discord user id → RallyHere player uuid, for the Smite 2 roster.
+#
+# A RallyHere player uuid is a *deterministic* v5 hash of the platform identity,
+# so it never changes and can be resolved once and kept here rather than looked
+# up at runtime — which also means this map works with no RallyHere token at all,
+# the same way the two above need no API. Resolved from the Steam ids in
+# `DISCORD_TO_SMITE2` by `scripts/resolve_roster_uuids.py`; rerun it when that
+# map changes. The comment on each line is the Smite 1 name, as above.
+#
+# Why it earns its place beside the Steam handle: a live RallyHere match session
+# lists its players by uuid and nothing else — no names, no handles — so the only
+# way to tell which of the ten are *ours* is to have their uuids in hand first.
+DISCORD_TO_SMITE2_UUID: Dict[int, str] = {
+    269238299019706369: "46e70392-2196-5dce-bb32-3ff7e888570d",  # starfoxa
+    232171953845305344: "30fc511a-1eb1-5fe9-8cda-b81d0e44f645",  # indelmaen
+    143592135730528256: "ed46b3ae-b74d-5a77-8a45-3ad21846ff67",  # vinnied
+    269276185656164355: "1e8f1aac-b875-588e-a9cf-e55a241c42c4",  # jalbagel
+    294977341648797706: "fe54a83b-4a50-5b0a-bc5f-ebb44458db35",  # artavious
+    325874261682290688: "3abf7712-6e6d-5110-b483-8968beaa7537",  # nastrian
+    231849691250294784: "94742a88-d287-58cd-8e15-11c253523bd9",  # rawlout
+    270012612048060416: "7b9de45a-24e1-5a55-ae54-65f5446cfd46",  # snootin
+    269980529942593546: "6b064917-7fb1-5e8e-92f6-ddf84fa9d031",  # zachjak
+    145309655122313216: "9360bc44-f77e-5cf1-8a58-a0cc1c0b3939",  # tyjelly69
+}
+
+# uuid → the name to show for that player, for naming a live session's roster.
+#
+# Keyed by RallyHere uuid rather than Discord id, and valued with the Smite 1
+# in-game name (the friendly handle these people are known by here), so this is
+# safe to use anywhere — it carries no Discord id. `?` for the one roster member
+# with a uuid but, somehow, no Smite 1 name.
+SMITE2_UUID_TO_NAME: Dict[str, str] = {
+    uuid: DISCORD_TO_SMITE.get(discord_id, "?")
+    for discord_id, uuid in DISCORD_TO_SMITE2_UUID.items()
+}
+
 # The public view: game handles, in a stable order, with no way back to a
 # Discord account. Sorted case-insensitively so the site's player list does not
 # reorder itself when someone is added to the middle of the map above.
