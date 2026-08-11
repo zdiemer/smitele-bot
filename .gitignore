@@ -38,3 +38,8 @@ values.local.yaml
 
 # Claude Code session scratch (worktrees, local state)
 .claude/
+
+# Smite 2 client captures dropped in for analysis: Unreal logs and PEX
+# telemetry carry player names and uuids and are never committed.
+Hemingway*.log
+PEX_Timeline_*.csv
