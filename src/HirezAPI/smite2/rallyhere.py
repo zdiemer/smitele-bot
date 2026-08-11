@@ -476,11 +476,16 @@ class PlayerStatus:
     display_name: Optional[str] = None
     platform: Optional[str] = None
     message: Optional[str] = None
-    # The client's own state — "InLobby" and the like. Read `online` first: the
-    # message is whatever was last published and outlives the session that set
-    # it, so a state beside `online=False` describes where they were, not where
-    # they are.
+    # The client's own state — "InLobby", "InMatch", and the like. Read `online`
+    # first: the message is whatever was last published and outlives the session
+    # that set it, so a state beside `online=False` describes where they were,
+    # not where they are.
     state: Optional[str] = None
+    # From the same presence message when in a match: the mode's tag
+    # ("GameMode.Info.Conquest.F2P.Ranked") and the match's start as a unix-
+    # seconds string. Both None outside a match.
+    mode_tag: Optional[str] = None
+    started_at: Optional[str] = None
     last_seen: Optional[str] = None
     sessions: List[SessionRef] = field(default_factory=list)
     error: Optional[str] = None
@@ -521,23 +526,27 @@ def _presence_fields(body: Any) -> Dict[str, Any]:
     return {}
 
 
-def _client_state(message: Any) -> Optional[str]:
-    """The client's own state string, out of the free-text presence message.
+def _presence_doc(message: Any) -> Dict[str, Any]:
+    """The JSON document Smite 2 publishes in the free-text presence message.
 
-    Measured 2026-08-11: Smite 2 publishes a small JSON document there —
-    ``{"state": "InLobby"}`` — which is finer-grained than the `status` field
-    beside it and is the nearest the backend comes to saying what a player is
-    doing. Anything that is not that document is left alone; this is a free-text
-    field and only this client's convention makes it more.
+    Measured against a player mid-match on 2026-08-11 it is richer than first
+    seen — not just a state, but the mode and when the match began::
+
+        {"state": "InMatch", "started_at": "1786462953",
+         "queue_id": "00000000-0000-0000-0000-00000000000a",
+         "mode_tag": "GameMode.Info.Conquest.F2P.Ranked"}
+
+    In a lobby it is just ``{"state": "InLobby"}``. Anything that is not this
+    JSON object is left alone; the field is free text and only this client's
+    convention makes it more.
     """
     if not isinstance(message, str) or not message.strip().startswith("{"):
-        return None
+        return {}
     try:
         document = json.loads(message)
     except ValueError:
-        return None
-    state = document.get("state") if isinstance(document, dict) else None
-    return str(state) if isinstance(state, str) and state else None
+        return {}
+    return document if isinstance(document, dict) else {}
 
 
 def _platform_uuids(body: Any) -> Dict[str, str]:
@@ -581,22 +590,37 @@ def _chunk(items: List[str], size: int) -> Iterable[List[str]]:
 
 
 def _session_refs(body: Any) -> List[SessionRef]:
-    """Every session id in a sessions payload, however it is nested.
+    """Every session a player is in, from the sessions payload.
 
-    Walks rather than indexing a known key for the same reason the probe walks
-    the JWT: the envelope has moved across RallyHere versions, and the ids are
-    unmistakable wherever they sit.
+    The live shape (2026-08-11, a player in a ranked match) is a dict keyed by
+    session *group*, each group naming its type and holding a list of ids::
+
+        {"sessions": {"party": {"type": "party", "session_ids": ["…"]},
+                      "game":  {"type": "game",  "session_ids": ["…"]}},
+         "last_updated_timestamp": "…"}
+
+    So the id lives under ``session_ids`` (plural, a list), not ``session_id`` —
+    which the first cut of this walker looked for and never found, leaving
+    :attr:`PlayerStatus.in_match` stuck False on real data. This handles that
+    grouped shape, and also a flat ``session_id`` where one appears (a session
+    *detail* object carries it), de-duplicating across both.
     """
     found: List[SessionRef] = []
     seen: set = set()
 
+    def add(session_id: Any, kind: Any) -> None:
+        if isinstance(session_id, str) and session_id and session_id not in seen:
+            seen.add(session_id)
+            found.append(SessionRef(session_id, str(kind or "")))
+
     def walk(node: Any) -> None:
         if isinstance(node, dict):
-            session_id = node.get("session_id") or node.get("id")
-            if isinstance(session_id, str) and session_id not in seen:
-                seen.add(session_id)
-                kind = node.get("session_type") or node.get("type") or ""
-                found.append(SessionRef(session_id, str(kind)))
+            kind = node.get("type") or node.get("session_type") or ""
+            ids = node.get("session_ids")
+            if isinstance(ids, list):
+                for session_id in ids:
+                    add(session_id, kind)
+            add(node.get("session_id"), kind)
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):
@@ -774,15 +798,18 @@ class RallyHereClient:
         except RallyHereHTTPError as error:
             return PlayerStatus(uuid=who, error=str(error))
 
-        state = str(fields.get("status") or "").lower()
+        presence_state = str(fields.get("status") or "").lower()
+        doc = _presence_doc(fields.get("message"))
         status = PlayerStatus(
             uuid=who,
             status=str(fields.get("status") or ""),
-            online=state not in _OFFLINE_STATUSES,
+            online=presence_state not in _OFFLINE_STATUSES,
             display_name=fields.get("display_name"),
             platform=fields.get("platform"),
             message=fields.get("message"),
-            state=_client_state(fields.get("message")),
+            state=str(doc["state"]) if doc.get("state") else None,
+            mode_tag=str(doc["mode_tag"]) if doc.get("mode_tag") else None,
+            started_at=str(doc["started_at"]) if doc.get("started_at") else None,
             last_seen=fields.get("last_seen"),
         )
         if with_sessions and status.online:

@@ -529,9 +529,62 @@ class TestStatus:
         return json.dumps({"status": status, "display_name": "Zach", **fields})
 
     def sessions_body(self, *pairs):
+        """The real sessions shape: a dict keyed by group, ids under a list.
+
+        Measured 2026-08-11 against a player mid-match. The ids live under
+        `session_ids` (plural), which the first parser missed entirely.
+        """
+        groups = {}
+        for sid, kind in pairs:
+            groups.setdefault(kind, {"type": kind, "session_ids": []})[
+                "session_ids"
+            ].append(sid)
         return json.dumps(
-            {"sessions": [{"session_id": sid, "session_type": kind} for sid, kind in pairs]}
+            {"sessions": groups, "last_updated_timestamp": "2026-08-11T15:39:01+00:00"}
         )
+
+    async def test_the_live_in_match_shape_reads(self):
+        """Verbatim from a player in a ranked match, 2026-08-11.
+
+        Two things this pins that idle players never exercised: the presence
+        message carries `InMatch` plus the mode and start time, and the sessions
+        payload is grouped (`{"game": {"session_ids": [...]}}`) — the shape the
+        first `_session_refs` walked straight past, leaving `in_match` stuck
+        False on exactly the players it most needed to be True for.
+        """
+        presence = json.dumps(
+            {
+                "status": "online",
+                "message": (
+                    '{\r\n\t"state": "InMatch",\r\n\t"started_at": "1786462953",'
+                    '\r\n\t"queue_id": "00000000-0000-0000-0000-00000000000a",'
+                    '\r\n\t"mode_tag": "GameMode.Info.Conquest.F2P.Ranked"\r\n}'
+                ),
+                "platform": "Steam",
+                "display_name": "JohnSmite2",
+                "player_uuid": "b0d9c101-6e5c-5739-b514-4a4b29d70453",
+            }
+        )
+        sessions = json.dumps(
+            {
+                "sessions": {
+                    "party": {"type": "party", "session_ids": ["c4acead4-party"]},
+                    "game": {"type": "game", "session_ids": ["01ed0b1e-game"]},
+                },
+                "last_updated_timestamp": "2026-08-11T15:39:01+00:00",
+            }
+        )
+        session = FakeSession(
+            gets={"/presence": (200, presence), "/session": (200, sessions)}
+        )
+        status = await client_with(session).status("b0d9c101-6e5c-5739-b514-4a4b29d70453")
+        assert (status.online, status.state) == (True, "InMatch")
+        assert status.mode_tag == "GameMode.Info.Conquest.F2P.Ranked"
+        assert status.started_at == "1786462953"
+        # The game session, not the party, is the match — and its id is the one
+        # a caller hands to session_players.
+        assert status.in_match
+        assert status.match_session_id == "01ed0b1e-game"
 
     async def test_the_live_presence_shape_reads(self):
         """Verbatim from the backend, 2026-08-11 — the one real shape here.
