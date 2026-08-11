@@ -62,6 +62,25 @@ the game already was. Where the pool spans genuinely bad builds the signal is
 much larger (Poseidon-as-carry rho -0.55, best-third TTK 60s vs worst 142s) —
 and grading an optimizer, whose builds can land anywhere in build space, leans
 on exactly that gross discrimination.
+
+The same day, three more layers (each measured on the meta pool):
+
+    variant ids, mana-to-power, the attack speed pipeline:   median -0.13
+    --stacked (gold- and kill-fed passives at full stacks):  median -0.22
+    --stacked --abilities (rotation + hunter steroids):      median -0.31,
+        negative in 27/34 cells, best third TTK-faster in 28/34
+
+The attack speed fix *lowered* rho relative to the broken pipeline it
+replaced (every build had been pinned to the fire cap, and the spurious
+Silverbranch overcap power was compensating for then-unmodelled damage) —
+kept anyway, because it is verifiably correct against a hand-computed build
+and the metric is a guide, not the definition of truth. --stacked is the
+right mode for grading finished builds: corpus builds are end-of-game
+snapshots, and the assumption alone is worth roughly a doubling. Abilities
+are what moved the ability-led cells: Medusa, inverted at +0.45 through
+every item fix, sits at +0.18 with her rotation modelled — the rest of her
+gap is the sim's remaining blind spot for ability-item interplay, not a
+reason to distrust the carry signal.
 """
 
 from __future__ import annotations
