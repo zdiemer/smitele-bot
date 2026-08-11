@@ -90,6 +90,20 @@ _REFRESH_SKEW_SECONDS = 300
 
 _LOGIN_PATH = "/users/v1/login"
 
+# Resolving a platform handle to a RallyHere player uuid. This is the hop that
+# looked closed and is not: ``/users/v1/platform-user`` needs ``user:platform:
+# read`` (a player token 403s), but ``/users/v1/player`` — "Lookup Player By
+# Portal" — lists no required permission and answers 200 for anyone. Confirmed
+# live 2026-08-11 against the roster's Steam ids. ``identities`` is an array, so
+# a whole roster resolves in one request.
+_LOOKUP_PATH = "/users/v1/player"
+PLATFORM_STEAM = "Steam"
+
+# The lookup accepts an array of identities; keep each request's batch bounded
+# so one call cannot build an unwieldy query string, and so the fan-out stays
+# legible as a handful of requests rather than one enormous one.
+_LOOKUP_BATCH = 20
+
 # How many players' reads are in flight at once when fanning out over a friends
 # list. This is one player's own token asking about their own friends, so the
 # volume is small either way; the cap is here so a twenty-friend list arrives as
@@ -526,6 +540,46 @@ def _client_state(message: Any) -> Optional[str]:
     return str(state) if isinstance(state, str) and state else None
 
 
+def _platform_uuids(body: Any) -> Dict[str, str]:
+    """`{platform_id: player_uuid}` out of a Lookup-Player-By-Portal response.
+
+    The live shape (2026-08-11) is::
+
+        {"identity_platforms_by_platform": {"Steam": [
+            {"identity": {"<steamid>": {"player_id": N, "player_uuid": "…"}}}]},
+         "identity_platforms": {"5": [ …same… ]}}
+
+    Both halves carry the same rows keyed differently, so this reads whichever
+    is present and de-duplicates. A handle absent from the directory simply has
+    no row — the caller sees it missing rather than mapped to nothing.
+    """
+    out: Dict[str, str] = {}
+
+    def take(rows: Any) -> None:
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            identity = row.get("identity") if isinstance(row, dict) else None
+            if not isinstance(identity, dict):
+                continue
+            for platform_id, info in identity.items():
+                uuid = info.get("player_uuid") if isinstance(info, dict) else None
+                if isinstance(uuid, str) and uuid and platform_id not in out:
+                    out[platform_id] = uuid
+
+    if isinstance(body, dict):
+        for group in (body.get("identity_platforms_by_platform") or {}).values():
+            take(group)
+        for group in (body.get("identity_platforms") or {}).values():
+            take(group)
+    return out
+
+
+def _chunk(items: List[str], size: int) -> Iterable[List[str]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
 def _session_refs(body: Any) -> List[SessionRef]:
     """Every session id in a sessions payload, however it is nested.
 
@@ -672,6 +726,32 @@ class RallyHereClient:
         """Coarse online / in-game / lobby state."""
         return await self._get(f"/presence/v1/player/uuid/{self._who(uuid)}/presence")
 
+    # --- handle -> uuid, the hop that makes the roster reachable ------------
+
+    async def uuids_by_steam(self, steam_ids: Iterable[str]) -> Dict[str, str]:
+        """Resolve Steam ids to RallyHere player uuids, in as few calls as fit.
+
+        The returned map holds only the ids the directory knew; a handle it has
+        never seen is absent rather than mapped to None, so ``result.get(id)``
+        distinguishes "no such player" from a resolved one cleanly. The uuids
+        are RallyHere's deterministic per-identity ones (v5, a hash of the
+        platform identity), so they are stable and a caller may cache them
+        indefinitely — the whole point of this being cheap to build a directory
+        from.
+        """
+        ids = [s for s in dict.fromkeys(steam_ids) if s]
+        resolved: Dict[str, str] = {}
+        for batch in _chunk(ids, _LOOKUP_BATCH):
+            body = await self._get(
+                _LOOKUP_PATH, {"platform": PLATFORM_STEAM, "identities": batch}
+            )
+            resolved.update(_platform_uuids(body))
+        return resolved
+
+    async def uuid_by_steam(self, steam_id: str) -> Optional[str]:
+        """One Steam id to its player uuid, or None if the directory has none."""
+        return (await self.uuids_by_steam([steam_id])).get(steam_id)
+
     # --- the status read the bot actually wants -----------------------------
 
     async def status(
@@ -737,3 +817,35 @@ class RallyHereClient:
         uuids = [who] if include_self else []
         uuids.extend(u for u in await self.friend_uuids(who) if u != who)
         return await self.statuses(uuids, with_sessions=with_sessions)
+
+    async def status_by_steam(
+        self, steam_id: str, with_sessions: bool = True
+    ) -> Optional[PlayerStatus]:
+        """A Steam player's live status, resolving the uuid first.
+
+        None only when the Steam id is not in RallyHere's directory at all —
+        that is the "this handle has no Smite 2 player" answer, distinct from a
+        resolved player who happens to be offline. Once resolved, a per-player
+        read failure lands in :attr:`PlayerStatus.error` exactly as
+        :meth:`status` documents.
+        """
+        uuid = await self.uuid_by_steam(steam_id)
+        if not uuid:
+            return None
+        return await self.status(uuid, with_sessions=with_sessions)
+
+    async def roster_status(
+        self, steam_ids: Iterable[str], with_sessions: bool = True
+    ) -> Dict[str, PlayerStatus]:
+        """`{steam_id: status}` for a roster, resolved then read concurrently.
+
+        One lookup call (or a few) turns the whole roster into uuids, then the
+        statuses fan out under the same concurrency cap as :meth:`statuses`.
+        Steam ids the directory does not know are simply absent from the result.
+        """
+        mapping = await self.uuids_by_steam(steam_ids)
+        pairs = list(mapping.items())
+        statuses = await self.statuses(
+            (uuid for _steam, uuid in pairs), with_sessions=with_sessions
+        )
+        return {steam: status for (steam, _uuid), status in zip(pairs, statuses)}

@@ -3,95 +3,104 @@
 `/livematch` for Smite 2 reads tracker.gg, whose live snapshots refresh only
 about every ten minutes. This document records the investigation into whether
 anything fresher exists, so the question does not have to be re-opened from
-scratch. The short answer, **revised 2026-08-11 against a real captured token**:
-a player's own token *can* read any player's live session — the permission the
-spec reserves for licensed studios is in the token — but it cannot turn a Steam
-handle into the RallyHere UUID that read needs. The wall is identity resolution,
-not session reading. What shipped so far is still the coarse Steam signal.
+scratch. The short answer, **revised 2026-08-11 against a real captured token,
+and it is the opposite of what the spec-derived version concluded**: a player's
+own token can read another player's live session *and* resolve a Steam id to the
+RallyHere UUID that read needs. Every hop is open. The whole chain —
+`steam id → uuid → live session → roster` — was walked end to end against the
+bot's own roster and came back 200 at each step. The freshest source is not out
+of reach; it is a capture and a few requests away.
 
-Everything below was checked against primary sources — the RallyHere OpenAPI
-spec, the Steam Web API docs, and live tracker.gg traffic against a real match —
-and the RallyHere section is now measured against the live backend rather than
-read off the spec, which it contradicts. Where a claim rests on one observation,
-or is not yet tested at all, it says so.
+The earlier belief that it was gated came from reading the OpenAPI spec's
+per-endpoint permission notes and assuming a player token carries the minimum
+they describe. It does not: the captured token holds `session:read-player:any`,
+and the un-permissioned `/users/v1/player` lookup resolves handles that the
+permission-gated `/users/v1/platform-user` refuses. Two wrong assumptions
+pointing the same way made a reachable thing look walled.
+
+Everything in the RallyHere section below is now **measured against the live
+backend**, not read off the spec. Where a hop was confirmed only against idle
+players (no live match was in progress during the capture), it says so.
 
 ## The four sources, ranked by freshness
 
 | Source | Freshness | Granularity | Verdict |
 | --- | --- | --- | --- |
-| RallyHere session API | seconds | full lobby | **open** to a player token — but only for a player whose UUID you can already name (see below) |
-| RallyHere presence API | seconds | coarse (online/in-game) | reachable, carries no session id, same UUID problem |
-| Steam `GetPlayerSummaries` | seconds | coarse (running the game) | **shipped** as the fallback |
+| RallyHere session API | seconds | full lobby | **open** end to end for any roster player — steam id resolves to uuid, uuid reads the live session |
+| RallyHere presence API | seconds | fine (online + client state, e.g. `InLobby`) | open; carries no session id, so it pairs with the session read |
+| Steam `GetPlayerSummaries` | seconds | coarse (running the game) | **shipped** as today's fallback; RallyHere supersedes it |
 | Discord guild presence | seconds | coarse (running the game) | viable, not yet built |
-| tracker.gg `/live` | ~10 min | full lobby | what we use for the lobby itself |
+| tracker.gg `/live` | ~10 min | full lobby | what `/livematch` uses today |
 
-## RallyHere: the real source, behind the real wall
+## RallyHere: the real source, and it is reachable
 
 Smite 2 runs on the RallyHere backend, and tracker.gg is downstream of it — so
 RallyHere is as fresh as the data gets. Its API is publicly documented
 ([github.com/RallyHereInteractive/openapi-spec-environment][spec]), served
-per-environment at `https://<env-id>.rally-here.io`. The `<env-id>` subdomain
-for Smite 2 is not published; it is the host the game client's own requests go
-to, visible only by sniffing that client's traffic.
+per-environment. For Smite 2 the host is `api-smite2.titanforgegames.com` — Titan
+Forge fronts its RallyHere environment behind that custom domain via CNAME, which
+is why sniffing the client only ever showed it and never an
+`<env-id>.rally-here.io` host (the `rally-here.io` DNS lookups are the SDK
+resolving sibling services). The env id is visible in the token's `iss` claim,
+not needed to make requests.
 
-The endpoints that would answer "who is in this player's match right now" all
-exist. The question is authorization — and everything below is now **measured
-against a real captured player token on 2026-08-11**, not read off the spec. The
-spec-derived version of this section was wrong, and wrong in both directions:
-the hop it called gated is open, and the hop it called open is gated. There are
-three hops.
+The endpoints that answer "who is in this player's match right now" all exist,
+and — measured against a real captured player token on 2026-08-11 — a player
+token may call every one of them. There are three hops and none is gated.
 
-**1. Platform handle to player UUID — GATED. This is the wall.**
-`GET /users/v1/platform-user?platform=Steam&platform_user_id=…` answers:
+**1. Steam id to player UUID — OPEN, via the right route.**
+There are two lookup routes and only one works for a player token, which is the
+whole trap the spec-reading fell into:
 
-    403  Insufficient Permissions - Expected any of: `user:platform:read`, `user:*`
+* `GET /users/v1/platform-user?platform=Steam&platform_user_id=…` — **403**,
+  `Insufficient Permissions - Expected any of: user:platform:read, user:*`. The
+  token holds neither. This is the route the earlier analysis found and called
+  the wall.
+* `GET /users/v1/player?platform=Steam&identities=<steamid>` ("Lookup Player By
+  Portal") — **200**. It lists *no* required permission, only a bearer, and
+  resolves any Steam id to its RallyHere player. Confirmed against five roster
+  Steam ids; each returned a `player_uuid` and the correct display name
+  (`StarFoxA`, `Indelmaen`, …). `identities` is an array, so a whole roster
+  resolves in one request.
 
-A player token holds neither. So a Steam id — which is exactly what the bot's
-roster is keyed by — cannot be turned into the RallyHere UUID that every other
-read wants. `GET /users/v2/player/{player_id}/uuid` *does* answer 200, but it
-converts a RallyHere internal player id, which you only have for someone you
-could already identify. Both were tried against the token owner's own Steam id,
-where the right answer was known in advance.
+The UUIDs it returns are RallyHere's deterministic per-identity ones — v5, a
+hash of the platform identity — so they are **stable forever** and can be cached
+indefinitely. Resolve a roster once and the mapping never has to be rebuilt.
+(One quirk: the token owner's *own* Steam id returns empty from this route,
+while every other player resolves. Self comes from the token's
+`active_player_uuid` claim anyway, so it costs nothing.)
 
-**2. Player UUID to their session id — OPEN.**
-`GET /session/v1/player/{player_uuid}/session`. The spec says this needs
-`session:*` or `session:read-player:any` for anyone but yourself, and predicts a
-player token carries only `session:read-player:self`. It carries both — the
-captured token's 22 session permissions include, verbatim:
+**2. Player UUID to their live session — OPEN, cross-player.**
+`GET /session/v1/player/{player_uuid}/session`. The spec says reading anyone but
+yourself needs `session:*` or `session:read-player:any` and predicts a player
+token carries only `:self`. It carries both — the captured token's 22 session
+permissions include `session:read-player:any` verbatim. Called against every
+resolved roster UUID: all 200. (Each returned an empty session — nobody was in a
+match at capture time — so the *populated* envelope shape is confirmed reachable
+but not yet parsed against real data. `smite2.rallyhere._session_refs` walks for
+`session_id` wherever it sits, rather than betting on one shape, for exactly this
+reason.)
 
-    session:read-player:any
-    session:read-player:self
-
-So the elevated, "licensed studios only" permission is in fact minted by a
-normal Steam player login. Given a UUID, this token can ask what session that
-player is in.
-
-**3. Session id to roster — open to any member.**
-`GET /session/v1/session/{session_id}/player` accepts `session:read:self`. Not
-yet exercised live: no session was in progress during the capture, and
-`sessions()` for an idle player comes back empty, so the envelope's shape is
-still unread.
+**3. Session id to roster — permitted, not yet exercised.**
+`GET /session/v1/session/{session_id}/player` accepts `session:read:self`, which
+the token has. Untestable until a roster member is actually in a match; the
+probe reads it automatically when hop 2 returns a session id.
 
 ### Where that leaves a bot
 
-The wall moved rather than fell. Reading a friend's live lobby is permitted;
-*naming* the friend is not. The bot's roster is Discord id → `steam:7656…`, and
-there is no route from that to a RallyHere UUID with this token.
+The complete-lobby path the earlier version of this document closed is in fact
+open for exactly the population this bot serves: anyone whose Steam id is on the
+roster. The chain is `steam:7656… → uuid (cached) → live session → roster`, all
+in seconds, all with one captured player token. `src/HirezAPI/smite2/
+rallyhere.py` implements hops 1 and 2 (`uuid_by_steam`, `roster_status`,
+`status`); hop 3 (`session_players`) is wired and waits only on a live match to
+read.
 
-What is not yet ruled out, and is the obvious next thing to measure: the token's
-own self-scoped reads that carry *other* players' UUIDs as a side effect —
-`/match/v1/player/{uuid}/match` (your own match history, whose rows describe
-everyone in each match) and `/match/v1/player/{uuid}/recently-played`. If those
-return UUIDs alongside display names or platform ids, then playing a single
-match with someone is enough to learn their UUID permanently, and a small
-directory built from your own history would bridge hop 1 for exactly the people
-you actually play with — which is the whole population this bot cares about.
-Untested as of writing.
+### Presence: a companion read, not a bridge
 
-### Presence does not bridge it
-
-If `GET /presence/v1/player/uuid/{uuid}/presence` carried a session id, presence
-would hand you what hop 2 needs. It does not. Read live, the whole document is:
+Presence does not carry a session id, so it does not replace hop 2 — the two are
+read together, presence for coarse online/state and the session read for the
+lobby. Read live, the whole presence document is:
 
     {"status": "offline", "message": "{\r\n\t\"state\": \"InLobby\"\r\n}",
      "platform": "Steam", "display_name": "…", "custom_data": {},
@@ -125,11 +134,10 @@ one-time capture.
 
 ### The courier-account idea
 
-Now redundant rather than insufficient. It was proposed to keep anything
-account-bound out of the bot while still clearing hop 2 — but hop 2 needed no
-clearing, and a courier account hits the identical hop 1 wall, since it also
-lacks `user:platform:read`. A courier only ever helped for reading its *own*
-lobby, which is "build for the lobby I am sitting in", not "look up anyone".
+Moot. It was proposed to work around a hop-2 wall that turned out not to exist,
+and it would have hit hop 1 anyway. There is no wall left for it to clear. The
+one real question it raised — *whose* token the bot runs on — still stands, and
+the answer is "yours, scoped to you and your friends" (see ToS, below).
 
 ### Terms of service, which the measurements do not change
 
@@ -184,18 +192,21 @@ all downstream of the same slow ingest and expose no faster public feed.
 
 ## Bottom line
 
-The precise lobby exists in RallyHere, is fresh to the second, and a player
-token is allowed to read it — `session:read-player:any` is in the token, which
-the spec said it would not be. The remaining gap is one hop earlier: nothing a
-player token can call turns a Steam id into a RallyHere UUID
-(`user:platform:read`, 403). So the path is open for anyone whose UUID is
-already known and closed for everyone else, and whether the first group can be
-grown from your own match history is the open question worth measuring next.
+The precise lobby exists in RallyHere, is fresh to the second, and one captured
+player token reads the whole chain to it: a roster Steam id resolves to a stable
+RallyHere UUID (`/users/v1/player`, no permission required), the UUID reads that
+player's live session (`session:read-player:any`, present in the token), and the
+session id reads its roster. All three hops returned 200 against real roster
+players on 2026-08-11; only hop 3's populated shape awaits a live match to read.
+The earlier conclusion — that this was gated and the coarse Steam signal was the
+ceiling — was wrong, from reading the spec's permission notes instead of the
+token.
 
-Until it is, the shipped ceiling stands: the coarse "is this person running
-Smite 2" signal via Steam, plus surfacing tracker.gg's snapshot age so a
-ten-minute-old lobby does not read as real time. What is newly *cheap*, and
-needs no UUID lookup at all, is the token owner's own status — presence, state
-and session for you, in seconds.
+So the Steam fallback is now a *fallback*, not the ceiling: it covers the moment
+a token is uncaptured or a handle is off-roster, while RallyHere answers
+precisely and in seconds for everyone the bot actually tracks. The remaining work
+is integration, not discovery — wiring `smite2.rallyhere` into `/livematch`
+ahead of tracker.gg — plus honoring the scope the client's own docstring draws:
+you and your consenting friends, never an unattended reader of strangers.
 
 [spec]: https://github.com/RallyHereInteractive/openapi-spec-environment

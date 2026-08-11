@@ -437,6 +437,93 @@ class TestReads:
         assert await client.friend_uuids() == ["friend-a", "friend-b"]
 
 
+class TestSteamResolution:
+    """steam id -> uuid, the hop that makes the roster reachable at all.
+
+    The shapes here are the live ones (2026-08-11): `/users/v1/player` answers
+    with the identity keyed twice, and an unknown handle is an absent row, not a
+    null. Getting "absent" wrong is the costly bug — a bogus id mapped to a real
+    player's status would report the wrong person as in a match.
+    """
+
+    def lookup_body(self, mapping):
+        """The `identity_platforms_by_platform` shape, one row per steam id."""
+        rows = [
+            {"identity": {sid: {"player_id": 1, "player_uuid": uuid}}}
+            for sid, uuid in mapping.items()
+        ]
+        return json.dumps(
+            {
+                "identity_platforms_by_platform": {"Steam": rows},
+                "identity_platforms": {"5": rows},
+            }
+        )
+
+    async def test_a_steam_id_resolves_to_its_uuid(self):
+        body = self.lookup_body({"765611980": "uuid-a"})
+        session = FakeSession(gets={"/users/v1/player": (200, body)})
+        assert await client_with(session).uuid_by_steam("765611980") == "uuid-a"
+
+    async def test_an_unknown_handle_is_absent_not_none(self):
+        """`.get(id)` must tell "no such player" apart from a resolved one."""
+        session = FakeSession(gets={"/users/v1/player": (200, self.lookup_body({}))})
+        resolved = await client_with(session).uuids_by_steam(["70000"])
+        assert resolved == {}
+        assert await client_with(session).uuid_by_steam("70000") is None
+
+    async def test_a_whole_roster_resolves_in_one_request(self):
+        body = self.lookup_body({"a": "uuid-a", "b": "uuid-b", "c": "uuid-c"})
+        session = FakeSession(gets={"/users/v1/player": (200, body)})
+        resolved = await client_with(session).uuids_by_steam(["a", "b", "c"])
+        assert resolved == {"a": "uuid-a", "b": "uuid-b", "c": "uuid-c"}
+        assert len(session.get_calls) == 1
+        # The identities ride as an array param, not a joined string.
+        assert session.get_calls[0][2]["identities"] == ["a", "b", "c"]
+
+    async def test_a_large_roster_is_chunked(self):
+        ids = [f"id-{index}" for index in range(45)]
+        body = self.lookup_body({sid: f"uuid-{sid}" for sid in ids})
+        session = FakeSession(gets={"/users/v1/player": (200, body)})
+        resolved = await client_with(session).uuids_by_steam(ids)
+        assert len(resolved) == 45
+        # 45 over a batch of 20 is three requests.
+        assert len(session.get_calls) == 3
+
+    async def test_duplicate_ids_collapse_before_the_request(self):
+        body = self.lookup_body({"a": "uuid-a"})
+        session = FakeSession(gets={"/users/v1/player": (200, body)})
+        await client_with(session).uuids_by_steam(["a", "a", "a"])
+        assert session.get_calls[0][2]["identities"] == ["a"]
+
+    async def test_status_by_steam_folds_resolution_and_read(self):
+        body = self.lookup_body({"765": "uuid-a"})
+        session = FakeSession(
+            gets={
+                "/users/v1/player": (200, body),
+                "/presence": (200, json.dumps({"status": "online"})),
+                "/session": (200, "{}"),
+            }
+        )
+        status = await client_with(session).status_by_steam("765")
+        assert status.uuid == "uuid-a" and status.online
+
+    async def test_status_by_steam_of_an_unknown_handle_is_none(self):
+        session = FakeSession(gets={"/users/v1/player": (200, self.lookup_body({}))})
+        assert await client_with(session).status_by_steam("70000") is None
+
+    async def test_roster_status_keys_by_steam_id(self):
+        body = self.lookup_body({"a": "uuid-a", "b": "uuid-b"})
+        session = FakeSession(
+            gets={
+                "/users/v1/player": (200, body),
+                "/presence": (200, json.dumps({"status": "offline"})),
+            }
+        )
+        statuses = await client_with(session).roster_status(["a", "b"])
+        assert set(statuses) == {"a", "b"}
+        assert statuses["a"].uuid == "uuid-a"
+
+
 class TestStatus:
     def presence_body(self, status="online", **fields):
         return json.dumps({"status": status, "display_name": "Zach", **fields})
