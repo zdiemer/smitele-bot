@@ -69,6 +69,11 @@ class Smite2Provider:
         self.__refresh_running = False
         self.__clearance = None
         self.__limiter: Optional[RateLimiter] = None
+        # RallyHere: loaded once, lazily, and only if a capture was configured.
+        # `__rallyhere_off` latches the "no session" answer so a deployment
+        # without one does not re-attempt the load on every /livematch.
+        self.__rallyhere_auth = None
+        self.__rallyhere_off = False
 
         # Per-player reads go to tracker.gg rather than to the corpus. The
         # corpus is a snowball sample and cannot answer "how has this player
@@ -82,6 +87,37 @@ class Smite2Provider:
     def __log(self, message: str) -> None:
         if not self.__silent:
             print(f"smite2: {message}", flush=True)
+
+    def rallyhere(self):
+        """A RallyHere client for live status, or None if none is configured.
+
+        RallyHere reads Smite 2's own backend — presence and live sessions,
+        fresh to the second where tracker.gg lags ~10 minutes. It needs a token
+        captured from the game (``scripts/win/``), seeded via ``SMITELE_RH_*``
+        into a state file and kept fresh headlessly thereafter. Absent any
+        capture, :meth:`RallyHereAuth.load` raises and this returns None, so
+        every caller falls back to the tracker.gg/Steam path with no change.
+
+        Returns a fresh :class:`RallyHereClient` (own aiohttp session, use as an
+        async context manager) over a shared, cached auth — so the self-renewing
+        token and its lock are one per provider, not one per command.
+        """
+        from smite2.rallyhere import (  # noqa: PLC0415
+            RallyHereAuth,
+            RallyHereAuthError,
+            RallyHereClient,
+        )
+
+        if self.__rallyhere_off:
+            return None
+        if self.__rallyhere_auth is None:
+            try:
+                self.__rallyhere_auth = RallyHereAuth.load()
+            except RallyHereAuthError as error:
+                self.__log(f"RallyHere live status off: {error}")
+                self.__rallyhere_off = True
+                return None
+        return RallyHereClient(self.__rallyhere_auth)
 
     @property
     def version_path(self) -> str:

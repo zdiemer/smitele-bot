@@ -426,30 +426,12 @@ class PlayerStats(commands.Cog):
             match = None
 
         if match is None:
-            # tracker.gg is the only lobby source there is, and its live
-            # snapshots refresh on a roughly ten minute cadence — so before
-            # answering a flat no, ask Steam whether the player is running
-            # the game at all. Steam answers in seconds where tracker lags
-            # minutes; it just cannot see past "running" into "in a match".
-            from smite2 import steam  # noqa: PLC0415
-
-            playing = (
-                await steam.running_smite2(handle) if platform == "steam" else None
+            # tracker.gg has no lobby for this player, and its snapshots lag a
+            # match start by ~10 minutes — so before answering a flat no, ask
+            # the fresher sources whether they're playing at all.
+            description = await self.__smite2_absent(
+                provider, player_name, platform, handle
             )
-            if playing:
-                description = (
-                    f"**{player_name}** is in Smite 2 right now, but "
-                    f"tracker.gg hasn't posted their lobby yet. Its live "
-                    f"status lags several minutes behind a match starting, "
-                    f"so ask again shortly."
-                )
-            else:
-                description = (
-                    f"**{player_name}** isn't in a match that tracker.gg "
-                    f"can see yet. Its live status often lags several "
-                    f"minutes behind the start of a match, so it's worth "
-                    f"retrying if you know they're in one."
-                )
             await self.__send_response_or_message_embed(
                 ctx_or_message,
                 discord.Embed(
@@ -487,6 +469,45 @@ class PlayerStats(commands.Cog):
                 ),
             )
         await self.__send_response_or_message_embed(ctx_or_message, embed=embed)
+
+    async def __smite2_rallyhere_status(self, provider, platform: str, handle: str):
+        """RallyHere's live status for a Steam player, or None if it can't say.
+
+        Resolves the Steam id to a RallyHere player and reads presence plus live
+        session — seconds fresh, where tracker.gg lags minutes and Steam sees
+        only "running". Returns None for every reason there is no answer (no
+        RallyHere session configured, a non-Steam handle, a handle RallyHere
+        does not know, any error), because they all call for the same fallback.
+        """
+        if platform != "steam":
+            return None
+        client = provider.rallyhere()
+        if client is None:
+            return None
+        try:
+            async with client as rally_here:
+                return await rally_here.status_by_steam(handle)
+        except Exception as error:  # noqa: BLE001 — a status probe never breaks a command
+            print(f"smite2 rallyhere status failed: {error}", flush=True)
+            return None
+
+    async def __smite2_absent(
+        self, provider, player_name: str, platform: str, handle: str
+    ) -> str:
+        """Why there's no lobby to show — as precisely as the fast sources allow.
+
+        RallyHere first (fresh to the second, in-match/in-lobby/offline), Steam
+        only as the coarse backstop when RallyHere didn't settle it. The wording
+        and ordering live in `smite2.live_status` so they can be tested without
+        this cog; here we just gather the signals.
+        """
+        from smite2 import live_status, steam  # noqa: PLC0415
+
+        status = await self.__smite2_rallyhere_status(provider, platform, handle)
+        steam_running = None
+        if live_status.needs_steam_fallback(status) and platform == "steam":
+            steam_running = await steam.running_smite2(handle)
+        return live_status.absence_message(player_name, status, steam_running)
 
     @commands.slash_command(
         name="queue_stats",
