@@ -134,6 +134,24 @@ if (Test-Path $stateFile) {
     Restore-ProxyEnv
 }
 
+# Pre-flight: is the port already taken? A stray mitmdump from a prior run (Ctrl+C
+# that didn't fully kill it, or the cert-gen launch) is ours to reap; anything
+# else, tell the user to pick another port rather than kill a stranger's process.
+$busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+if ($busy) {
+    $procs = $busy.OwningProcess | Sort-Object -Unique |
+        ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }
+    $strays = $procs | Where-Object { $_.ProcessName -eq "mitmdump" }
+    if ($strays) {
+        Write-Host "Reaping a stray mitmdump already on port $Port (PID $($strays.Id -join ', '))..." -ForegroundColor Yellow
+        $strays | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    } else {
+        Write-Error "Port $Port is already in use by $($procs.ProcessName -join ', ') (PID $($procs.Id -join ', ')). Re-run with a free port, e.g. -Port 8082."
+        return
+    }
+}
+
 # One-time: generate + trust the mitmproxy CA, in a HIDDEN separate window so
 # force-killing it can't disturb the console the real mitmdump then runs in.
 $cert = "$env:USERPROFILE\.mitmproxy\mitmproxy-ca-cert.cer"
