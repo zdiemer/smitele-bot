@@ -96,6 +96,38 @@ rallyhere.py` implements hops 1 and 2 (`uuid_by_steam`, `roster_status`,
 `status`); hop 3 (`session_players`) is wired and waits only on a live match to
 read.
 
+### The rest of the surface the token unlocks
+
+Live match is one use of a token that turns out to reach much more.
+`scripts/rh_surface.py` cross-references the token's 65 permissions against
+every endpoint in all 18 RallyHere service schemas and then live-probes the
+self-scoped GETs; run on 2026-08-11, of ~390 operations it found **139 the spec
+says the token can call and ~195 that need only a bearer**, and confirmed these
+reads answer 200 (all `{player_uuid}`-keyed, so cross-player for the roster):
+
+- **Match** — `/match/v1/player/{uuid}/match`, `/recently-played`, `/stats`.
+  Another player's match history and aggregate stats, straight from source. The
+  history rows are also the offline route to UUIDs: play one match with someone
+  and their uuid is in your own history forever, no lookup needed.
+- **Rank** — `/rank/v1|v2/player/{uuid}/rank`, `/rank/v3/rank`. Live ranked
+  standings per player.
+- **Inventory** — `/inventory/v2/player/{uuid}/inventory` (~10KB/player). Owned
+  items and unlocks — the build-generation inputs, per player.
+- **Links** — `/users/v2/player/{uuid}/links`, `/users/v1/player/{id}/
+  linked_portals`. A uuid back to *all* of that player's platform identities.
+- **Static catalog** — `/inventory/v1/catalog/item` (~1.5MB) and the full
+  `/catalog` (~40MB): every item and loot table, from the same backend the game
+  reads, where today the wiki is scraped for this.
+
+Two cautions the probe itself surfaced, and the reason the map is a lead list
+rather than a client to generate from. The spec is wrong in *both* directions:
+it under-promised on the player routes (§ above), and it over-promises on
+others — every `presence/v1/admin/ccu/*` route and the `sanctions .../reports`
+routes are listed as reachable but answer 403, because the token's self-scoped
+permission does not cover the `:any` the endpoint truly needs. Only the live
+probe tells the two apart. Wire these one at a time, each confirmed against a
+real request, exactly as the live-match chain was.
+
 ### Presence: a companion read, not a bridge
 
 Presence does not carry a session id, so it does not replace hop 2 — the two are
