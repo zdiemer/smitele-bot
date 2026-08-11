@@ -30,10 +30,13 @@ What you have to supply, because only the running game client knows them
              header off any request to `*.rally-here.io`. It is short-lived;
              capture it warm and run this within the hour.
 
-  --base-url The RallyHere environment host, e.g.
-             `https://<env-id>.rally-here.io`. The `<env-id>` subdomain is not
-             published; it is the host those same sniffed requests go to. Pass
-             the whole URL and this script needs to know nothing secret itself.
+  --base-url The RallyHere environment host. For Smite 2 this is now known and
+             is the default: `https://api-smite2.titanforgegames.com`. Titan
+             Forge fronts its RallyHere environment behind that custom domain
+             via CNAME, which is why sniffing only ever showed it and never an
+             `<env-id>.rally-here.io` host. Confirmed 2026-08-10 — the gated
+             `/session/v1/session/{id}/player` route answers `403 Not
+             authenticated` there. Override only for a different environment.
 
   --other-uuid  Another player's RallyHere player-uuid — the load-bearing
              input. Get one by sniffing a *friend's* client, or read it off a
@@ -46,10 +49,10 @@ and its middle segment lists the very permissions this is about. Often the
 verdict is readable straight off the token with no request made at all.
 
     python scripts/probe_rallyhere.py \
-        --base-url https://<env-id>.rally-here.io \
         --token "$RH_TOKEN" \
         --self-uuid <your-uuid> \
         --other-uuid <a-friends-uuid>
+        # --base-url defaults to https://api-smite2.titanforgegames.com
 
 Nothing here is wired into the bot, and nothing should be: the token is one
 account's, expires fast, and reading other players' sessions is very likely
@@ -227,7 +230,17 @@ async def main() -> int:
     parser = argparse.ArgumentParser(
         description="Probe what a self-minted RallyHere token can read.",
     )
-    parser.add_argument("--base-url", required=True, help="https://<env>.rally-here.io")
+    parser.add_argument(
+        "--base-url",
+        default="https://api-smite2.titanforgegames.com",
+        help=(
+            "the RallyHere environment host. Defaults to Smite 2's, confirmed "
+            "2026-08-10: Titan Forge fronts its RallyHere env at "
+            "api-smite2.titanforgegames.com (a CNAME, which is why no "
+            "<env-id>.rally-here.io ever showed on the wire). Override for a "
+            "different environment."
+        ),
+    )
     parser.add_argument("--token", required=True, help="a Bearer token from your client")
     parser.add_argument("--self-uuid", default=None, help="your RallyHere player uuid")
     parser.add_argument(
