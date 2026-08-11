@@ -63,7 +63,9 @@ import asyncio
 import base64
 import binascii
 import json
+import os
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 try:
     import aiohttp
@@ -143,15 +145,59 @@ def reads_any_session(permissions: List[str]) -> Optional[bool]:
     return None
 
 
+def parse_proxy(
+    proxy_url: Optional[str],
+) -> Tuple[Optional[str], Optional["aiohttp.BasicAuth"]]:
+    """Split a proxy URL into (clean-url, auth), taking creds wherever they are.
+
+    Creds may ride in the URL (`http://user:pass@host:port`) or come from
+    `RH_PROXY_AUTH=user:pass` in the environment — the latter keeps the VPS
+    lane's credential out of shell history and off the command line. aiohttp
+    wants the proxy URL *without* userinfo and the auth passed separately, so
+    this strips one into the other.
+    """
+    if not proxy_url:
+        return None, None
+    parts = urlsplit(proxy_url)
+    auth: Optional[aiohttp.BasicAuth] = None
+    if parts.username:
+        auth = aiohttp.BasicAuth(parts.username, parts.password or "")
+        netloc = parts.hostname or ""
+        if parts.port:
+            netloc = f"{netloc}:{parts.port}"
+        proxy_url = urlunsplit(
+            (parts.scheme, netloc, parts.path, parts.query, parts.fragment)
+        )
+    env_auth = os.environ.get("RH_PROXY_AUTH")
+    if auth is None and env_auth and ":" in env_auth:
+        user, password = env_auth.split(":", 1)
+        auth = aiohttp.BasicAuth(user, password)
+    return proxy_url, auth
+
+
 async def probe(
-    session: aiohttp.ClientSession, base_url: str, path: str, token: str
+    session: aiohttp.ClientSession,
+    base_url: str,
+    path: str,
+    token: str,
+    proxy: Optional[str] = None,
+    proxy_auth: Optional["aiohttp.BasicAuth"] = None,
 ) -> Tuple[int, Any]:
-    """One GET, returning (status, parsed-body-or-text). Never raises."""
+    """One GET, returning (status, parsed-body-or-text). Never raises.
+
+    When `proxy` is set the request tunnels through it via CONNECT, so the
+    origin sees the proxy's address rather than this machine's — the point of
+    routing the probe out the egress VPS lane.
+    """
     url = base_url.rstrip("/") + path
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
         async with session.get(
-            url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+            url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=15),
+            proxy=proxy,
+            proxy_auth=proxy_auth,
         ) as response:
             text = await response.text()
             try:
@@ -194,7 +240,22 @@ async def main() -> int:
         default=None,
         help="a known session id to test the membership route directly",
     )
+    parser.add_argument(
+        "--proxy",
+        default=os.environ.get("RH_PROXY"),
+        help=(
+            "route every request through a CONNECT proxy, e.g. the egress VPS "
+            "lane http://100.121.204.109:3129 . Credentials go either in the "
+            "URL (http://user:pass@host:port) or, better, in RH_PROXY_AUTH="
+            "user:pass . Also read from RH_PROXY if the flag is omitted."
+        ),
+    )
     args = parser.parse_args()
+
+    proxy, proxy_auth = parse_proxy(args.proxy)
+    if proxy:
+        who = f" as {proxy_auth.login}" if proxy_auth else " (no auth)"
+        print(f"== routing through proxy {proxy}{who} ==")
 
     print("== token, before any request ==")
     claims = decode_jwt_claims(args.token)
@@ -249,7 +310,9 @@ async def main() -> int:
     other_status: Optional[int] = None
     async with aiohttp.ClientSession() as session:
         for label, path in checks:
-            status, body = await probe(session, args.base_url, path, args.token)
+            status, body = await probe(
+                session, args.base_url, path, args.token, proxy, proxy_auth
+            )
             print(f"  {label:16s} {path}")
             print(f"    {summarise(status, body)}")
             if label.startswith("OTHER session"):
