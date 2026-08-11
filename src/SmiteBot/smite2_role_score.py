@@ -7,15 +7,17 @@ score — but off a different stat model and, for now, a simpler combat model.
 
 This is the first-order port. Kill speed is steady-state DPS against a target's
 protections rather than a tick-by-tick sim: Smite 2 exposes attack damage and
-attack speed directly on `Smite2Stats`, and the wiki does not publish
-ability-scaling ratios in a machine-readable form, so a per-second sim would
-have nothing more to work from on the ability side than this does. The carry,
-solo and support axes need only DPS, effective HP and cooldown rate, all of
-which the stat model gives exactly; those roles are complete here. Mid and
-jungle lean on burst, which is abilities, which Smite 2 does not yet expose —
-so their vectors fall back to a basic-attack proxy and are marked provisional
-until the ability numbers can be read. That mirrors the Smite 1 order, where
-the carry end was built and validated before the ability engine existed.
+attack speed directly on `Smite2Stats`, so a per-second sim would have little
+more to work from on the basic-attack side than this does. The carry, solo and
+support axes need only DPS, effective HP and cooldown rate, all of which the
+stat model gives exactly.
+
+Mid and jungle lean on burst, which is abilities. `smite2_stats` notes that
+ability scaling is not machine-readable for *its* purposes, and that is true of
+the stat totals — but the god catalogue does carry each ability's damage and
+scaling in its rank tables, which `smite2_ability_kit` parses. So mid and
+jungle use real rotation burst here, not the basic-attack proxy they first
+shipped with.
 
 Opponents are derived from the corpus, not hand-built: the median health and
 protections of each role's real builds. The corpus cannot score the optimizer's
@@ -51,6 +53,11 @@ from smite2_stats import (
     effective_health,
     penetrated,
 )
+
+try:
+    from smite2_ability_kit import parse_kit
+except ImportError:  # pragma: no cover - always present in-tree
+    parse_kit = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,34 @@ def mean_effective_health(stats) -> float:
     return 0.5 * (phys + mag)
 
 
+def rotation_burst(stats, god: God, defender: Defender) -> float:
+    """Damage one cast of each ability deals to `defender`, after protections.
+
+    The one-rotation number for burst roles, from the god's parsed kit. An
+    Intelligence-scaling ability deals magical damage and meets magical
+    protection; a Strength one, physical. Basics are excluded — a rotation is
+    abilities — and an ability the kit could not parse contributes nothing,
+    so this understates rather than invents.
+    """
+    if parse_kit is None:
+        return 0.0
+    kit = parse_kit(god)
+    total = 0.0
+    pen_flat = stats.get(ItemAttribute.PENETRATION)
+    pen_pct = stats.get_percent(ItemAttribute.PENETRATION)
+    for ability in kit.damaging:
+        magical = ability.scaling_stat == "intelligence"
+        power = stats.get(
+            ItemAttribute.INTELLIGENCE if magical else ItemAttribute.STRENGTH
+        )
+        raw = ability.total_base + ability.total_scaling * power
+        after = penetrated(
+            defender.protection(magical), pen_flat, pen_pct
+        )
+        total += raw * damage_taken_multiplier(after)
+    return total
+
+
 def role_vector(
     role: str,
     god: God,
@@ -183,25 +218,26 @@ def role_vector(
         cooldown_rate = stats.get(ItemAttribute.COOLDOWN_RATE)
         return RoleVector(axes=(own_ehp, cooldown_rate), labels=("ehp", "cooldown_rate"))
 
-    # Mid and jungle want burst, which is abilities Smite 2 does not yet expose.
-    # Until it does, both fall back to a basic-attack reading: jungle as burst-
-    # over-backline-EHP with a survival axis, mid as damage into both ends plus
-    # penetration efficiency. Provisional, and labelled so callers know it.
+    # Mid and jungle are burst roles, and Smite 2 does expose ability damage
+    # after all — parsed by smite2_ability_kit — so these use real rotation
+    # burst rather than the basic-attack proxy they first shipped with. Jungle
+    # is burst over a backliner's effective HP plus its own survival; mid is
+    # burst into both ends plus penetration efficiency.
     if role == "jungle":
         back_ehp = backline.effective_health(magical)
-        proxy_burst = basic_dps(stats, god, backline)
+        burst = rotation_burst(stats, god, backline)
         return RoleVector(
-            axes=(proxy_burst / back_ehp if back_ehp > 0 else 0.0, own_ehp),
-            labels=("burst_ratio_back?", "ehp"),
+            axes=(burst / back_ehp if back_ehp > 0 else 0.0, own_ehp),
+            labels=("burst_ratio_back", "ehp"),
         )
     if role == "mid":
         return RoleVector(
             axes=(
-                basic_dps(stats, god, frontline),
-                basic_dps(stats, god, backline),
+                rotation_burst(stats, god, frontline),
+                rotation_burst(stats, god, backline),
                 penetration_efficiency(stats, backline, magical),
             ),
-            labels=("burst_front?", "burst_back?", "pen_efficiency"),
+            labels=("burst_front", "burst_back", "pen_efficiency"),
         )
 
     return RoleVector(
