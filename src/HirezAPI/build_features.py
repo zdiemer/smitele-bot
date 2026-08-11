@@ -38,6 +38,9 @@ class BuildShape:
     relic_columns: List[str]
     empty_relic_ids: Tuple[int, ...]
     counts_toward_build: Callable[[object], bool]
+    # Smite 2 records the starter outside the core slots; Smite 1 has no such
+    # column because a starter occupies a core slot there.
+    starter_column: str = None
 
 
 SMITE1 = BuildShape(
@@ -57,6 +60,7 @@ SMITE2 = BuildShape(
     # slot, which the tier-3 catalogue measured on the wiki supports exactly —
     # every Offensive/Defensive/Hybrid item has tier 3 and nothing else does.
     counts_toward_build=lambda item: item.tier >= 3,
+    starter_column="StarterId",
 )
 
 

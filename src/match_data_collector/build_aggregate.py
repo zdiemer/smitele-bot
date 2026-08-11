@@ -151,6 +151,7 @@ class GameConfig:
             + STAT_COLUMNS
             + self.shape.item_columns
             + self.shape.relic_columns
+            + ([self.shape.starter_column] if self.shape.starter_column else [])
         )
 
     async def provider(self):
@@ -278,8 +279,8 @@ def recency_weight(day, newest, half_life_days: int) -> float:
     return 0.5 ** (max((newest - day).days, 0) / half_life_days)
 
 
-def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
-    """Per-build and per-relic counts for one day.
+def reduce_file(frame: pd.DataFrame, weight: float = 1.0, starter_column: str = None):
+    """Per-build, per-relic and per-starter counts for one day.
 
     Weighted counts are carried alongside the raw ones: the ranking uses the
     weighted figures as an effective sample size, while the raw counts are what
@@ -324,7 +325,29 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0):
     god_counts["wplays"] = god_counts["plays"] * weight
     god_counts["wwins"] = god_counts["wins"] * weight
 
-    return build_counts, items, relic_counts, god_counts
+    # Unlike relics there is no fullness gate: a starter is bought in the
+    # opening minute, so every row that records one is evidence about it.
+    starter_counts = pd.DataFrame()
+    if starter_column and starter_column in frame.columns:
+        starter_ids = (
+            pd.to_numeric(frame[starter_column], errors="coerce")
+            .fillna(0)
+            .astype("int64")
+        )
+        chosen = frame.loc[
+            (starter_ids > 0).to_numpy(), GROUP_KEYS + ["Win_Status"]
+        ].copy()
+        if chosen.shape[0]:
+            chosen["StarterId"] = starter_ids[starter_ids > 0].astype("int32")
+            starter_counts = (
+                chosen.groupby(GROUP_KEYS + ["StarterId"], dropna=False, observed=True)
+                .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
+                .reset_index()
+            )
+            starter_counts["wplays"] = starter_counts["plays"] * weight
+            starter_counts["wwins"] = starter_counts["wins"] * weight
+
+    return build_counts, items, relic_counts, god_counts, starter_counts
 
 
 COUNT_COLUMNS: List[str] = ["plays", "wins", "wplays", "wwins"]
@@ -375,6 +398,12 @@ def consolidate(
 BUILD_PLAYS_NAME: str = "build_plays.parquet"
 OUTPUT_NAMES = ("build_stats", "build_items", "relic_stats", "god_stats")
 
+# Written like the others but tolerated when absent: the table arrived later
+# than the rest, and refusing to load a stored aggregate without it would
+# force Smite 1 — which has no starter column at all — into a 3.5 hour
+# rebuild for a table that will come out empty.
+OPTIONAL_OUTPUT_NAMES = ("starter_stats",)
+
 
 def load_previous(directory: str):
     """The last run's output plus the manifest describing what is in it.
@@ -405,6 +434,9 @@ def load_previous(directory: str):
     }
     for name, path in outputs.items():
         previous[name] = pd.read_parquet(path)
+    for name in OPTIONAL_OUTPUT_NAMES:
+        path = os.path.join(directory, f"{name}{match_storage.SUFFIX}")
+        previous[name] = pd.read_parquet(path) if os.path.isfile(path) else None
     return previous
 
 
@@ -594,6 +626,22 @@ def main() -> int:
     # the newest day, and exponential decay means that is one multiplication.
     previous = None if args.rebuild else load_previous(out_dir)
 
+    # A stored aggregate from before the starter table cannot be folded into:
+    # the already-counted days' starters are not in it and cannot be added
+    # without re-reading those days. Only bites where the game has a starter
+    # column, and that corpus (Smite 2's) rebuilds in about a minute.
+    if (
+        previous is not None
+        and config.shape.starter_column
+        and previous.get("starter_stats") is None
+    ):
+        print(
+            "Stored aggregate predates the starter table; rebuilding from the "
+            "whole corpus to count starters.",
+            flush=True,
+        )
+        previous = None
+
     # Incremental runs drift, in one direction and for one reason: a build only
     # starts accumulating per-matchup rows once it crosses min-plays, so a
     # build that crosses later is missing the history from before it did.
@@ -664,7 +712,8 @@ def main() -> int:
     relic_parts: List[pd.DataFrame] = []
     god_parts: List[pd.DataFrame] = []
     item_parts: List[pd.DataFrame] = []
-    builds_total = relics_total = gods_total = pd.DataFrame()
+    starter_parts: List[pd.DataFrame] = []
+    builds_total = relics_total = gods_total = starters_total = pd.DataFrame()
     rows_seen = 0
     start = time.time()
 
@@ -690,13 +739,16 @@ def main() -> int:
         # the hash for exactly those rows, so clearing them again is a no-op.
         hashes = frame["BuildHash"].to_numpy(dtype="uint64", na_value=0)
         frame.loc[~np.isin(hashes, keep_builds), "IsFullBuild"] = False
-        build_counts, items, relic_counts, god_counts = reduce_file(
-            frame, recency_weight(dates.get(path), newest, args.half_life_days)
+        build_counts, items, relic_counts, god_counts, starter_counts = reduce_file(
+            frame,
+            recency_weight(dates.get(path), newest, args.half_life_days),
+            starter_column=config.shape.starter_column,
         )
         build_parts.append(build_counts)
         relic_parts.append(relic_counts)
         god_parts.append(god_counts)
         item_parts.append(items)
+        starter_parts.append(starter_counts)
         del frame
 
         if index % args.consolidate_every == 0:
@@ -710,6 +762,10 @@ def main() -> int:
             relic_parts = []
             gods_total = consolidate(god_parts + [gods_total], GROUP_KEYS)
             god_parts = []
+            starters_total = consolidate(
+                starter_parts + [starters_total], GROUP_KEYS + ["StarterId"]
+            )
+            starter_parts = []
             item_parts = [
                 pd.concat(item_parts, ignore_index=True).drop_duplicates(
                     subset=["BuildHash"]
@@ -727,6 +783,9 @@ def main() -> int:
     )
     relics = consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
     gods = consolidate(god_parts + [gods_total], GROUP_KEYS)
+    starters = consolidate(
+        starter_parts + [starters_total], GROUP_KEYS + ["StarterId"]
+    )
     items = pd.concat(item_parts, ignore_index=True).drop_duplicates(
         subset=["BuildHash"]
     )
@@ -747,6 +806,11 @@ def main() -> int:
         gods = consolidate(
             [decay_totals(previous["god_stats"], decay), gods], GROUP_KEYS
         )
+        if previous.get("starter_stats") is not None:
+            starters = consolidate(
+                [decay_totals(previous["starter_stats"], decay), starters],
+                GROUP_KEYS + ["StarterId"],
+            )
         items = pd.concat(
             [previous["build_items"], items], ignore_index=True
         ).drop_duplicates(subset=["BuildHash"])
@@ -763,6 +827,7 @@ def main() -> int:
         ("build_items", items),
         ("relic_stats", relics),
         ("god_stats", gods),
+        ("starter_stats", starters),
     ):
         destination = os.path.join(out_dir, f"{name}{match_storage.SUFFIX}")
         partial = f"{destination}.partial"

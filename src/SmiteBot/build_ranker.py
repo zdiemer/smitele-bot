@@ -215,6 +215,11 @@ MIN_CANDIDATE_PLAYS: float = 0.0
 # would consider clears it.
 MIN_RELIC_PLAYS: float = 50.0
 
+# Starters are ranked with the relics' floor and for the relics' reason: a
+# small, settled candidate space where the rare choice is far more likely to
+# be a misclick than an edge.
+MIN_STARTER_PLAYS: float = 50.0
+
 
 class BuildStats:
     """The aggregate tables, and the queries /build makes against them."""
@@ -227,25 +232,37 @@ class BuildStats:
         items: pd.DataFrame,
         relics: pd.DataFrame,
         gods: pd.DataFrame,
+        starters: Optional[pd.DataFrame] = None,
     ):
         self.builds = builds
         self.items = items.set_index("BuildHash")
         self.relics = relics
         self.gods = gods
+        # Smite 2 only; Smite 1 keeps its starters inside the core slots, so
+        # its table is absent or empty and queries answer None.
+        self.starters = (
+            starters if starters is not None and starters.shape[0] else None
+        )
 
     @staticmethod
     def load(directory: str) -> Optional["BuildStats"]:
         """Load the aggregate, or None if it hasn't been built yet.
 
         Absence is a normal state — the bot can start before the first
-        aggregate run — so this returns None rather than raising.
+        aggregate run — so this returns None rather than raising. The starter
+        table is newer than the rest and optional for the same reason.
         """
         paths = {
             name: os.path.join(directory, f"{name}.parquet") for name in BuildStats.FILES
         }
         if not all(os.path.isfile(path) for path in paths.values()):
             return None
-        return BuildStats(*(pd.read_parquet(paths[name]) for name in BuildStats.FILES))
+        starter_path = os.path.join(directory, "starter_stats.parquet")
+        starters = pd.read_parquet(starter_path) if os.path.isfile(starter_path) else None
+        return BuildStats(
+            *(pd.read_parquet(paths[name]) for name in BuildStats.FILES),
+            starters=starters,
+        )
 
     def __filter(
         self,
@@ -531,6 +548,40 @@ class BuildStats:
         rank = scorer(grouped["wplays"], grouped["wwins"])
         best = grouped.index[int(np.argmax(rank))]
         return [int(value) for value in str(best).split(",") if value]
+
+    def best_starter(
+        self,
+        god_id: int,
+        queue_id: Optional[int] = None,
+        role: Optional[str] = None,
+        high_mmr: bool = False,
+        ranking=DEFAULT_RANKING,
+        min_plays: float = MIN_STARTER_PLAYS,
+    ) -> Optional[int]:
+        """The highest-ranked starter, or None where the table has no answer.
+
+        Smite 2 keeps the starter outside the six core slots, so it is ranked
+        here the way relics are — same floor, same reasoning — instead of the
+        stat model guessing one at display time.
+        """
+        if self.starters is None:
+            return None
+        selected = self.__filter(self.starters, god_id, queue_id, role, high_mmr)
+        if not selected.shape[0]:
+            return None
+
+        grouped = selected.groupby("StarterId", observed=True).sum(numeric_only=True)
+        if not grouped.shape[0]:
+            return None
+
+        if min_plays > 1:
+            supported = grouped[grouped["plays"] >= min_plays]
+            if supported.shape[0]:
+                grouped = supported
+
+        scorer = ranking if callable(ranking) else RANKINGS.get(ranking, shrunk_rate)
+        rank = scorer(grouped["wplays"], grouped["wwins"])
+        return int(grouped.index[int(np.argmax(rank))])
 
     def god_totals(
         self,

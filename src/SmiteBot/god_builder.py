@@ -458,7 +458,18 @@ class GodBuilder:
             if relic_ids
             else None
         )
-        relics = self.__with_starter(god, build, relics)
+        relics = self.__with_starter(
+            god,
+            build,
+            relics,
+            stats=stats,
+            query=dict(
+                god_id=id_value(build_options.god_id),
+                queue_id=queue_id,
+                role=role,
+                high_mmr=build_options.high_mmr,
+            ),
+        )
 
         god_plays, god_wins = stats.god_totals(
             god_id=id_value(build_options.god_id),
@@ -531,28 +542,33 @@ class GodBuilder:
             ),
         )
 
-    def __with_starter(self, god, build, relics):
-        """Put a starter in front of Smite 2's extras, which the corpus omits.
+    def __with_starter(self, god, build, relics, stats=None, query=None):
+        """Put a starter in front of Smite 2's extras.
 
         Smite 1 counts a starter as filling a core slot, so a corpus build
-        already contains one. Smite 2 keeps it in its own `StarterId` column —
-        and `build_features.SMITE2` aggregates only `ActiveId1`, so the starter
-        is not in the aggregate at all. The embed then labelled a lone relic
-        "Starter & Relic" and every Smite 2 build came back without one.
-
-        Aggregating `StarterId` is the real fix and needs a corpus rebuild. In
-        the meantime the stat model picks one, scored against the build it is
-        opening into, which is the same call `/optimize` always made.
+        already contains one. Smite 2 keeps it in its own `StarterId` column,
+        aggregated into `starter_stats` and ranked the way relics are — so the
+        corpus answers first. The stat model remains as the fallback for an
+        aggregate that predates the starter table, or a cell whose recorded
+        starters no longer parse from the catalogue.
         """
         if self.__provider is None or self.__provider.game is not Game.SMITE_2:
             return relics
-        try:
-            from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
 
-            starter = Smite2BuildOptimizer(god, self.__items).best_starter(build)
-        except Exception as error:  # noqa: BLE001 — a build beats a starter
-            print(f"Could not pick a starter: {error}", flush=True)
-            return relics
+        starter = None
+        if stats is not None and query is not None:
+            starter_id = stats.best_starter(**query)
+            if starter_id is not None:
+                starter = self.__items.get(starter_id)
+
+        if starter is None:
+            try:
+                from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
+
+                starter = Smite2BuildOptimizer(god, self.__items).best_starter(build)
+            except Exception as error:  # noqa: BLE001 — a build beats a starter
+                print(f"Could not pick a starter: {error}", flush=True)
+                return relics
         if starter is None:
             return relics
         return [starter] + list(relics or [])

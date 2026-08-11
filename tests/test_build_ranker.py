@@ -495,3 +495,59 @@ class TestRelics:
 
     def test_no_rows_means_no_relics(self):
         assert self.stats([relic_row("200,201", 10, 5)]).best_relics(god_id=99) is None
+
+
+def starter_row(starter_id: int, plays: int, wins: int, god_id: int = 1,
+                queue_id: int = 451, role: str = "Mid", high_mmr: bool = False,
+                weight: float = 1.0) -> dict:
+    return {
+        "GodId": god_id,
+        "match_queue_id": queue_id,
+        "Role": role,
+        "HighMmr": high_mmr,
+        "StarterId": starter_id,
+        "plays": plays,
+        "wins": wins,
+        "wplays": plays * weight,
+        "wwins": wins * weight,
+    }
+
+
+class TestStarters:
+    """Smite 2's starter, ranked from its own table the way relics are."""
+
+    def stats(self, rows):
+        return build_ranker.BuildStats(
+            pd.DataFrame([build_row(1, plays=10, wins=5)]),
+            pd.DataFrame([items_row(1, SIX)]),
+            pd.DataFrame([]),
+            pd.DataFrame([]),
+            starters=pd.DataFrame(rows) if rows is not None else None,
+        )
+
+    def test_a_thin_lucky_starter_does_not_beat_the_settled_one(self):
+        stats = self.stats([
+            starter_row(500, plays=4000, wins=2200),   # 55%, everyone
+            starter_row(900, plays=12, wins=11),       # 92%, twelve games
+        ])
+        assert stats.best_starter(god_id=1) == 500
+
+    def test_a_well_supported_better_starter_still_wins(self):
+        stats = self.stats([
+            starter_row(500, plays=4000, wins=2000),   # 50%
+            starter_row(600, plays=900, wins=540),     # 60%
+        ])
+        assert stats.best_starter(god_id=1) == 600
+
+    def test_a_god_nobody_plays_still_gets_a_starter(self):
+        stats = self.stats([starter_row(500, plays=6, wins=4)])
+        assert stats.best_starter(god_id=1) == 500
+
+    def test_no_rows_means_no_starter(self):
+        assert self.stats([starter_row(500, 10, 5)]).best_starter(god_id=99) is None
+
+    def test_a_smite1_aggregate_has_no_table_and_answers_none(self):
+        assert self.stats(None).best_starter(god_id=1) is None
+
+    def test_an_empty_table_is_treated_as_absent(self):
+        assert self.stats([]).best_starter(god_id=1) is None
