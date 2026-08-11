@@ -416,19 +416,26 @@ class DamageCalculator:
                 has_qins = True
 
         for item in defending_god.build:
-            # Evolved Prophetic Cloak
+            # Evolved Prophetic Cloak: 6% mitigation over 300 total protections,
+            # another 6% over 500.
             if item.id == 24172:
                 total_prots = defending_stats.get_stat(
                     ItemAttribute.MAGICAL_PROTECTION
                 ) + defending_stats.get_stat(ItemAttribute.PHYSICAL_PROTECTION)
 
-                if total_prots > 600:
-                    damage_mit += 0.20
-                elif total_prots > 400:
-                    damage_mit += 0.10
-            # Sigil of the Old Guard
+                if total_prots > 500:
+                    damage_mit += 0.12
+                elif total_prots > 300:
+                    damage_mit += 0.06
+            # Sigil of the Old Guard: 3% base. The Rebuke stacks need ability
+            # hits, which a basic-attack duel never lands.
             if item.id == 19752:
-                damage_mit += 0.05
+                damage_mit += 0.03
+            # Spectral Armor: an aura, not a stack — bonus damage from
+            # physical critical strikes is reduced by 40%. Magical crits
+            # (Olorun, Fail-not) go through untouched.
+            if item.id == 24187 and attacking_god.god.type == GodType.PHYSICAL:
+                crit_bonus = 1 + (crit_bonus - 1) * 0.60
 
         if (
             attacking_god.god.type == GodType.PHYSICAL
@@ -439,13 +446,29 @@ class DamageCalculator:
                     ItemAttribute.CRITICAL_STRIKE_CHANCE
                 )
 
+        # Olorun's crits come from his passive, not the crit stat: item
+        # magical power converts to chance (20% at 100 power, +2% per 12
+        # over), and the bonus damage is capped at 140% rather than 175%.
+        # Magical gods have no base power, so their power *is* item power.
+        if attacking_god.god.id == GodId.OLORUN:
+            olorun_power = (
+                attacking_stats.get_stat(ItemAttribute.MAGICAL_POWER)
+                if attacking_stats.has_stat(ItemAttribute.MAGICAL_POWER)
+                else 0
+            )
+            if olorun_power >= 100:
+                crit_chance = min(0.20 + (olorun_power - 100) / 12 * 0.02, 1.0)
+            crit_bonus = min(crit_bonus, 1.40)
+
         is_crit = random.randrange(0, 100) < (crit_chance * 100)
 
         total_basic_damage = BaseCalculator.basic_attack_damage(
             attacking_god.god.stats.basic_attack.base_damage,
             attacking_god.god.stats.basic_attack.per_level,
             attacking_god.level,
-            attacking_stats.get_stat(power_type),
+            attacking_stats.get_stat(power_type)
+            if attacking_stats.has_stat(power_type)
+            else 0,
             attacking_god.god.stats.basic_attack.scaling,
             progression,
             is_crit,
@@ -453,11 +476,12 @@ class DamageCalculator:
         )
 
         if has_qins:
+            # 1.5% of the target's max health, scaling above 2,000 health up
+            # to 6% at 2,750. The wiki states the endpoints; the ramp between
+            # them is linear.
             defending_health = defending_stats.get_stat(ItemAttribute.HEALTH)
-            qins_bonus = (
-                0.03
-                if defending_health < 2000
-                else max(0.035 + (((defending_health - 2000) / 250) * 0.005), 0.05)
+            qins_bonus = min(
+                0.015 + (max(defending_health - 2000, 0) / 250) * 0.015, 0.06
             )
             total_basic_damage += defending_health * qins_bonus
 
@@ -467,7 +491,9 @@ class DamageCalculator:
                 attacking_god.god.stats.basic_attack.base_damage_back,
                 attacking_god.god.stats.basic_attack.per_level_back,
                 attacking_god.level,
-                attacking_stats.get_stat(power_type),
+                attacking_stats.get_stat(power_type)
+                if attacking_stats.has_stat(power_type)
+                else 0,
                 attacking_god.god.stats.basic_attack.scaling_back,
                 progression,
                 is_crit,
@@ -509,6 +535,7 @@ class DamageCalculator:
         attacking_god: GodBuild,
         defending_god: GodBuild,
         assume_item_passives_stacked: bool = False,
+        max_seconds: float = 999.0,
     ) -> float:
         attacking_god_stats = BuildStatCalculator(
             attacking_god
@@ -528,10 +555,11 @@ class DamageCalculator:
                     basic_damage = attacking_god_stats.get_stat(
                         ItemAttribute.BASIC_ATTACK_DAMAGE
                     )
-                    # 3.5% increased Basic Attack Damage, stacking 10 times
+                    # 7% increased Basic Attack Damage, stacking 10 times
+                    # (3.5% was the launch value; it was buffed).
                     attacking_god_stats.set_stat(
                         ItemAttribute.BASIC_ATTACK_DAMAGE,
-                        basic_damage + basic_damage * 0.035 * 10,
+                        basic_damage + basic_damage * 0.07 * 10,
                     )
             # Demon Blade
             if item.id == 12674:
@@ -562,7 +590,6 @@ class DamageCalculator:
         has_mail_of_renewal = False
         has_midgardian_mail = False
         has_oni_hunters = False
-        has_spectral = False
         for item in defending_god.build:
             # Berserker's Shield
             if item.id == 16544:
@@ -576,16 +603,14 @@ class DamageCalculator:
             # Oni Hunter's Garb
             if item.id == 12679:
                 has_oni_hunters = True
-            # Spectral Armor
-            if item.id == 24187:
-                has_spectral = True
-            # Sentinel's Embrace
+            # Sentinel's Embrace: the aura splits 80 of each protection among
+            # allies in range, but a defender standing alone gets only 30.
             if item.id == 19627:
                 defending_god_stats.add_or_set_stat(
-                    ItemAttribute.MAGICAL_PROTECTION, 40
+                    ItemAttribute.MAGICAL_PROTECTION, 30
                 )
                 defending_god_stats.add_or_set_stat(
-                    ItemAttribute.PHYSICAL_PROTECTION, 40
+                    ItemAttribute.PHYSICAL_PROTECTION, 30
                 )
 
         seconds = 0
@@ -609,18 +634,16 @@ class DamageCalculator:
 
         midgardian_stacks: List[float] = []
 
-        spectral_stacks: List[float] = []
-
         dmg = 0
-        damage_mit = 0
         crit_bonus = 1.75
         is_crit = False
 
-        if has_oni_hunters:
-            damage_mit += 0.04
-
-        if has_spectral:
-            crit_bonus -= 0.40
+        # Mitigation the defender keeps for the whole fight: Oni Hunter's is
+        # 4% per nearby enemy up to three, and a duel has exactly one. Kept as
+        # a floor rather than folded into `damage_mit` because Berserker's
+        # expiry resets to it — resetting to zero was silently deleting this.
+        base_mit = 0.04 if has_oni_hunters else 0.0
+        damage_mit = base_mit
 
         og_pen = (
             attacking_god_stats.get_stat(ItemAttribute.PHYSICAL_PENETRATION)
@@ -642,16 +665,11 @@ class DamageCalculator:
         def expire_renewal_stack(exp_time: float) -> bool:
             if seconds >= exp_time:
                 defending_god_stats.add_or_set_stat(
-                    ItemAttribute.MAGICAL_PROTECTION, -4
+                    ItemAttribute.MAGICAL_PROTECTION, -5
                 )
                 defending_god_stats.add_or_set_stat(
-                    ItemAttribute.PHYSICAL_PROTECTION, -4
+                    ItemAttribute.PHYSICAL_PROTECTION, -5
                 )
-                return True
-            return False
-
-        def expire_spectral_stack(exp_time: float) -> bool:
-            if seconds >= exp_time:
                 return True
             return False
 
@@ -661,26 +679,29 @@ class DamageCalculator:
             return False
 
         while defending_health > 0:
+            # A build that cannot out-damage the defender's regen never ends
+            # the fight; without a ceiling that is an infinite loop, hit in
+            # practice the first time a corpus sweep fed this defensive builds.
+            if seconds >= max_seconds:
+                return max_seconds
             pre_fire_seconds = seconds
             red_pct = 0
+            # Demon Blade's passive is penetration only; the +15% attack speed
+            # on the item is a flat stat the build already counted.
             attack_speed = BaseCalculator.attack_speed(
                 base_attack_speed,
-                increase=0.10 if seconds < demon_blade_exp else 0,
+                increase=0,
                 decrease=len(midgardian_stacks) * 0.08,
             )
 
-            # Update Silverbranch passive according to increase and decrease in attack speed
+            # Silverbranch: 3 Physical Power per 0.02 attack speed over the
+            # 2.5 cap, itself capped at 120 bonus power.
             if has_silverbranch:
-                if base_attack_speed > attack_speed > 2.5:
-                    attacking_god_stats.set_stat(
-                        ItemAttribute.PHYSICAL_POWER,
-                        og_power + 2 * ((attack_speed - 2.5) / 0.02),
-                    )
-                elif attack_speed <= 2.5 < base_attack_speed:
-                    attacking_god_stats.add_or_set_stat(
-                        ItemAttribute.PHYSICAL_POWER,
-                        -2 * ((base_attack_speed - 2.5 / 0.02)),
-                    )
+                overcap = max(attack_speed - 2.5, 0.0)
+                attacking_god_stats.set_stat(
+                    ItemAttribute.PHYSICAL_POWER,
+                    og_power + min(3 * (overcap / 0.02), 120.0),
+                )
 
             # Set prot reduction based on Executioner stacks
             if has_executioner:
@@ -688,17 +709,15 @@ class DamageCalculator:
             elif has_heavy_executioner:
                 red_pct = 0.175 * executioner_stacks
 
-            # Reset Demon Blade effects if it's expired
+            # Reset Demon Blade's penetration if it's expired
             if seconds >= demon_blade_exp:
                 attacking_god_stats.set_stat(ItemAttribute.PHYSICAL_PENETRATION, og_pen)
-                attacking_god_stats.set_stat(
-                    ItemAttribute.ATTACK_SPEED, min(base_attack_speed, 2.5)
-                )
                 demon_blade_exp = 0
 
-            # Reset Berserker's effects if it's expired
+            # Reset Berserker's effects if it's expired — back to the floor,
+            # not to zero, or Oni Hunter's mitigation goes with it
             if seconds >= berserkers_exp:
-                damage_mit = 0
+                damage_mit = base_mit
 
             # Clear expired Renewal stacks
             renewal_stacks[:] = [
@@ -708,14 +727,9 @@ class DamageCalculator:
             # Clear expired Midgardian stacks
             midgardian_stacks[:] = [s for s in midgardian_stacks if not expire_stack(s)]
 
-            # Clear expired Spectral stacks
-            pre_expire_count = len(spectral_stacks)
-            spectral_stacks[:] = [
-                s for s in spectral_stacks if not expire_spectral_stack(s)
-            ]
-            expire_diff = pre_expire_count - len(spectral_stacks)
-            if expire_diff > 0:
-                crit_bonus += 0.05 * expire_diff
+            # Overcapped attack speed feeds Silverbranch, but swings still
+            # come at most 2.5 a second.
+            fire_rate = min(attack_speed, 2.5)
 
             # Calculate damage
             if progression is not None and progression.has_progression:
@@ -729,7 +743,7 @@ class DamageCalculator:
                     damage_mit,
                     crit_bonus,
                 )
-                seconds += (1 / attack_speed) * progression.swing_time[p_idx]
+                seconds += (1 / fire_rate) * progression.swing_time[p_idx]
                 p_idx = 1 + p_idx if p_idx < len(progression.damage) else 0
             else:
                 dmg, is_crit = DamageCalculator.calculate_basic_damage_dealt(
@@ -741,18 +755,19 @@ class DamageCalculator:
                     damage_mit=damage_mit,
                     crit_bonus=crit_bonus,
                 )
-                seconds += 1 / attack_speed
+                seconds += 1 / fire_rate
 
             regenerated_health = (defending_hp5 / 5) * (seconds - pre_fire_seconds)
             defending_health -= dmg
             defending_health += regenerated_health
 
-            # Proc Demon Blade
-            if is_crit and has_demon_blade and demon_blade_exp == 0:
-                # Add 10% Penetration without overcappingo on % Pen
+            # Proc Demon Blade: +10% Penetration for 4s, refreshed by every
+            # crit, and capped at the 40% percent-pen ceiling — `max` here
+            # used to hand any Demon Blade crit at least 40%.
+            if is_crit and has_demon_blade:
                 attacking_god_stats.set_stat(
                     ItemAttribute.PHYSICAL_PENETRATION,
-                    _Penetration(og_pen.flat, max(og_pen.percent + 0.10, 0.40)),
+                    _Penetration(og_pen.flat, min(og_pen.percent + 0.10, 0.40)),
                 )
 
                 demon_blade_exp = pre_fire_seconds + 4
@@ -763,42 +778,51 @@ class DamageCalculator:
             elif has_heavy_executioner:
                 executioner_stacks = min(executioner_stacks + 1, 2)
 
-            # Proc defender's Berserker's
+            # Proc defender's Berserker's: Berserk triggers *below* 60%
+            # health for 5% mitigation (and attack speed a defender that
+            # never swings back cannot use), once every 15s.
             if (
                 has_berserkers
-                and defending_health > initial_health / 2
+                and defending_health < initial_health * 0.6
                 and pre_fire_seconds >= berserkers_cd
             ):
                 berserkers_exp = pre_fire_seconds + 5
                 berserkers_cd = pre_fire_seconds + 15
-                damage_mit = 0.10
+                damage_mit = base_mit + 0.05
 
-            # Proc Mail of Renewal
-            if (
-                has_mail_of_renewal
-                and pre_fire_seconds >= renewal_exp
-                and pre_fire_seconds >= renewal_cd
-            ):
+            # Proc Mail of Renewal: at most one stack a second, +5 of both
+            # protections each, four stacks; the hit that lands at max stacks
+            # consumes them to heal 10% max health, once every 30s.
+            if has_mail_of_renewal and pre_fire_seconds >= renewal_exp:
                 renewal_exp = pre_fire_seconds + 1
-                renewal_stacks.append(pre_fire_seconds + 5)
-                defending_god_stats.add_or_set_stat(ItemAttribute.MAGICAL_PROTECTION, 4)
-                defending_god_stats.add_or_set_stat(
-                    ItemAttribute.PHYSICAL_PROTECTION, 4
-                )
-                if len(renewal_stacks) == 5:
-                    defending_health += (
-                        defending_god_stats.get_stat(ItemAttribute.HEALTH) * 0.15
+                if len(renewal_stacks) < 4:
+                    renewal_stacks.append(pre_fire_seconds + 5)
+                    defending_god_stats.add_or_set_stat(
+                        ItemAttribute.MAGICAL_PROTECTION, 5
                     )
-                    renewal_cd = pre_fire_seconds + 60
+                    defending_god_stats.add_or_set_stat(
+                        ItemAttribute.PHYSICAL_PROTECTION, 5
+                    )
+                elif pre_fire_seconds >= renewal_cd:
+                    defending_health += (
+                        defending_god_stats.get_stat(ItemAttribute.HEALTH) * 0.10
+                    )
+                    renewal_cd = pre_fire_seconds + 30
+                    # The heal consumes the stacks, protections included —
+                    # clearing the list without subtracting made them
+                    # permanent.
+                    for _ in renewal_stacks:
+                        defending_god_stats.add_or_set_stat(
+                            ItemAttribute.MAGICAL_PROTECTION, -5
+                        )
+                        defending_god_stats.add_or_set_stat(
+                            ItemAttribute.PHYSICAL_PROTECTION, -5
+                        )
                     renewal_stacks = []
 
-            # Proc Midgardian Mail
-            if has_midgardian_mail and len(midgardian_stacks) < 3:
-                midgardian_stacks.append(pre_fire_seconds + 2)
-
-            # Proc Spectral
-            if has_spectral and is_crit and len(spectral_stacks) < 4:
-                crit_bonus -= 0.05
-                spectral_stacks.append(pre_fire_seconds + 8)
+            # Proc Midgardian Mail: 8% attack speed per stack for 3s, up to
+            # four stacks.
+            if has_midgardian_mail and len(midgardian_stacks) < 4:
+                midgardian_stacks.append(pre_fire_seconds + 3)
 
         return seconds
