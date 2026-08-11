@@ -38,11 +38,28 @@ from typing import Any, Dict, List, Optional
 
 from mitmproxy import http
 
-RH_SUFFIX = ".rally-here.io"
+# Hosts whose bearer we capture. Smite 2's RallyHere environment is fronted at
+# api-smite2.titanforgegames.com (confirmed on the wire), NOT an
+# <env-id>.rally-here.io host -- so match both. Override with a comma-separated
+# RH_CAPTURE_HOSTS if a different environment uses another domain. Note that
+# --allow-hosts already scopes what mitmproxy decrypts, so this is a second,
+# belt-and-suspenders filter rather than the only one.
+RH_HOSTS = tuple(
+    h.strip()
+    for h in os.environ.get(
+        "RH_CAPTURE_HOSTS", ".rally-here.io,titanforgegames.com"
+    ).split(",")
+    if h.strip()
+)
 # Endpoints whose *response* carries the refresh token. Kept broad on purpose:
 # RallyHere has shuffled the auth path across versions, so match on any of the
 # words a token endpoint tends to use rather than one fixed route.
 AUTH_HINTS = ("token", "oauth", "/auth", "login", "session-ticket")
+
+
+def _is_rh_host(host: str) -> bool:
+    """True if this host is one we lift the RallyHere bearer from."""
+    return any(host == h or host.endswith(h) for h in RH_HOSTS)
 
 
 def _decode_jwt_claims(token: str) -> Optional[Dict[str, Any]]:
@@ -93,13 +110,13 @@ class RallyHereCapture:
         if host in self._seen_hosts:
             return
         self._seen_hosts.add(host)
-        tag = "  <-- RallyHere" if host.endswith(RH_SUFFIX) else ""
+        tag = "  <-- RallyHere" if _is_rh_host(host) else ""
         print(f"[capture] first flow to {host}{tag}", file=sys.stderr)
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         self._note_host(host)
-        if not host.endswith(RH_SUFFIX):
+        if not _is_rh_host(host):
             return
         auth = flow.request.headers.get("Authorization", "")
         if not auth.lower().startswith("bearer "):
@@ -111,7 +128,7 @@ class RallyHereCapture:
 
     def response(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
-        if not host.endswith(RH_SUFFIX):
+        if not _is_rh_host(host):
             return
         path = flow.request.path.lower()
         if not any(hint in path for hint in AUTH_HINTS):
