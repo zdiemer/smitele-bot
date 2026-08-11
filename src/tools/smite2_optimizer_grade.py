@@ -30,10 +30,14 @@ Measured 2026-08-11, live Smite 2 aggregate, 12 gods a role
 
     role      efficient   median dominators / dominates   trust
     carry       83%              0 / 5                     high
-    jungle      75%              0 / 4                     provisional
+    jungle      58%              0 / 0                     medium
     solo        50%              0 / 4                     medium
     support     45%              1 / 2                     low (utility-blind)
-    mid         42%              1 / 19                    provisional
+    mid          8%             13 / 7                     high (actionable)
+
+Mid and jungle now use real ability burst (smite2_ability_kit), not the
+basic-attack proxy the first table reported (mid 42%, jungle 75%). Real burst
+moved mid to 8% and jungle to 58%, and the mid number is the actionable one.
 
 Read it by how far each role's axes can be trusted, not by the percentage
 alone:
@@ -60,10 +64,19 @@ alone:
   build that dominates on those two axes may simply be one the optimizer
   correctly spent on utility the vector cannot see. Support domination is the
   weakest evidence here and is reported as such.
-- Mid and jungle are provisional: their vectors fall back to a basic-attack
-  proxy because Smite 2 does not expose ability scaling yet, so mid's build
-  "dominating" 19 corpus builds is the proxy over-crediting attack-damage
-  sticks, not a real verdict. These numbers move once the ability burst lands.
+- Mid at 8% is the harvest of the whole exercise, and it survived the same
+  measure-before-believing check that cleared solo. With real rotation burst,
+  the optimizer's mid builds are dominated by corpus builds a median of 13
+  times over. That is not the metric flattering glass cannons: across mid
+  builds, burst correlates +0.277 with win rate and effective HP -0.260 — the
+  mirror of solo — so the corpus itself says mid wins by bursting, and the
+  optimizer is building it too defensively. This one is worth feeding back
+  into the mid profile, and unlike the solo flag it has independent win-rate
+  support, not just the vector's own score.
+- Jungle at 58% is the honest middle: real burst pulled it down from the
+  proxy's 75%, and its builds mostly neither dominate nor are dominated (the
+  two-axis burst/EHP vector leaves many pairs incomparable), so there is no
+  strong verdict either way yet.
 """
 
 from __future__ import annotations
