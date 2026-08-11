@@ -2,5 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>zdiemer/selfhosted//renovate/default"
-  ]
+  ],
+  "description": "Pipfile ~= ranges + Pipfile.lock (enforced by pipenv install --deploy) already give reproducible builds; pinning ranges on top is churn. The fleet preset's rangeStrategy: pin is overridden here.",
+  "rangeStrategy": "preserve"
 }
