@@ -431,13 +431,13 @@ class PlayerStats(commands.Cog):
                 discord.Embed(
                     color=discord.Color.yellow(),
                     # tracker.gg is the only source there is, and its live
-                    # status runs minutes behind the lobby — saying "isn't in
-                    # a match" alone reads as a wrong answer to someone who is
-                    # standing in the fountain.
+                    # snapshots refresh on a roughly ten minute cadence, so
+                    # saying "isn't in a match" alone reads as a wrong answer
+                    # to someone who is standing in the fountain.
                     description=(
                         f"**{player_name}** isn't in a match that tracker.gg "
-                        f"can see yet. Its live status often lags a few "
-                        f"minutes behind the start of a match — worth "
+                        f"can see yet. Its live status often lags several "
+                        f"minutes behind the start of a match, so it's worth "
                         f"retrying if you know they're in one."
                     ),
                 ),
@@ -448,6 +448,16 @@ class PlayerStats(commands.Cog):
             color=discord.Color.blue(),
             title=f"{player_name}'s Live {match.mode_name or 'Match'} Details",
         )
+        # The lobby is tracker.gg's snapshot, not a live feed, and its
+        # snapshots refresh about every ten minutes. Saying how old the data
+        # is beats letting it read as real time.
+        if match.age_seconds >= 60:
+            embed.set_footer(
+                text=(
+                    f"As tracker.gg last saw it, "
+                    f"{int(match.age_seconds // 60)} min ago"
+                )
+            )
         # Order and Chaos, matching what Smite 1's side of this command calls
         # them, rather than tracker.gg's lowercase slugs.
         for team, name in (("order", "🔵 Order Side"), ("chaos", "🔴 Chaos Side")):

@@ -161,6 +161,15 @@ class LiveMatch:
     own_god: str
     own_team: str
     players: List[LivePlayer]
+    # When tracker.gg last refreshed this lobby (its `snapshotTimestamp`),
+    # as epoch seconds, or 0 when the payload did not carry one. Observed
+    # cadence is roughly ten minutes, which is the whole of the "live status
+    # lags" complaint; showing the age is the honest thing a display can do.
+    snapshot_at: float = 0.0
+
+    @property
+    def age_seconds(self) -> float:
+        return max(0.0, time.time() - self.snapshot_at) if self.snapshot_at else 0.0
 
     @property
     def allies(self) -> List[str]:
@@ -418,6 +427,15 @@ class PlayerLookups:
 
         metadata = match.get("metadata") or {}
         attributes = match.get("attributes") or {}
+        snapshot_at = 0.0
+        stamp = metadata.get("snapshotTimestamp")
+        if stamp:
+            try:
+                from datetime import datetime  # noqa: PLC0415
+
+                snapshot_at = datetime.fromisoformat(str(stamp)).timestamp()
+            except ValueError:
+                snapshot_at = 0.0
         return self.__store(
             key,
             LiveMatch(
@@ -428,6 +446,7 @@ class PlayerLookups:
                 own_god=mine.god,
                 own_team=mine.team,
                 players=players,
+                snapshot_at=snapshot_at,
             ),
         )
 
