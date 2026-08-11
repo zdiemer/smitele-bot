@@ -96,8 +96,18 @@ carry gives +0.37 (Mid) and +0.40 (Solo) — the *high*-attack-speed cells
 order worse — against -0.14 for Carry. The sim weaves basics at full uptime
 between casts, which only carries actually do, so attack speed is worth
 more in the sim than in the hands of a god who also aims, casts and
-repositions. The next dial is a per-role weave fraction, sweepable against
-exactly these cells.
+repositions.
+
+The per-role weave fraction (ROLE_WEAVE, --sweep-weave) is that dial, and
+sweeping it corrected the guess behind it. Mages did *not* want less weave:
+Mid orders best at full weave and degrades monotonically as weave drops,
+and Carry is flat. The tanky roles wanted it — Solo clearly (median rho
+-0.232 -> -0.246 at weave 0.4, 55 -> 58 of 74 cells correctly signed),
+Jungle and Support marginally (~0.6, within noise of full weave). The read
+is that reduced weave is not modelling aim, it is de-weighting a bruiser's
+offensive stat-sticks toward the survival its lane rewards — which is the
+role-shaped scoring these roles need, stood in for by one constant each
+until the vector exists.
 """
 
 from __future__ import annotations
@@ -172,15 +182,25 @@ def corpus_defenders(
 
 
 # How much of a fight each role spends auto-attacking, feeding the sim's weave
-# fraction. Carries weave at full uptime; casters and burst assassins spend
-# most of a fight on abilities and movement. Swept against the validation cells
-# with --sweep-weave; these are the values that maximised corpus agreement.
+# fraction. Swept against the validation cells with --sweep-weave; these are
+# the measured optima, and they overturned the guess that motivated the dial.
+#
+# The naive expectation was that casters weave less than carries, so Mid/Jungle
+# should sit well below 1.0. The corpus disagreed. Mid orders *best* at full
+# weave (rho -0.199 at 1.0, monotonically worse as weave drops) and Carry is
+# flat. What genuinely wants less weave is the tanky end — Solo clearly
+# (-0.232 -> -0.246 at 0.4), Jungle and Support marginally (~0.6). That is not
+# about aiming abilities; it is that raw TTK is the wrong objective for a
+# bruiser, so modelling a Solo build as auto-attacking full-time over-credits
+# its offensive stat-sticks. Cutting weave leans the score toward survival,
+# which is what those lanes reward — a foretaste of the role-shaped scoring
+# these roles ultimately need, approximated here by one honest constant each.
 ROLE_WEAVE = {
     "Carry": 1.0,
-    "Solo": 0.6,
-    "Jungle": 0.5,
-    "Mid": 0.4,
-    "Support": 0.4,
+    "Mid": 1.0,
+    "Solo": 0.4,
+    "Jungle": 0.6,
+    "Support": 0.6,
 }
 
 
