@@ -1,6 +1,5 @@
 import asyncio
 import io
-import json
 import math
 import os
 import random
@@ -8,7 +7,6 @@ import re
 import time
 import uuid
 from enum import Enum
-from json.decoder import JSONDecodeError
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -18,13 +16,13 @@ from discord.ext import commands
 from unidecode import unidecode
 
 import art_cache
-import paths
 from game import Game
 from providers import Providers
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from player import Player, PlayerId
 from queue_stats import QueueStats
 from SmiteProvider import SmiteProvider
+from trivia_scores import TriviaScores
 from god import God, GodId
 from item import Item, ItemAttribute, ItemType
 from skin import Skin
@@ -2017,6 +2015,7 @@ class SmiteTrivia(commands.Cog):
         # needs exactly that, since restarting mid-round drops the questions.
         self.__active_rounds = 0
         self.__catalogues: Dict[Game, _Catalogue] = {}
+        self.__scores_store = TriviaScores()
 
     def catalogue(self, provider) -> "_Catalogue":
         """The askable items for one game, split by type.
@@ -2461,61 +2460,77 @@ class SmiteTrivia(commands.Cog):
                 break
 
         if not was_stopped and bool(correct_answers):
-            description = [
-                f'**{idx + 1}**. _{(await self.__bot.fetch_user(u[0])).display_name}_ (Score: **{u[1]}**) {"<:mleh:472905075208093717>" if idx == 0 else ""}'
-                for idx, u in enumerate(
-                    sorted(correct_answers.items(), key=lambda i: i[1], reverse=True)
-                )
-            ]
+            standings = sorted(
+                correct_answers.items(), key=lambda i: i[1], reverse=True
+            )
             embed = discord.Embed(
                 color=discord.Color.blue(),
                 title="**Round Summary:**",
-                description=str.join("\n", description),
+                description=await self.__leaderboard(ctx, standings),
             )
             await ctx.respond(embed=embed)
 
-            current_scores = {}
-            try:
-                with open(paths.data_file("scores.json"), "r", encoding="utf-8") as f:
-                    current_scores = json.load(f)
-            except (FileNotFoundError, JSONDecodeError):
-                pass
-            if current_scores:
-                for u in correct_answers.keys():
-                    if str(u) not in current_scores:
-                        current_scores[str(u)] = correct_answers[u]
-                    else:
-                        current_scores[str(u)] += correct_answers[u]
-            else:
-                current_scores = correct_answers
+            self.__scores_store.record(ctx.guild_id, correct_answers)
 
-            with open(paths.data_file("scores.json"), "w", encoding="utf-8") as f:
-                json.dump(current_scores, f)
+    async def __who(self, ctx, user_id: int):
+        """The scorer behind an id, or None if Discord no longer knows them.
+
+        Tried against the guild and then the bot's user cache before the API,
+        because the leaderboard resolves every row and a round of `fetch_user`
+        calls is what pushed `/scores` past Discord's three-second window. The
+        guild comes first for the other reason too: the board is per-server, so
+        a server nickname is the name people there recognise.
+        """
+        member = ctx.guild.get_member(user_id) if ctx.guild is not None else None
+        if member is not None:
+            return member
+        cached = self.__bot.get_user(user_id)
+        if cached is not None:
+            return cached
+        try:
+            return await self.__bot.fetch_user(user_id)
+        except discord.HTTPException:
+            return None
+
+    async def __leaderboard(self, ctx, standings) -> str:
+        rows = []
+        for idx, (user_id, score) in enumerate(standings):
+            who = await self.__who(ctx, user_id)
+            name = who.display_name if who is not None else f"Unknown user {user_id}"
+            crown = "<:mleh:472905075208093717>" if idx == 0 else ""
+            rows.append(f"**{idx + 1}**. _{name}_ (Score: **{score}**) {crown}")
+        return str.join("\n", rows)
+
+    # An embed description is capped at 4096 characters, and a board that has
+    # been accumulating since 2021 gets there. Over the cap Discord rejects the
+    # whole embed, so an unbounded list is a leaderboard that stops appearing at
+    # all rather than one that gets long.
+    __LEADERBOARD_ROWS = 25
 
     async def __scores(self, ctx):
-        try:
-            with open(paths.data_file("scores.json"), "r", encoding="utf-8") as f:
-                current_scores = json.load(f)
-                current_scores = sorted(
-                    current_scores.items(), key=lambda i: i[1], reverse=True
-                )
-                description = [
-                    f'**{idx + 1}**. _{(await self.__bot.fetch_user(u[0])).display_name}_ (Score: **{u[1]}**) {"<:mleh:472905075208093717>" if idx == 0 else ""}'
-                    for idx, u in enumerate(current_scores)
-                ]
-                embed = discord.Embed(
-                    color=discord.Color.blue(),
-                    title="**Leaderboard:**",
-                    description=str.join("\n", description),
-                ).set_thumbnail(
-                    url=(
-                        await self.__bot.fetch_user(current_scores[0][0])
-                    ).display_avatar.url
-                )
-                await ctx.channel.send(embed=embed)
-        except (FileNotFoundError, JSONDecodeError):
-            await ctx.channel.send(
+        # Resolving names can outrun the three-second window on its own, and
+        # the leaderboard used to be sent to the channel rather than answered
+        # with — so it arrived, and Discord still reported the command as
+        # having failed.
+        await ctx.defer()
+        board = self.__scores_store.board_for(ctx.guild_id)
+        if not board:
+            await ctx.respond(
                 embed=discord.Embed(
                     color=discord.Color.blue(), title="No scores recorded yet!"
                 )
             )
+            return
+
+        shown = board[: self.__LEADERBOARD_ROWS]
+        embed = discord.Embed(
+            color=discord.Color.blue(),
+            title="**Leaderboard:**",
+            description=await self.__leaderboard(ctx, shown),
+        )
+        if len(shown) < len(board):
+            embed.set_footer(text=f"Top {len(shown)} of {len(board)} players.")
+        leader = await self.__who(ctx, board[0][0])
+        if leader is not None:
+            embed.set_thumbnail(url=leader.display_avatar.url)
+        await ctx.respond(embed=embed)
