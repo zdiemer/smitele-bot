@@ -26,9 +26,11 @@ The axes per role, and why each belongs:
 - carry: kill speed vs a frontline and vs a backline, plus own effective HP.
   A carry's job is sustained damage into both, and the EHP axis is the floor
   that stops "glass that never gets to attack" from dominating.
-- assassin (jungle): one-rotation burst as a fraction of a backliner's
-  effective HP, plus own effective HP. An assassin either deletes the target
-  in a rotation or leaves; sustained TTK is the wrong question.
+- assassin (jungle): sustained kill speed into a backliner times own effective
+  HP, one axis. The first version scored one-rotation burst on the theory that
+  an assassin deletes on contact, but the corpus rejected it — Smite 1 junglers
+  weave to a kill, and sustained kill speed orders their builds where a single
+  rotation barely beats a coin. See `role_validate` for the numbers.
 - mid: burst into a frontline and into a backline, plus penetration
   efficiency. Penetration past a target's protection is wasted, so two builds
   of equal burst are not equal if one is spending its pen into the floor.
@@ -223,12 +225,19 @@ def role_vector(
             labels=("kill_speed_front", "kill_speed_back", "ehp"),
         )
     if role == "Jungle":
-        back_ehp = effective_health(back_stats, not physical)
-        burst = _rotation_burst(attacker, stats, back_stats)
-        return RoleVector(
-            axes=(burst / back_ehp if back_ehp > 0 else 0.0, own_ehp),
-            labels=("burst_ratio_back", "ehp"),
-        )
+        # Sustained kill speed into the backline times survival, as one axis —
+        # the solo shape pointed at the backline instead of the frontline. Two
+        # measured facts drove this away from the original burst vector. First,
+        # burst is the wrong model for Smite 1 junglers: per-cell concordance
+        # against win rate is 0.554 for sustained kill speed and 0.517 — barely
+        # a coin — for a single ability rotation, because they weave to a kill
+        # rather than one-shotting. Second, kill speed and survival do not want
+        # to be *separate* Pareto axes here: split, the two-axis vector scores
+        # 0.528, below kill speed alone, because requiring both to agree throws
+        # away the pairs where they trade. Their product (0.557) keeps those
+        # pairs and is the best single number the corpus offers for the role.
+        kill_speed = _kill_speed(attacker, backline, kit, steroid, weave)
+        return RoleVector(axes=(kill_speed * own_ehp,), labels=("killspeed_x_ehp",))
     if role == "Mid":
         return RoleVector(
             axes=(

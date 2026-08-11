@@ -34,7 +34,7 @@ Measured 2026-08-11, Smite 1 production aggregate, all five roles
     Solo       0.608     99%    0.566
     Support    0.560     59%    0.509
     Mid        0.535     58%    0.524
-    Jungle     0.525     56%    0.540
+    Jungle     0.524     91%    0.538   (kill-speed x ehp; see below)
 
 The vector beats scalar kill-speed on four of five roles, and the two widest
 margins — Support +5pp, Carry +6pp — bracket the point: the vector helps most
@@ -43,13 +43,19 @@ an already-good signal (Carry). Solo's single ehp*damage axis is a near-total
 order (99% coverage) and still beats pure kill speed, which is the product doing
 its job. Mid is a marginal win.
 
-Jungle is the honest miss: the assassin's burst-over-backline-EHP vector is
-*less* concordant than scalar kill speed there. Two things plausibly drive it —
-the one-rotation burst model is cruder than the sustained sim it replaces, and
-jungle win rate is the noisiest to order because junglers snowball on kills and
-map pressure rather than on the six items a build hash records. Either way the
-vector has not earned its place at jungle yet, and the table says so rather than
-hiding it in an average.
+Jungle was the honest miss, and chasing it taught the model something. The
+first jungle vector scored one-rotation burst, on the assumption an assassin
+deletes on contact — but the corpus rejects that for Smite 1: per-cell
+concordance against win rate is 0.554 for sustained kill speed and 0.517, a
+coin, for a single ability rotation. Junglers weave to a kill, so the sustained
+sim is the right model, and burst was the wrong one. The vector is now sustained
+kill speed into the backline times survival, a single axis like solo's. That did
+not move the concordance number (0.524, versus 0.525 for the old burst vector) —
+jungle simply is the hardest role to order, because it is won on snowball and map
+pressure more than on the six items a build hash holds — but it nearly doubled
+*coverage*, from 57% to 91%, so the order now speaks to almost every pair at the
+same accuracy instead of committing on half of them. A more useful ranker at an
+honest ceiling, not a higher number pretending the ceiling moved.
 
 Coverage is the other half of the story. Every multi-axis role leaves ~40% of
 pairs incomparable (Solo, single-axis, does not); the concordance figures are
