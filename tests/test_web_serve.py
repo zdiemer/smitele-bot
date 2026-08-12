@@ -16,6 +16,7 @@ wrong:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -417,5 +418,76 @@ class TestMeta:
             assert body["status_age_seconds"] is None
             assert body["players_age_seconds"] is None
             assert body["snapshot_dir"] == str(snapshots)
+        finally:
+            await client.close()
+
+
+class TestHomeScreenIcons:
+    """The four icons the manifest names, and the one rule Android imposes.
+
+    These are rendered rather than checked in, so nothing else would notice if
+    a size stopped being served — the symptom is a home-screen icon quietly
+    becoming a screenshot crop on somebody else's phone.
+    """
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("/icon-180.png", 180),
+            ("/icon-192.png", 192),
+            ("/icon-512.png", 512),
+            ("/icon-maskable-512.png", 512),
+        ],
+    )
+    async def test_every_size_the_manifest_names_is_served(self, site, path, expected):
+        Image = pytest.importorskip("PIL.Image")
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get(path)
+
+            assert response.status == 200
+            assert response.headers["Content-Type"] == "image/png"
+            body = await response.read()
+            assert Image.open(io.BytesIO(body)).size == (expected, expected)
+        finally:
+            await client.close()
+
+    async def test_the_maskable_one_keeps_out_of_the_crop(self, site):
+        """Android crops to a circle at 80% of the width.
+
+        The uncropped mark runs its motion lines to within 6 of a 64-unit edge,
+        so the check that matters is that the maskable variant's corners are
+        bare tile — if the artwork reaches them, it is reaching past the circle
+        too and the outer strokes are being sliced off on real phones.
+        """
+        Image = pytest.importorskip("PIL.Image")
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            body = await (await client.get("/icon-maskable-512.png")).read()
+            image = Image.open(io.BytesIO(body)).convert("RGB")
+            ink = image.getpixel((2, 2))
+
+            # A band comfortably outside the safe circle, on all four sides.
+            for x, y in [(20, 20), (491, 20), (20, 491), (491, 491),
+                         (256, 12), (256, 499), (12, 256), (499, 256)]:
+                assert image.getpixel((x, y)) == ink, f"artwork reaches ({x}, {y})"
+        finally:
+            await client.close()
+
+    async def test_icons_are_not_cached_as_immutable(self, site):
+        """They carry no content hash, unlike everything Vite emits.
+
+        `immutable` here would mean a redesigned mark keeps showing the old one
+        for a year, which is the bug this replaced.
+        """
+        snapshots, dist, _ = site
+        client = await client_for(snapshots, dist)
+        try:
+            response = await client.get("/icon-192.png")
+
+            assert "immutable" not in response.headers["Cache-Control"]
+            assert "max-age=86400" in response.headers["Cache-Control"]
         finally:
             await client.close()

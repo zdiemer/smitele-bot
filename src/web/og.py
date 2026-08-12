@@ -49,7 +49,7 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
 
 
 def _bolt(
-    draw: ImageDraw.ImageDraw, x: int, y: int, scale: float, radius: int = 0
+    draw: ImageDraw.ImageDraw, x: float, y: float, scale: float, radius: int = 0
 ) -> None:
     """The mark, as a polygon.
 
@@ -87,18 +87,44 @@ def _bolt(
         )
 
 
-def icon(size: int = 180) -> bytes:
-    """The mark alone, as a square PNG. For iOS, which will not take SVG.
+def icon(size: int = 180, *, maskable: bool = False) -> bytes:
+    """The mark alone, as a square PNG. For the platforms that will not take SVG.
 
     Drawn from the same polygon as the card rather than checked in as a binary,
     so there is one shape to change instead of three — and a rasteriser stays
     out of the build. `icon.svg` is still a separate transcription, because a
     favicon wants real vector crispness at 16px.
+
+    `maskable` is Android's home-screen form, and it is a genuinely different
+    drawing rather than the same one resized. Android crops an installed icon
+    to a circle at 80% of the width, which does two things to this mark: the
+    outermost motion lines — they run to within 6 of a 64-unit edge — get
+    sliced clean off, and a tile with its own rounded corners gets rounded a
+    second time, leaving four pale nicks inside the crop. So the maskable
+    variant bleeds the tile to the corners and pulls the artwork into the safe
+    circle, while the standard one keeps its own radius and stays full-bleed
+    the way it looks right in an app switcher, where nothing is cropped.
+
+    Drawn at 4x and downsampled. Pillow does not antialias polygons or wide
+    lines, and this mark is four diagonals — at 512 the staircase on the bolt's
+    edge is plainly visible, and it was visible at 180 too.
     """
-    tile = Image.new("RGBA", (size, size), INK + (255,))
+    ss = 4
+    span = 0.70 if maskable else 1.0
+    side = size * ss
+
+    tile = Image.new("RGBA", (side, side), INK + (255,))
     draw = ImageDraw.Draw(tile)
-    scale = size / 64
-    _bolt(draw, 0, 0, scale, radius=int(12 * scale))
+
+    scale = side * span / 64
+    offset = side * (1 - span) / 2
+    # radius=0 for the maskable one: no corners of our own, Android supplies
+    # the mask. The standard one keeps the tile it has always had.
+    _bolt(draw, offset, offset, scale, radius=0 if maskable else int(12 * scale))
+
+    # Image.Resampling, not the Image.LANCZOS alias: the alias is deprecated in
+    # the Pillow 9.5 this pins to, and it warns on every icon render.
+    tile = tile.resize((size, size), Image.Resampling.LANCZOS)
 
     buffer = io.BytesIO()
     tile.convert("RGB").save(buffer, format="PNG", optimize=True)

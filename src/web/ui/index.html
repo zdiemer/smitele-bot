@@ -20,6 +20,19 @@
     <meta name="theme-color" content="#14171a" />
 
     <!--
+      Android needs the manifest, not just the touch icon: without one, "Add to
+      home screen" has no name and no artwork to use and falls back to cropping
+      a screenshot. The 192/512 it names are rendered by serve.py off the same
+      polygon as /icon-180.png, plus a maskable 512 drawn inside Android's 80%
+      safe circle — the motion lines run close enough to the edge that the
+      uncropped artwork loses its outermost blue and magenta strokes.
+
+      A static file in public/, which Vite copies to dist/ verbatim, rather than
+      another route: it never changes and it names files that do not either.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!--
       The preview card is /og.png, drawn by serve.py from whatever the snapshot
       last wrote and cached against its mtime. Nothing about it is checked in or
       generated at build time: a static card would be a photograph of the

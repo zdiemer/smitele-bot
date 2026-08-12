@@ -22,12 +22,19 @@ horizontally and rolls without a deploy guard.
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import sys
 import time
 from typing import Any, Dict, Optional, Tuple
 
 from aiohttp import web
+
+# .webmanifest is not in Python's mimetypes table on a slim Debian image, so
+# aiohttp's FileResponse would serve the manifest as application/octet-stream
+# and Chrome would decline to install the app — with the manifest itself
+# fetching fine, which makes it a miserable thing to diagnose.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -58,6 +65,13 @@ ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 # The preview card. Matched to the snapshot cadence — a chat client that cached
 # it for a day would show a stand-down that lifted hours ago.
 OG_MAX_AGE = 900
+
+# The home-screen icons. Deliberately NOT ASSET_CACHE_CONTROL, which they used
+# to get: that value is `immutable` and a year long, and it is true of Vite's
+# output because the content hash is in the filename. These names have no hash
+# in them, so a year is also how long a redesigned mark would keep showing the
+# old one. A day costs one conditional request nobody notices.
+ICON_CACHE_CONTROL = "public, max-age=86400"
 
 
 def dist_dir() -> str:
@@ -245,25 +259,43 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
             headers={"Cache-Control": f"public, max-age={OG_MAX_AGE}"},
         )
 
-    async def touch_icon(_request: web.Request) -> web.Response:
-        """The iOS home-screen icon, drawn from the same polygon as the card.
+    # The home-screen icons, by URL. All four come off the same polygon in
+    # og.py; only the size and Android's crop rule differ.
+    #
+    # /icon-180.png is iOS, which will not take the SVG favicon. The other
+    # three exist for manifest.webmanifest — without a manifest, Android's
+    # "Add to home screen" has no icon to use and falls back to a screenshot
+    # crop with the page title under it.
+    ICON_VARIANTS = {
+        "/icon-180.png": (180, False),
+        "/icon-192.png": (192, False),
+        "/icon-512.png": (512, False),
+        "/icon-maskable-512.png": (512, True),
+    }
+
+    icons: Dict[str, bytes] = {}
+
+    async def icon_image(request: web.Request) -> web.Response:
+        """A home-screen icon, drawn from the same polygon as the card.
 
         Rendered rather than checked in so there is one shape to change instead
-        of a binary to remember to regenerate. It never varies, so it is drawn
-        once per process and cached hard.
+        of four binaries to remember to regenerate. None of them ever varies,
+        so each is drawn once per process and then handed out from memory.
         """
-        if card.get("icon") is None:
+        path = request.path
+        if path not in icons:
+            size, maskable = ICON_VARIANTS[path]
             try:
                 import og  # noqa: PLC0415
 
-                card["icon"] = og.icon(180)
+                icons[path] = og.icon(size, maskable=maskable)
             except Exception as error:  # noqa: BLE001
-                print(f"serve: could not render icon: {error}", flush=True)
+                print(f"serve: could not render {path}: {error}", flush=True)
                 return _json({"error": "icon unavailable"}, status=503)
         return web.Response(
-            body=card["icon"],
+            body=icons[path],
             content_type="image/png",
-            headers={"Cache-Control": ASSET_CACHE_CONTROL},
+            headers={"Cache-Control": ICON_CACHE_CONTROL},
         )
 
     async def api_not_found(_request: web.Request) -> web.Response:
@@ -313,7 +345,8 @@ def build_app(directory: Optional[str] = None, dist: Optional[str] = None):
     app.router.add_get("/api/stats", stats)
     app.router.add_get("/api/meta", meta)
     app.router.add_get("/og.png", og_image)
-    app.router.add_get("/icon-180.png", touch_icon)
+    for icon_path in ICON_VARIANTS:
+        app.router.add_get(icon_path, icon_image)
     app.router.add_route("*", "/api/{tail:.*}", api_not_found)
     app.router.add_get("/", spa)
     app.router.add_get("/{path:.*}", spa)
