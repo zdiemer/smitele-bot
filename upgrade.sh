@@ -5,7 +5,7 @@
 #   ./upgrade.sh --dry-run                # render only
 #   ./upgrade.sh --force-active-sessions  # roll even mid-game
 #
-# Secrets come from values.local.yaml, which is gitignored. build.sh first if
+# Secrets are resolved from 1Password into RAM at deploy time. build.sh first if
 # the image changed.
 
 set -euo pipefail
@@ -26,9 +26,35 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 RELEASE="${RELEASE:-smitele-bot}"
 NAMESPACE="${NAMESPACE:-discord}"
 
-[[ -f "${HERE}/values.local.yaml" ]] || {
-  echo "missing values.local.yaml — copy values.local.yaml.example and fill in the"
-  echo "Discord token and Hi-Rez dev ID / auth key."; exit 1; }
+# Resolve the secret from 1Password into RAM for the life of this run. It is
+# never written to a persistent disk, and it is removed on exit.
+#
+# $SELFHOSTED_LOCAL_VALUES lets a caller supply a path instead. The on-disk
+# values.local.yaml is the last resort, for a clone that predates this.
+resolve_local_values() {
+  local here="$1" rt="" d
+  if [[ -n "${SELFHOSTED_LOCAL_VALUES:-}" ]]; then printf '%s\n' "$SELFHOSTED_LOCAL_VALUES"; return 0; fi
+  if [[ -f "${here}/values.local.tpl.yaml" ]] && command -v op >/dev/null 2>&1; then
+    # A tmpfs, asserted rather than assumed: /tmp is ext4 on some of these hosts,
+    # so falling back to it would quietly reintroduce the file this removes.
+    for d in "${XDG_RUNTIME_DIR:-}" "/run/user/$(id -u)" /dev/shm; do
+      [[ -n "$d" && -d "$d" && -w "$d" ]] || continue
+      case "$(stat -f -c %T "$d" 2>/dev/null)" in tmpfs|ramfs) rt="$d"; break ;; esac
+    done
+    [[ -n "$rt" ]] || { echo "FAIL: no tmpfs available; refusing to write the secret to a disk" >&2; return 1; }
+    local f; f="$(mktemp "${rt}/values.local.XXXXXX")" || return 1
+    chmod 600 "$f"
+    op inject -i "${here}/values.local.tpl.yaml" -o "$f" -f >/dev/null 2>&1 \
+      || { rm -f "$f"; echo "FAIL: op inject failed. Signed in?  eval \$(op signin)" >&2; return 1; }
+    printf '%s\n' "$f"; return 0
+  fi
+  printf '%s\n' "${here}/values.local.yaml"
+}
+LOCAL_VALUES="$(resolve_local_values "$HERE")" || exit 1
+[[ "$LOCAL_VALUES" == "${HERE}/"* ]] || trap 'rm -f "$LOCAL_VALUES"' EXIT INT TERM
+[[ -f "$LOCAL_VALUES" ]] || {
+  echo "no secrets resolved from 1Password (Discord token, Hi-Rez dev ID / auth key)."
+  echo "  check with:  ~/Code/selfhosted/scripts/secrets.sh check discord/smitele-bot"; exit 1; }
 
 # The namespace is created once, by hand, and never managed by a chart.
 kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || {
@@ -37,7 +63,7 @@ kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || {
 
 # The collector needs the SMB share to exist and csi-driver-smb to be installed.
 # Catch the missing driver here rather than as a pod stuck in ContainerCreating.
-if grep -qE '^\s*enabled:\s*true' <(awk '/^matchData:/,/^[a-z]/' "${HERE}/values.local.yaml" 2>/dev/null); then
+if grep -qE '^\s*enabled:\s*true' <(awk '/^matchData:/,/^[a-z]/' "$LOCAL_VALUES" 2>/dev/null); then
   kubectl get csidriver smb.csi.k8s.io >/dev/null 2>&1 || {
     echo "matchData.enabled is set but csi-driver-smb is not installed on this cluster."
     echo "See README §Prerequisites."; exit 1; }
@@ -79,7 +105,7 @@ echo "==> helm upgrade --install ${RELEASE} (namespace ${NAMESPACE})"
 helm upgrade --install "${RELEASE}" "${HERE}" \
   --namespace "${NAMESPACE}" \
   -f "${HERE}/values.yaml" \
-  -f "${HERE}/values.local.yaml" \
+  -f "$LOCAL_VALUES" \
   "$@"
 
 if [[ " $* " != *" --dry-run "* ]]; then
