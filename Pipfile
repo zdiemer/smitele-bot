@@ -23,7 +23,7 @@ pandas = "~=2.1.0"
 ujson = "~=5.13.0"
 # Parquet is the corpus format: ~25x smaller than the raw JSON and read
 # column-wise, so the bot loads only the fields it uses.
-pyarrow = "~=14.0"
+pyarrow = "~=25.0"
 # Streaming JSON, for converting archived days. Whole-file parsing needs about
 # eight times the file size in memory and archived days reach 3GB. Also used to
 # stream tracker.gg's ~2.9MB match pages instead of buffering them.
