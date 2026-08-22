@@ -377,7 +377,14 @@ smite2:
     resources:
       requests:
         cpu: 500m
-        memory: 1Gi
+        # Request matches the limit, for the same reason the Smite 1 aggregate
+        # does it. A run holds the pod for most of a day, and a Burstable pod
+        # sitting above its request is the first thing the kubelet reclaims
+        # under node memory pressure — which is what ended the 2026-08-21 run
+        # at 07:37, four hours in. The crawl caught the SIGTERM and saved, so
+        # that cost a night's depth rather than any data; reserving the second
+        # gigabyte is what keeps it from being chosen in the first place.
+        memory: 2Gi
       limits:
         memory: 2Gi
 
