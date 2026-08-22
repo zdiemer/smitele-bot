@@ -384,9 +384,12 @@ smite2:
         # at 07:37, four hours in. The crawl caught the SIGTERM and saved, so
         # that cost a night's depth rather than any data; reserving the second
         # gigabyte is what keeps it from being chosen in the first place.
-        memory: 2Gi
+        #
+        # Doubled from 2Gi after the 2026-08-22 run was OOMKilled outright at
+        # that limit, 3.5h in: the browser plus the row buffer grew past it.
+        memory: 4Gi
       limits:
-        memory: 2Gi
+        memory: 4Gi
 
   aggregate:
     enabled: false
