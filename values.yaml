@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/zdiemer/smitele-bot
+  repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
   tag: "1.9.11"
   pullPolicy: IfNotPresent
 
@@ -185,7 +185,7 @@ backfill:
 trainer:
   enabled: false
   image:
-    repository: ghcr.io/zdiemer/smitele-bot-trainer
+    repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-trainer
     # Empty so this tracks image.tag, keeping the trainer and the bot that
     # scores its output on the same code.
     #
@@ -299,7 +299,7 @@ smite2:
     # by accident — turning this on is a decision someone makes deliberately.
     enabled: false
     image:
-      repository: ghcr.io/zdiemer/smitele-bot-s2collector
+      repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-s2collector
       # Defaults to image.tag, so the crawl and the bot always agree about the
       # corpus format.
       tag: ""
@@ -428,7 +428,7 @@ smite2:
 web:
   enabled: false
   image:
-    repository: ghcr.io/zdiemer/smitele-bot-web
+    repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-web
     # Defaults to image.tag, so the site and the snapshot format agree.
     tag: ""
   # Two, unlike the bot's one. Nothing here is stateful — the only input is a
@@ -507,7 +507,9 @@ snapshot:
       # index — and never the corpus itself.
       memory: 512Mi
 
-# The convention here is a *public* GHCR package: the cluster is multi-node and
+# Unused since the move to the in-cluster registry (nodes authenticate via
+# registries.yaml). Kept for an image still on GHCR. The old convention was a
+# *public* GHCR package: the cluster is multi-node and
 # anonymous pulls mean no per-namespace credential to keep alive. Until the
 # package visibility is flipped, a PAT with read:packages in values.local.yaml
 # generates a pull secret. Clear it once the package is public.

@@ -6,7 +6,7 @@
 #
 # Built by build.sh alongside the main image, and tagged in lockstep with it so
 # a model is always produced by the same code that will score with it.
-ARG BASE_IMAGE=ghcr.io/zdiemer/smitele-bot
+ARG BASE_IMAGE=registry.zachd.duckdns.org/zdiemer/smitele-bot
 ARG BASE_TAG=latest
 FROM ${BASE_IMAGE}:${BASE_TAG}
 

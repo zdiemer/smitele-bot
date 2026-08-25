@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the smitele-bot image and push it to GHCR.
+# Build the smitele-bot image and push it to the in-cluster registry (infra/registry).
 #
-# We ship via ghcr.io (public package) rather than side-loading into containerd:
+# We ship via the in-cluster registry (infra/registry) rather than side-loading into containerd:
 # the cluster is multi-node, so a side-loaded image only exists on one node and
 # every other node ImagePullBackOffs.
 #
@@ -31,10 +31,10 @@ if command -v docker >/dev/null; then
   docker push "${IMAGE}"
 elif command -v buildctl >/dev/null; then
   # Workspace-pod path: remote build on the in-cluster buildkitd, which pushes
-  # straight to GHCR. Auth is forwarded per-session from ~/.docker/config.json.
+  # straight to the registry. Auth is forwarded per-session from ~/.docker/config.json.
   [[ -f "${HOME}/.docker/config.json" ]] || {
-    echo "missing ~/.docker/config.json — create the GHCR PAT file first"
-    echo "(see dev/claude-workspace/README.md, Cluster powers)"; exit 1; }
+    echo "missing ~/.docker/config.json — add the registry credential first (selfhosted/infra/registry/README.md)"
+    echo "(see selfhosted/infra/registry/README.md)"; exit 1; }
 
   echo "==> Building + pushing ${IMAGE} (buildctl → ${BUILDKIT_HOST:-unset})"
   buildctl build \
@@ -57,7 +57,7 @@ if [[ "${SKIP_TRAINER:-0}" != "1" ]]; then
   # "…trainer\nsmitele-bot-trainer:1.8.25;:1.9.0" — a tag docker rejects, after
   # the bot image had already built and pushed.
   TRAINER_REPO="$(awk '/^[[:space:]]*repository:[[:space:]]*.*smitele-bot-trainer/{print $2; exit}' "${HERE}/values.yaml" | tr -d '"')"
-  TRAINER_IMAGE="${TRAINER_REPO:-ghcr.io/zdiemer/smitele-bot-trainer}:${TAG}"
+  TRAINER_IMAGE="${TRAINER_REPO:-registry.zachd.duckdns.org/zdiemer/smitele-bot-trainer}:${TAG}"
 
   if command -v docker >/dev/null; then
     echo "==> Building ${TRAINER_IMAGE} (docker)"
@@ -85,7 +85,7 @@ fi
 # trainer: a slow layer that most changes don't touch.
 if [[ "${SKIP_S2COLLECTOR:-0}" != "1" ]]; then
   S2_REPO="$(awk -F'"' '/smitele-bot-s2collector/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
-  S2_IMAGE="${S2_REPO:-ghcr.io/zdiemer/smitele-bot-s2collector}:${TAG}"
+  S2_IMAGE="${S2_REPO:-registry.zachd.duckdns.org/zdiemer/smitele-bot-s2collector}:${TAG}"
 
   if command -v docker >/dev/null; then
     echo "==> Building ${S2_IMAGE} (docker)"
@@ -113,7 +113,7 @@ fi
 # tree, hence SKIP_WEB=1 for changes that don't touch the site.
 if [[ "${SKIP_WEB:-0}" != "1" ]]; then
   WEB_REPO="$(awk -F'"' '/smitele-bot-web/{print $0}' "${HERE}/values.yaml" | awk '{print $2}' | tr -d '"')"
-  WEB_IMAGE="${WEB_REPO:-ghcr.io/zdiemer/smitele-bot-web}:${TAG}"
+  WEB_IMAGE="${WEB_REPO:-registry.zachd.duckdns.org/zdiemer/smitele-bot-web}:${TAG}"
 
   if command -v docker >/dev/null; then
     echo "==> Building ${WEB_IMAGE} (docker)"
@@ -136,5 +136,3 @@ if [[ "${SKIP_WEB:-0}" != "1" ]]; then
 fi
 
 echo "==> Done. Run upgrade.sh to roll the cluster onto the new image."
-echo "    (First push only: set the ghcr.io/zdiemer/smitele-bot package"
-echo "     visibility to Public so every node can pull it anonymously.)"

@@ -305,7 +305,7 @@ web tier reads.
 ## Deploying
 
 ```sh
-./build.sh      # build + push ghcr.io/zdiemer/smitele-bot (public package)
+./build.sh      # build + push registry.zachd.duckdns.org/zdiemer/smitele-bot (public package)
 ./upgrade.sh    # helm upgrade --install into the discord namespace
 ```
 
