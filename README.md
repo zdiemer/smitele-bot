@@ -1,3 +1,18 @@
+<div align="center">
+
+<img src="docs/banner.png" alt="smitele-bot" width="100%">
+
+[![build](https://img.shields.io/github/actions/workflow/status/zdiemer/smitele-bot/build.yml?style=flat-square&label=build)](https://github.com/zdiemer/smitele-bot/actions/workflows/build.yml)
+![License](https://img.shields.io/github/license/zdiemer/smitele-bot?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
+![Discord](https://img.shields.io/badge/Discord-slash_commands-5865F2?style=flat-square&logo=discord&logoColor=white)
+![Helm](https://img.shields.io/badge/Helm-chart_in_repo-0F1689?style=flat-square&logo=helm&logoColor=white)
+![k3s](https://img.shields.io/badge/k3s-self--hosted-FFC61C?style=flat-square&logo=k3s&logoColor=black)
+
+**[smite.diemer.codes](https://smite.diemer.codes)**
+
+</div>
+
 # smitele-bot
 
 Smite-le — a Discord bot for a six-round Smite guessing game in the shape of
@@ -6,6 +21,16 @@ Wordle — plus the daily Hi-Rez match data collector that feeds it.
 This repo holds both the source and the Helm chart that runs it on the home k3s
 cluster, so a release is one commit in one place: `Chart.yaml` `appVersion`
 tracks `values.yaml` `image.tag`.
+
+## The public page
+
+<p align="center">
+  <img src="docs/shots/web.png" alt="smite.diemer.codes" width="92%">
+</p>
+
+Liveness for the two data pipelines behind the bot, read from a snapshot rather
+than called live — which is exactly why it can be public. Re-capture with
+[`docs/capture/capture.py`](docs/capture/capture.py).
 
 ## What runs
 
