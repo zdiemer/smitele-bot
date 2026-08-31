@@ -2,7 +2,7 @@ apiVersion: v2
 name: smitele-bot
 description: Smite-le — a Discord bot for the Smite-and-Wordle-inspired guessing game, plus a scheduled Hi-Rez match data collector
 type: application
-version: 1.10.3
+version: 1.10.4
 # appVersion tracks the smitele-bot image tag in values.yaml (image.tag).
 appVersion: "1.10.3"
 maintainers:

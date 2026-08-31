@@ -320,18 +320,22 @@ buildEval:
     # 8.3GiB. The deadline is an hour because the share is the variable part,
     # not the arithmetic.
     #
-    # The memory is still an estimate — the run that measured the time predates
-    # the peak-resident line this now prints, so the next one replaces it. The
-    # train window is held rather than streamed, which is what makes it a window
-    # and not the corpus.
+    # Memory is measured now, not estimated: 6.84 GiB peak over 151 cells. Ten
+    # rather than eight, because 85% of the limit is not headroom for a job that
+    # runs unattended and whose only failure mode is producing no measurement —
+    # the window is a sliding 180 days so it should not drift, but "should not"
+    # is what the last estimate said too.
+    #
+    # The train window is held rather than streamed, which is what makes it a
+    # window and not the corpus.
     activeDeadlineSeconds: 3600
     tmpSizeLimit: 2Gi
     resources:
       requests:
         cpu: "1"
-        memory: 8Gi
+        memory: 10Gi
       limits:
-        memory: 8Gi
+        memory: 10Gi
 
   smite2:
     enabled: false
@@ -346,8 +350,8 @@ buildEval:
     minEvalPlays: 200
     strategies: most_played,shrunk_ranker
     # Measured on the first cluster run, 2026-08-31: 49 seconds end to end,
-    # 180 train files and 146 cells. The margins here are for the share being
-    # slower than a local disk, not for the arithmetic.
+    # 180 train files and 146 cells, under a gigabyte resident. The margins here
+    # are for the share being slower than a local disk, not for the arithmetic.
     activeDeadlineSeconds: 3600
     tmpSizeLimit: 1Gi
     resources:
