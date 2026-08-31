@@ -146,6 +146,7 @@ def train_aggregate(
     half_life_days: int,
     batch: int,
     verbose: bool,
+    role_half_life: Optional[Dict[str, int]] = None,
 ) -> Optional[BuildStats]:
     """An aggregate over the train window only, in the shape the bot reads.
 
@@ -194,12 +195,21 @@ def train_aggregate(
         if not frame.shape[0]:
             continue
 
-        weight = build_aggregate.recency_weight(
-            build_aggregate.corpus_date(path), newest, half_life_days
+        weight = build_aggregate.role_weights(
+            build_aggregate.corpus_date(path),
+            newest,
+            half_life_days,
+            role_half_life,
         )
+        # Sliced rather than unpacked. `reduce_file` grew a fifth return value
+        # when Smite 2 starters were aggregated, and a four-way unpack here
+        # meant this harness died on its first training file — for both games,
+        # from any cutoff — until someone tried to run it. Starters are not a
+        # thing this measures, so taking the first four is the whole fix, and
+        # slicing means the next table added there does not break it again.
         build_counts, day_items, relic_counts, god_counts = build_aggregate.reduce_file(
             frame, weight
-        )
+        )[:4]
         builds.append(build_counts)
         item_rows.append(day_items)
         relics.append(relic_counts)
@@ -372,6 +382,25 @@ class Context:
         self.__optimized: Dict[Tuple[int, str], Optional[List[int]]] = {}
         self.__recommended: Dict[Tuple[int, str], Optional[List[int]]] = {}
 
+    def resolve(self, item_ids) -> Optional[List[object]]:
+        """Recorded ids as catalogue items, the way `god_builder` does it."""
+        found = [self.items[i] for i in item_ids if i in self.items]
+        return found if len(found) == len(item_ids) else None
+
+    def carries_anti_heal(self, items) -> bool:
+        """Anti-heal, in whichever game's terms — the seam `god_builder` has."""
+        if self.game is Game.SMITE_2:
+            import smite2_stats  # noqa: PLC0415
+
+            return any(smite2_stats.carries_anti_heal(item) for item in items)
+
+        from passive_parser import PassiveAttribute  # noqa: PLC0415
+
+        return any(
+            PassiveAttribute.ANTIHEAL in (item.passive_properties or [])
+            for item in items
+        )
+
     def god(self, god_id: int):
         found = self.gods.get(god_id)
         if found is not None:
@@ -495,6 +524,63 @@ def ranked_by(name, min_plays: float = 0.0):
 current_ranker = ranked_by("lower_bound")
 
 
+def ranked_pool(cell: Cell, context: Context) -> List[Dict]:
+    """The shipped ranking's candidates for a cell, in order."""
+    return context.stats.ranked_builds(
+        god_id=cell.god_id,
+        queue_id=cell.queue_id,
+        role=cell.role,
+        require_starter=True,
+        starter_ids=context.starter_ids,
+    )
+
+
+def anti_heal_within(tolerance: float):
+    """`anti_heal_always`, but only when it costs less than `tolerance`.
+
+    This is the sweep that sets `build_engine.ANTI_HEAL_TOLERANCE`. Read the
+    result as an upper bound on the cost rather than as the cost: the harness
+    has no lobby, so it applies the constraint to every matchup, while the bot
+    applies it only against a healer — and only in that matchup does the 25%
+    healing reduction it buys have anything to reduce.
+    """
+
+    def strategy(cell: Cell, context: Context) -> Optional[List[int]]:
+        import build_engine  # noqa: PLC0415
+
+        pool = ranked_pool(cell, context)
+        if not pool:
+            return None
+        promoted = build_engine.promote_anti_heal(
+            pool, context.resolve, context.carries_anti_heal, tolerance=tolerance
+        )
+        return list(promoted[0]["items"])
+
+    return strategy
+
+
+def anti_heal_always(cell: Cell, context: Context) -> Optional[List[int]]:
+    """The best build carrying anti-heal, whatever it costs in ranking score.
+
+    Not a policy anyone would ship — the harness has no lobby, so it cannot know
+    whether a healer was on the other team — but it is the right way to price
+    the constraint. `build_engine.promote_anti_heal` only fires against a
+    healer, and the question it has to answer first is what happens on the days
+    it fires: the median god gives up 3.1 points of shrunk win rate to reach its
+    first anti-heal build, and that number is meaningless until something says
+    whether those points were real.
+    """
+    import build_engine  # noqa: PLC0415
+
+    pool = ranked_pool(cell, context)
+    if not pool:
+        return None
+    promoted = build_engine.promote_anti_heal(
+        pool, context.resolve, context.carries_anti_heal, tolerance=float("inf")
+    )
+    return list(promoted[0]["items"])
+
+
 def current_optimizer(cell: Cell, context: Context) -> Optional[List[int]]:
     return context.optimized(cell.god_id, cell.role)
 
@@ -574,6 +660,7 @@ STRATEGIES = {
     "corrected_ranker": ranked_by("corrected_bound"),
     "shrunk_ranker": ranked_by("shrunk"),
     "additive_ranker": ranked_by("additive"),
+    "anti_heal_always": anti_heal_always,
     "current_optimizer": current_optimizer,
     "current_ml": current_ml,
     "oracle": oracle,
@@ -601,6 +688,9 @@ def resolve(name: str):
                 plays, wins, strength, pessimism
             )
         )
+    if name.startswith("anti_heal:"):
+        # anti_heal:<tolerance in shrunk win rate>
+        return anti_heal_within(float(name.split(":", 1)[1]))
     if name.startswith("optimizer:"):
         # optimizer:<empirical_weight>
         weight = float(name.split(":", 1)[1])
@@ -747,13 +837,22 @@ def evaluate(cells: List[Cell], context: Context, names: Sequence[str], verbose:
         for name in names:
             build = strategies[name](cell, context)
             if not build:
-                results[name].append({"answered": False, "weight": cell.plays})
+                results[name].append(
+                    {"answered": False, "weight": cell.plays, "role": cell.role}
+                )
                 continue
             measured = cell.lift(build, context.overlap)
             results[name].append(
                 {
                     "answered": True,
                     "weight": cell.plays,
+                    # Carried so the summary can be cut by lane. The lanes are
+                    # not one population: a solo build is scored on effective
+                    # health times damage and a mid build on rotation burst, and
+                    # an average over the five hides a lane that has stopped
+                    # working.
+                    "role": cell.role,
+                    "god_id": cell.god_id,
                     "lift": measured[0] if measured else None,
                     "support": measured[1] if measured else 0,
                     "overlap": overlap_with_meta(build, cell),
@@ -805,6 +904,170 @@ def summarise(name: str, rows: List[Dict]) -> Dict:
             float(np.mean([row["overlap"] for row in answered])) if answered else 0.0
         ),
     }
+
+
+def lane_breakdown(
+    results: Dict[str, List[Dict]], names: Sequence[str], baseline: str
+) -> Dict[str, List[Dict]]:
+    """`summarise`, cut by lane, paired against the baseline within each lane.
+
+    The headline number is an average over five lanes that are scored on
+    different axes and built from different item pools, so a lane can go wrong
+    without moving it. Support is the one this found: at the corpus-wide
+    half-life it was the only lane scoring *below* the most-played build, at
+    both cutoffs, and nothing in the overall figure showed it.
+
+    Paired per lane rather than only overall, because the count of cells where
+    the two strategies actually disagreed is what says whether a lane's figure
+    is worth quoting at all — `ranker_lift.MIN_DECIDED` reads exactly that.
+    """
+    lanes = sorted(
+        {
+            str(row.get("role") or "Unknown")
+            for rows in results.values()
+            for row in rows
+        }
+    )
+    out: Dict[str, List[Dict]] = {name: [] for name in names}
+    for lane in lanes:
+
+        def in_lane(rows: List[Dict], _lane=lane) -> List[Dict]:
+            return [
+                row
+                for row in rows
+                if str(row.get("role") or "Unknown") == _lane
+            ]
+
+        sliced = {name: in_lane(results[name]) for name in names}
+        summary = []
+        for name in names:
+            row = summarise(name, sliced[name])
+            row["role"] = lane
+            row["cells"] = len(sliced[name])
+            summary.append(row)
+        add_paired_comparison(summary, sliced, baseline)
+        for row in summary:
+            out[row["strategy"]].append(row)
+    return out
+
+
+def load_catalogue(game: Game, args):
+    """The gods and items for a game, from a cache if there is one.
+
+    Falls back to building the game's own provider, which fetches. That is what
+    lets this run in the nightly job at all: the aggregate's `/data` is an
+    emptyDir, because the real one is a ReadWriteOnce claim the bot already
+    holds — so there is no cached catalogue in the pod to read, and an
+    unconditional file read failed with a FileNotFoundError that said nothing
+    about why.
+
+    Prefer the cache when a path is given. A holdout is measured against a
+    catalogue, and re-fetching it mid-experiment is one more thing that can
+    differ between two runs you meant to compare.
+    """
+    if game is Game.SMITE_2:
+        if args.wiki_cache and os.path.isfile(args.wiki_cache):
+            return asyncio.run(build_accuracy.smite2_catalogue(args.wiki_cache))
+    else:
+        data_dir = os.environ.get("SMITELE_DATA_DIR", ".")
+        gods_json = args.gods_json or os.path.join(data_dir, "gods.json")
+        items_json = args.items_json or os.path.join(data_dir, "items.json")
+        if os.path.isfile(gods_json) and os.path.isfile(items_json):
+            return build_accuracy.smite1_catalogue(gods_json, items_json)
+
+    print(
+        f"No cached {game.display_name} catalogue; fetching one.", flush=True
+    )
+    provider = asyncio.run(build_aggregate.GameConfig(game).provider())
+    if not provider.gods or not provider.items:
+        raise SystemExit(
+            f"Could not load a {game.display_name} catalogue. For Smite 1 that "
+            "is usually a missing Hi-Rez credential; for Smite 2, the wiki."
+        )
+    return provider.gods, provider.items
+
+
+LIFT_FILE: str = "ranker_lift.json"
+
+
+def emit_lift(
+    path,
+    game: Game,
+    cutoff,
+    summary: List[Dict],
+    by_lane: Optional[Dict[str, List[Dict]]],
+    strategy: str,
+    baseline: str,
+    cells: int,
+) -> Optional[str]:
+    """Write the one number `/build` is allowed to quote about itself.
+
+    The embed can compute a build's edge over its lane for free, because that is
+    the ranker's own arithmetic over tables the bot already holds. It cannot
+    compute *held-out* lift at all: that needs a second aggregate built over a
+    train window and then scored against days deliberately excluded from it, and
+    the bot holds the aggregate rather than the days behind it. So it is
+    produced here, nightly, and read back as a fact rather than recomputed.
+
+    Deliberately tiny and deliberately self-describing. The bot refuses to quote
+    a figure whose strategy is not the one it ships, or whose file is older than
+    it is willing to vouch for, and both of those checks need the metadata more
+    than they need the numbers.
+    """
+    row = next((r for r in summary if r["strategy"] == strategy), None)
+    if row is None or row["lift"] != row["lift"]:  # NaN: nothing was measured
+        print(
+            f"No measured lift for {strategy}; not writing {LIFT_FILE}.",
+            file=sys.stderr,
+        )
+        return None
+
+    def shape(entry: Dict) -> Dict:
+        return {
+            "lift": float(entry["lift"]),
+            "beats_baseline": (
+                float(entry["beats_baseline"])
+                # NaN when nothing was decided, absent when the caller never
+                # asked for the pairing. Both mean "no answer" rather than zero.
+                if entry.get("beats_baseline") == entry.get("beats_baseline")
+                and entry.get("beats_baseline") is not None
+                else None
+            ),
+            "decided": int(entry.get("decided", 0)),
+            "support": float(entry.get("support", 0.0)),
+        }
+
+    payload = {
+        "game": game.value,
+        "strategy": strategy,
+        "baseline": baseline,
+        "cutoff": str(cutoff),
+        "cells": cells,
+        "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(
+            timespec="seconds"
+        ),
+        "overall": shape(row),
+        "by_lane": {
+            entry["role"]: shape(entry)
+            for entry in (by_lane or {}).get(strategy, [])
+            if entry["lift"] == entry["lift"]
+        },
+    }
+
+    if path is True:
+        path = os.path.join(paths.game_model_dir(game), LIFT_FILE)
+    # Written whole and moved into place. The bot reads this file on a timer and
+    # a half-written one is a crash in a command rather than a bad number.
+    temporary = f"{path}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    os.replace(temporary, path)
+    print(
+        f"Wrote {path}: {strategy} {payload['overall']['lift']:+.2%} over "
+        f"{baseline} across {cells} cells.",
+        flush=True,
+    )
+    return path
 
 
 BASELINE: str = "most_played"
@@ -859,6 +1122,15 @@ def main() -> int:
     parser.add_argument("--min-plays", type=int, default=3)
     parser.add_argument("--half-life-days", type=int, default=180)
     parser.add_argument(
+        "--role-half-life",
+        type=build_aggregate.parse_role_half_lives,
+        default=None,
+        help=(
+            "per-lane half-life overrides, e.g. 'Support=45'; defaults to the "
+            "shipped HALF_LIFE_BY_ROLE, and 'none' turns them off"
+        ),
+    )
+    parser.add_argument(
         "--min-eval-plays",
         type=int,
         default=200,
@@ -892,6 +1164,26 @@ def main() -> int:
     parser.add_argument("--gods-json", default=None)
     parser.add_argument("--items-json", default=None)
     parser.add_argument("--out", default=None, help="write the results as JSON here")
+    parser.add_argument(
+        "--emit-lift",
+        nargs="?",
+        const=True,
+        default=None,
+        help=(
+            "write the small file /build reads to quote its own validated lift; "
+            "defaults to ranker_lift.json in the game's model directory"
+        ),
+    )
+    parser.add_argument(
+        "--lift-strategy",
+        default="shrunk_ranker",
+        help="which strategy's lift to emit; must be the one the bot ships",
+    )
+    parser.add_argument(
+        "--by-lane",
+        action="store_true",
+        help="also break every strategy down by lane, which the headline hides",
+    )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -920,16 +1212,13 @@ def main() -> int:
         flush=True,
     )
 
-    if game is Game.SMITE_2:
-        gods, items = asyncio.run(build_accuracy.smite2_catalogue(args.wiki_cache))
-        queues = build_accuracy.SMITE2_CONQUEST
-    else:
-        data_dir = os.environ.get("SMITELE_DATA_DIR", ".")
-        gods, items = build_accuracy.smite1_catalogue(
-            args.gods_json or os.path.join(data_dir, "gods.json"),
-            args.items_json or os.path.join(data_dir, "items.json"),
-        )
-        queues = build_accuracy.smite1_conquest_queues()
+    gods, items = load_catalogue(game, args)
+    queues = (
+        build_accuracy.SMITE2_CONQUEST
+        if game is Game.SMITE_2
+        else build_accuracy.smite1_conquest_queues()
+    )
+    print(f"{len(gods)} gods, {len(items):,} items.", flush=True)
 
     print("Aggregating the train window…", flush=True)
     stats = train_aggregate(
@@ -940,6 +1229,7 @@ def main() -> int:
         args.half_life_days,
         args.batch,
         verbose,
+        role_half_life=args.role_half_life,
     )
     if stats is None:
         print("No builds survived the train window.", file=sys.stderr)
@@ -1016,6 +1306,22 @@ def main() -> int:
         f"and 'n' how many cells actually decided it."
     )
 
+    by_lane = None
+    if args.by_lane:
+        by_lane = lane_breakdown(results, names, args.baseline)
+        print(
+            f"\n{'strategy':<20}{'lane':<10}{'lift':>9}{'cells':>7}"
+            f"{'decided':>9}{'support':>9}"
+        )
+        print("-" * 64)
+        for name in names:
+            for row in by_lane[name]:
+                print(
+                    f"{name:<20}{row['role']:<10}{row['lift']:>+8.2%}"
+                    f"{row['cells']:>7}{row.get('decided', 0):>9}"
+                    f"{row['support']:>9.0f}"
+                )
+
     payload = {
         "game": game.value,
         "cutoff": str(cutoff),
@@ -1027,6 +1333,8 @@ def main() -> int:
         "min_support": args.min_support,
         "strategies": summary,
     }
+    if by_lane is not None:
+        payload["by_lane"] = by_lane
 
     if "current_ml" in names and recommender is not None:
         print("\nModel calibration on the held-out days…", flush=True)
@@ -1048,6 +1356,18 @@ def main() -> int:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
         print(f"\nWrote {args.out}", flush=True)
+
+    if args.emit_lift is not None:
+        emit_lift(
+            args.emit_lift,
+            game,
+            cutoff,
+            summary,
+            by_lane,
+            args.lift_strategy,
+            args.baseline,
+            len(cells),
+        )
     return 0
 
 
