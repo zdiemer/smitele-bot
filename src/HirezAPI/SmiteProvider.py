@@ -397,6 +397,7 @@ class SmiteProvider(Smite):
                     "Serving builds from the aggregate; skipping corpus load.",
                     flush=True,
                 )
+            asyncio.get_running_loop().create_task(self.__reload_aggregate_loop())
             return
         await asyncio.to_thread(self.__refresh_dataframe)
         asyncio.get_running_loop().create_task(self.__refresh_dataframe_loop())
@@ -536,6 +537,35 @@ class SmiteProvider(Smite):
                     req_count += 1
 
         await asyncio.to_thread(lambda: self.__update_player_matches(new_match_details))
+
+    # How often to re-read what the nightly jobs write. They run once a day, so
+    # this is about not needing a deploy to see them rather than about being
+    # current to the minute.
+    AGGREGATE_RELOAD_SECONDS: int = 6 * 60 * 60
+
+    async def __reload_aggregate_loop(self):
+        """Pick up a newly written aggregate, and the holdout beside it.
+
+        Serving from the aggregate returns early from `load_dataframe`, which
+        meant `load_build_stats` ran exactly once — at startup — and the comment
+        on it claiming a new aggregate is "picked up without restarting the bot"
+        was true of the method and false of the process. It went unnoticed
+        because `upgrade.sh` runs often enough to hide it.
+
+        It stops hiding as soon as something else writes on its own schedule:
+        `buildeval` produces ranker_lift.json nightly, and a figure nothing
+        reads until the next deploy is not a nightly measurement. Smite 2 has
+        had this loop since it was written; this is the same thing.
+        """
+        while True:
+            await asyncio.sleep(self.AGGREGATE_RELOAD_SECONDS)
+            try:
+                self.load_build_stats()
+            except Exception as error:  # noqa: BLE001
+                # Keeping the aggregate already in memory is strictly better
+                # than dropping it: a half-written Parquet on a share is a
+                # transient, and /build has something to answer with meanwhile.
+                print(f"Could not reload the aggregate: {error}", flush=True)
 
     async def __refresh_dataframe_loop(self):
         while True:
