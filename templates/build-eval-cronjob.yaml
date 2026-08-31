@@ -1,0 +1,128 @@
+{{- range $game, $eval := .Values.buildEval }}
+{{- if $eval.enabled }}
+{{- if not $.Values.matchData.enabled }}
+{{- fail (printf "buildEval.%s.enabled requires matchData.enabled — there is no corpus to hold out" $game) }}
+{{- end }}
+{{/*
+Measures the build recommender against days it was not allowed to see, and
+leaves the answer where the bot can read it.
+
+/build can already say how much better a build looks than its lane: that is the
+ranker's own arithmetic over tables the pod holds. It cannot say whether the
+*ranking* works, because that needs a second aggregate built over a train window
+and then scored against days deliberately excluded from it — minutes and
+gigabytes, against a slash command's one second on a shared pod. So it runs here
+instead, nightly, and writes ranker_lift.json next to the aggregate.
+
+One job per game rather than one job with a loop. They read different corpora,
+want different windows and different memory, and a Smite 1 run that OOMs should
+not take the Smite 2 number down with it.
+
+Scheduled after each game's aggregate rather than before: nothing here reads the
+aggregate the job writes — it builds its own from the raw corpus — but the two
+walk the same share, and having them contend for it nightly is how a job that
+usually takes forty minutes starts taking three hours.
+
+Manual run:
+  kubectl -n {{ $.Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" $ }}-{{ $eval.name }} smitele-{{ $eval.name }}-manual
+*/}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "smitele-bot.fullname" $ }}-{{ $eval.name }}
+  labels:
+    {{- include "smitele-bot.labels" $ | nindent 4 }}
+spec:
+  schedule: {{ $eval.schedule | quote }}
+  {{- with $eval.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ $eval.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "smitele-bot.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ $eval.name }}
+        spec:
+          restartPolicy: Never
+          {{- include "smitele-bot.imagePullSecrets" $ | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: {{ $eval.name }}
+              image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              # The cutoff is "today minus the holdout", computed in the pod
+              # rather than baked into the chart: a fixed date would quietly
+              # stop moving and keep reporting the same fortnight forever.
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  CUTOFF="$(python -c 'import datetime,sys; print(datetime.date.today() - datetime.timedelta(days=int(sys.argv[1])))' {{ $eval.evalDays }})"
+                  echo "Holding out ${CUTOFF} onward."
+                  exec python ./src/tools/build_eval.py \
+                    --game {{ $game }} \
+                    --cutoff "${CUTOFF}" \
+                    --train-days {{ $eval.trainDays }} \
+                    --eval-days {{ $eval.evalDays }} \
+                    --min-eval-plays {{ $eval.minEvalPlays }} \
+                    --strategies {{ $eval.strategies }} \
+                    --by-lane \
+                    --quiet \
+                    --emit-lift
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                {{- include "smitele-bot.credentialEnv" $ | nindent 16 }}
+                # Same reason the aggregate sets it: reading a raw JSON day
+                # whole needs many times its size in memory.
+                - name: SMITELE_CORPUS_PARQUET_ONLY
+                  value: "1"
+                - name: HOME
+                  value: /tmp
+                - name: SMITELE_S2_MATCH_DATA_DIR
+                  value: /matchdata/smite2/output
+                - name: SMITELE_S2_MATCH_ARCHIVE_DIR
+                  value: /matchdata/smite2/archive
+              volumeMounts:
+                - name: matchdata
+                  mountPath: /matchdata
+                # Smite 1 reads the cached Hi-Rez catalogue and writes a session
+                # token doing it; Smite 2 reads the cached wiki. Both live here,
+                # and the root filesystem is read-only.
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml $eval.resources | nindent 16 }}
+          volumes:
+            - name: matchdata
+              persistentVolumeClaim:
+                claimName: {{ include "smitele-bot.fullname" $ }}-matchdata
+            # An emptyDir, not the data claim: that claim is ReadWriteOnce and
+            # the bot's deployment holds it. So there is no cached catalogue in
+            # this pod and `build_eval` fetches one — the same trade the two
+            # aggregate jobs already make.
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ $eval.tmpSizeLimit }}
+---
+{{- end }}
+{{- end }}

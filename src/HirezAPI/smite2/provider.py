@@ -57,6 +57,9 @@ class Smite2Provider:
         self.gods: Dict[int, God] = {}
         self.items: Dict[int, Item] = {}
         self.build_stats = None
+        # The nightly holdout, or None until one has been written. Only ever
+        # read to decorate a build description, never to choose one.
+        self.ranker_lift = None
         # No live match frame: there is no time-enumerable source to refresh
         # from, so /build reads the aggregate or nothing.
         self.player_matches = None
@@ -211,10 +214,16 @@ class Smite2Provider:
 
     def load_build_stats(self) -> bool:
         from build_ranker import BuildStats  # noqa: PLC0415  (SmiteBot-side)
+        from ranker_lift import RankerLift  # noqa: PLC0415
 
-        stats = BuildStats.load(paths.game_model_dir(self.game))
+        directory = paths.game_model_dir(self.game)
+        stats = BuildStats.load(directory)
         if stats is not None:
             self.build_stats = stats
+        # Read on the same schedule and for the same reason: it is a few hundred
+        # bytes written by a different job, and picking it up without a restart
+        # is the difference between a nightly measurement and a deploy-time one.
+        self.ranker_lift = RankerLift.load(directory)
         return self.build_stats is not None
 
     def god_by_name(self, name: str) -> Optional[God]:

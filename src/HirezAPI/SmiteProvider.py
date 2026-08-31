@@ -368,6 +368,7 @@ class SmiteProvider(Smite):
         aggregate is picked up without restarting the bot.
         """
         import build_ranker
+        from ranker_lift import RankerLift
 
         loaded = build_ranker.BuildStats.load(paths.MODEL_DIR)
         if loaded is not None:
@@ -377,6 +378,10 @@ class SmiteProvider(Smite):
                     f"Loaded build aggregate: {len(loaded.builds):,} build groups",
                     flush=True,
                 )
+        # Written by a different job on a different schedule, so it is re-read
+        # here rather than at startup — a nightly measurement that needed a
+        # deploy to appear would usually be a fortnight old.
+        self.ranker_lift = RankerLift.load(paths.MODEL_DIR)
         return loaded is not None
 
     async def load_dataframe(self):

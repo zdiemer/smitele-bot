@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.9.12"
+  tag: "1.10.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -278,6 +278,74 @@ aggregate:
       memory: 12Gi
     limits:
       memory: 12Gi
+
+# Holds out the last fortnight, rebuilds the ranking from the days before it,
+# and measures what the builds it recommends actually did. The answer is written
+# next to the aggregate as ranker_lift.json and quoted by /build.
+#
+# Keyed by game, because the two are not the same job. Smite 1's corpus is
+# sixteen times deeper per day, wants more memory and more time, and is the
+# default game — so its number is the one most players will read. Smite 2's is
+# the one that has actually caught something: a per-lane breakdown found support
+# scoring *below* the most-played build at the corpus-wide half-life, which the
+# overall figure hid completely. Neither has ever been measured for Smite 1.
+#
+# Both default to off, like every other job that needs the corpus.
+buildEval:
+  smite:
+    enabled: false
+    name: buildeval
+    # 12:40 UTC. After the 10:10 aggregate has finished with the share, and well
+    # clear of the 09:20 collector.
+    schedule: "40 12 * * *"
+    timeZone: "Etc/UTC"
+    # Half a year of training. Long enough that a thin cell still has evidence,
+    # short enough that the run is minutes rather than the aggregate's hours —
+    # this reads ~180 days where the aggregate reads ~3,900.
+    trainDays: 180
+    evalDays: 14
+    # Held-out rows a cell needs before its result counts. Smite 1 has an order
+    # of magnitude more rows per day than Smite 2, so it can afford to ask for
+    # more before believing a cell.
+    minEvalPlays: 400
+    strategies: most_played,shrunk_ranker
+    # The train window is held in memory rather than streamed, because it is a
+    # window and not the corpus. Sized from the aggregate's own experience: the
+    # full corpus reaches 18.2M build groups at 12Gi, and this touches roughly a
+    # twentieth of the days. Generous rather than tuned — the first real run
+    # should replace this comment with a measurement.
+    activeDeadlineSeconds: 10800
+    tmpSizeLimit: 2Gi
+    resources:
+      requests:
+        cpu: "1"
+        memory: 8Gi
+      limits:
+        memory: 8Gi
+
+  smite2:
+    enabled: false
+    name: s2buildeval
+    # 07:20 UTC, after the 06:50 aggregate.
+    schedule: "20 7 * * *"
+    timeZone: "Etc/UTC"
+    trainDays: 180
+    evalDays: 14
+    # Lower than Smite 1's for the same reason the aggregate's min-plays is:
+    # the corpus is far smaller, and 400 would leave almost no cells standing.
+    minEvalPlays: 200
+    strategies: most_played,shrunk_ranker
+    # Measured locally over the same window: ~30s to aggregate 180 days and
+    # ~60s to score 151 cells, at well under a gigabyte. The margins here are
+    # for the share being slower than a local disk, not for the arithmetic.
+    activeDeadlineSeconds: 3600
+    tmpSizeLimit: 1Gi
+    resources:
+      requests:
+        cpu: "1"
+        memory: 3Gi
+      limits:
+        memory: 3Gi
 
 # One-shot bulk conversion of archived JSON days to Parquet. Enable, watch it
 # finish, then disable again. Re-running is safe: already-converted days are

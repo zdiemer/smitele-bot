@@ -40,6 +40,7 @@ than called live — which is exactly why it can be public. Re-capture with
 | collector | CronJob (daily) | Walks a day of Hi-Rez match IDs across 12 queues, fetches details in batches of 10, and writes `match_details_<date>.json` to the NAS. Files older than 30 days move to `archive/`. |
 | s2collector | CronJob (nightly, **off by default**) | Crawls tracker.gg for Smite 2 matches. Snowballs from the leaderboards rather than enumerating a day, because that source has no time enumeration. Writes into `smite2/output/`. |
 | s2aggregate | CronJob (nightly, **off by default**) | The same aggregate as Smite 1's, over the Smite 2 corpus. |
+| buildeval / s2buildeval | CronJob (nightly, **off by default**) | Holds out the last fortnight, rebuilds the ranking from the days before it, and measures what its recommendations actually did. Writes `ranker_lift.json` next to each aggregate; `/build` quotes it. One job per game — different corpora, different windows, different memory. |
 | web | Deployment (2 replicas, **off by default**) | [smite.diemer.codes](https://smite.diemer.codes) — public data and API liveness for both games, plus cached Smite 1 stats for the roster. Serves JSON off the share; calls nothing. |
 | snapshot | CronJob (15 min + 6 hourly, **off by default**) | Writes what the site serves. The only thing that talks to Hi-Rez on the site's behalf. |
 
@@ -93,6 +94,28 @@ python src/tools/build_accuracy.py --game smite  --aggregate /matchdata
 
 It currently shares a mean of **2.12 of 6 items** with the six most-won items
 per god in Conquest, over the 56 gods with enough recorded wins to compare.
+
+Agreement with what people play is a proxy, though. The question it stands in
+for — did the recommended build actually win more — needs days held back, and
+`src/tools/build_eval.py` is what asks it:
+
+```sh
+python src/tools/build_eval.py --game smite2 --cutoff 2026-08-16 --by-lane
+```
+
+Read `--by-lane` rather than the headline. The five lanes are scored on
+different axes and built from different item pools, so one can go wrong without
+moving the average — which is exactly what happened to Smite 2's support lane,
+sitting *below* the most-played build at the corpus-wide recency half-life while
+the overall figure read a healthy +1.6%. `HALF_LIFE_BY_ROLE` in
+`build_aggregate.py` is the fix and the comment there carries the numbers.
+
+The nightly `buildeval` jobs run this and leave `ranker_lift.json` beside each
+aggregate, which is where `/build`'s "builds picked this way have run +X% above
+the most-played build" comes from. The bot cannot compute that itself: a holdout
+means building a second aggregate over a train window and scoring it against
+days excluded from it, which is minutes and gigabytes against a slash command's
+one second.
 
 ### Reading passives
 
