@@ -152,6 +152,7 @@ class GameConfig:
             + self.shape.item_columns
             + self.shape.relic_columns
             + ([self.shape.starter_column] if self.shape.starter_column else [])
+            + ([self.shape.aspect_column] if self.shape.aspect_column else [])
         )
 
     async def provider(self):
@@ -279,12 +280,105 @@ def recency_weight(day, newest, half_life_days: int) -> float:
     return 0.5 ** (max((newest - day).days, 0) / half_life_days)
 
 
-def reduce_file(frame: pd.DataFrame, weight: float = 1.0, starter_column: str = None):
+# Lanes whose meta moves faster than the corpus-wide half-life assumes.
+#
+# One half-life for the whole corpus was an assumption, not a measurement, and
+# holding out days says it is wrong for exactly one lane. Support, at the 180-day
+# default, is the only lane where the ranking scores *worse* than simply playing
+# the most common build — −1.08% and −1.46% held-out win rate at two independent
+# cutoffs. At a 45-day half-life it is positive at both (+2.74%, +0.62%).
+#
+# Nothing else moves here, deliberately. Mid gets monotonically worse as the
+# half-life shortens (+2.08% → +0.43% at one cutoff, +2.81% → +1.18% at the
+# other) and wants the deep sample it has; carry, jungle and solo show no
+# consistent trend across the two cutoffs, and fitting a constant per lane on
+# thirty cells apiece is how a sweep turns into an overfit. Solo in particular
+# is left alone on purpose: the role vector says its builds are dominated far
+# more often than any other lane's, and the held-out days do not corroborate
+# that at all, so the axis is what is ambiguous rather than the picks.
+#
+# `src/tools/build_eval.py --by-lane --half-life-days N` is what produced these
+# numbers and is how to re-check them after a few more months of corpus.
+HALF_LIFE_BY_ROLE: Dict[str, int] = {"Support": 45}
+
+
+def parse_role_half_lives(text: str) -> Dict[str, int]:
+    """`"Support=45,Mid=180"` as a mapping, for a sweep or a one-off run.
+
+    `"none"` means no overrides at all, which is how to reproduce the single
+    corpus-wide half-life this used to have.
+    """
+    if not text or text.strip().lower() in ("none", "off"):
+        return {}
+    out: Dict[str, int] = {}
+    for part in text.split(","):
+        if not part.strip():
+            continue
+        role, _, value = part.partition("=")
+        role = role.strip().title()
+        if role not in ROLE_CATEGORIES:
+            raise argparse.ArgumentTypeError(f"{role!r} is not a lane")
+        try:
+            out[role] = int(value)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                f"{value!r} is not a number of days"
+            ) from error
+    return out
+
+
+def role_weights(day, newest, half_life_days: int, by_role: Dict[str, int] = None):
+    """Per-lane recency weights for one day, or a plain float if they all agree.
+
+    Returning a scalar when nothing is overridden keeps the common path exactly
+    as it was — one multiplication over a column, no map, no allocation.
+    """
+    default = recency_weight(day, newest, half_life_days)
+    by_role = by_role if by_role is not None else HALF_LIFE_BY_ROLE
+    if not by_role:
+        return default
+    weights = {
+        role: recency_weight(day, newest, half_life)
+        for role, half_life in by_role.items()
+    }
+    # Carried in the mapping rather than passed alongside it, so `_weighted` and
+    # `decay_totals` each need one argument instead of two.
+    weights["__default__"] = default
+    return weights
+
+
+def _describe(weight) -> str:
+    """A weight, or a per-lane set of them, in one short line for the log."""
+    if not isinstance(weight, dict):
+        return f"{weight:.4f}"
+    default = weight.get("__default__", 1.0)
+    lanes = ", ".join(
+        f"{role} {value:.4f}"
+        for role, value in sorted(weight.items())
+        if role != "__default__"
+    )
+    return f"{default:.4f}" + (f" ({lanes})" if lanes else "")
+
+
+def _weighted(counts: pd.DataFrame, weight):
+    """`weight` as something multiplying a column, per lane where it varies."""
+    if not isinstance(weight, dict):
+        return weight
+    default = weight.get("__default__", 1.0)
+    return counts["Role"].astype(str).map(weight).fillna(default)
+
+
+def reduce_file(frame: pd.DataFrame, weight=1.0, starter_column: str = None):
     """Per-build, per-relic and per-starter counts for one day.
 
     Weighted counts are carried alongside the raw ones: the ranking uses the
     weighted figures as an effective sample size, while the raw counts are what
     gets shown to a player ("played N times").
+
+    `weight` is a float, or a lane-to-weight mapping when some lane's meta moves
+    faster than the rest — see `HALF_LIFE_BY_ROLE`. Every table here is grouped
+    on a key that includes Role, so a per-lane weight is a column lookup rather
+    than a second pass.
     """
     builds = frame.loc[frame["IsFullBuild"]]
     build_counts = (
@@ -292,8 +386,9 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0, starter_column: str = 
         .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
         .reset_index()
     )
-    build_counts["wplays"] = build_counts["plays"] * weight
-    build_counts["wwins"] = build_counts["wins"] * weight
+    build_weight = _weighted(build_counts, weight)
+    build_counts["wplays"] = build_counts["plays"] * build_weight
+    build_counts["wwins"] = build_counts["wins"] * build_weight
     build_counts = build_counts.merge(
         stat_sums(builds, GROUP_KEYS + ["BuildHash"]),
         on=GROUP_KEYS + ["BuildHash"],
@@ -314,16 +409,47 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0, starter_column: str = 
         .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
         .reset_index()
     )
-    relic_counts["wplays"] = relic_counts["plays"] * weight
-    relic_counts["wwins"] = relic_counts["wins"] * weight
+    relic_weight = _weighted(relic_counts, weight)
+    relic_counts["wplays"] = relic_counts["plays"] * relic_weight
+    relic_counts["wwins"] = relic_counts["wins"] * relic_weight
 
-    god_counts = (
-        frame.groupby(GROUP_KEYS, dropna=False, observed=True)
-        .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
-        .reset_index()
-    )
-    god_counts["wplays"] = god_counts["plays"] * weight
-    god_counts["wwins"] = god_counts["wins"] * weight
+    # `aspect_plays` rides along on the god totals rather than getting a table
+    # of its own, because a Smite 2 god has exactly one Aspect and the only
+    # question worth asking is what share of a lane took it.
+    #
+    # Not a grouping key, and that is a measurement rather than a shortcut.
+    # `tools/aspect_value.py` splits every cell people play both ways and
+    # recommends from each half: conditioning on the Aspect wins 6 of 17 decided
+    # cells and averages +2.07% held-out lift against the pooled cell's +2.40%.
+    # Halving the evidence costs more than knowing the Aspect adds.
+    #
+    # Reporting it is a different matter. Uptake is 14% across Conquest and
+    # reaches 98% in lanes the Aspect is what makes viable at all — Geb carry,
+    # Ganesha jungle — so a recommendation there is an Aspect build that has
+    # never said so.
+    if "Aspect" in frame.columns:
+        frame = frame.assign(
+            _aspect=pd.to_numeric(frame["Aspect"], errors="coerce").fillna(0) > 0
+        )
+        god_counts = (
+            frame.groupby(GROUP_KEYS, dropna=False, observed=True)
+            .agg(
+                plays=("Win_Status", "size"),
+                wins=("Win_Status", "sum"),
+                aspect_plays=("_aspect", "sum"),
+            )
+            .reset_index()
+        )
+        god_counts["aspect_plays"] = god_counts["aspect_plays"].astype("int32")
+    else:
+        god_counts = (
+            frame.groupby(GROUP_KEYS, dropna=False, observed=True)
+            .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
+            .reset_index()
+        )
+    god_weight = _weighted(god_counts, weight)
+    god_counts["wplays"] = god_counts["plays"] * god_weight
+    god_counts["wwins"] = god_counts["wins"] * god_weight
 
     # Unlike relics there is no fullness gate: a starter is bought in the
     # opening minute, so every row that records one is evidence about it.
@@ -344,13 +470,19 @@ def reduce_file(frame: pd.DataFrame, weight: float = 1.0, starter_column: str = 
                 .agg(plays=("Win_Status", "size"), wins=("Win_Status", "sum"))
                 .reset_index()
             )
-            starter_counts["wplays"] = starter_counts["plays"] * weight
-            starter_counts["wwins"] = starter_counts["wins"] * weight
+            starter_weight = _weighted(starter_counts, weight)
+            starter_counts["wplays"] = starter_counts["plays"] * starter_weight
+            starter_counts["wwins"] = starter_counts["wins"] * starter_weight
 
     return build_counts, items, relic_counts, god_counts, starter_counts
 
 
 COUNT_COLUMNS: List[str] = ["plays", "wins", "wplays", "wwins"]
+
+# Summed alongside the god totals where the game has Aspects, and absent where
+# it does not — `consolidate` is told about them per call rather than folding
+# them into COUNT_COLUMNS, so Smite 1's tables keep exactly the columns they had.
+ASPECT_COLUMNS: List[str] = ["aspect_plays"]
 
 # The running total dominates memory — a full corpus reaches tens of millions of
 # groups before the min-plays filter can be applied, and that filter needs the
@@ -363,6 +495,7 @@ NARROW_DTYPES: Dict[str, str] = {
     "wins": "int32",
     "wplays": "float32",
     "wwins": "float32",
+    "aspect_plays": "int32",
 }
 
 
@@ -440,7 +573,7 @@ def load_previous(directory: str):
     return previous
 
 
-def decay_totals(frame: pd.DataFrame, factor: float) -> pd.DataFrame:
+def decay_totals(frame: pd.DataFrame, factor) -> pd.DataFrame:
     """Age a stored total forward to a newer reference day.
 
     Weights are relative to the newest day in the corpus, so when a newer day
@@ -448,12 +581,17 @@ def decay_totals(frame: pd.DataFrame, factor: float) -> pd.DataFrame:
     the decay is exponential, that is one multiplication over the whole table
     rather than a revisit of the days it came from — which is what makes
     folding in new days possible instead of rebuilding.
+
+    `factor` is per lane wherever the half-life is, for the same reason: a lane
+    on a shorter half-life ages faster, and applying one factor to all of them
+    would quietly undo the per-lane weighting on every incremental run.
     """
     if factor == 1.0 or not frame.shape[0]:
         return frame
+    scale = _weighted(frame, factor)
     for column in ("wplays", "wwins"):
         if column in frame.columns:
-            frame[column] = (frame[column] * factor).astype("float32")
+            frame[column] = (frame[column] * scale).astype("float32")
     return frame
 
 
@@ -592,6 +730,15 @@ def main() -> int:
         default=180,
         help="how fast older matches stop counting; 0 weights every day equally",
     )
+    parser.add_argument(
+        "--role-half-life",
+        type=parse_role_half_lives,
+        default=None,
+        help=(
+            "per-lane overrides, e.g. 'Support=45,Mid=180'; defaults to "
+            "HALF_LIFE_BY_ROLE, and 'none' turns every override off"
+        ),
+    )
     args = parser.parse_args()
 
     import asyncio
@@ -689,10 +836,12 @@ def main() -> int:
 
     if previous is not None:
         pending = plan.pending
-        decay = recency_weight(previous["newest"], newest, args.half_life_days)
+        decay = role_weights(
+            previous["newest"], newest, args.half_life_days, args.role_half_life
+        )
         print(
             f"Incremental: {len(plan.carried):,} file(s) already counted, "
-            f"{len(pending):,} new; ageing stored totals by {decay:.4f}",
+            f"{len(pending):,} new; ageing stored totals by {_describe(decay)}",
             flush=True,
         )
         if not pending:
@@ -714,6 +863,9 @@ def main() -> int:
     item_parts: List[pd.DataFrame] = []
     starter_parts: List[pd.DataFrame] = []
     builds_total = relics_total = gods_total = starters_total = pd.DataFrame()
+    # Aspect counts only exist where the game has Aspects, and `consolidate`
+    # would raise on a column that is not there.
+    aspect_columns = ASPECT_COLUMNS if config.shape.aspect_column else []
     rows_seen = 0
     start = time.time()
 
@@ -741,7 +893,9 @@ def main() -> int:
         frame.loc[~np.isin(hashes, keep_builds), "IsFullBuild"] = False
         build_counts, items, relic_counts, god_counts, starter_counts = reduce_file(
             frame,
-            recency_weight(dates.get(path), newest, args.half_life_days),
+            role_weights(
+                dates.get(path), newest, args.half_life_days, args.role_half_life
+            ),
             starter_column=config.shape.starter_column,
         )
         build_parts.append(build_counts)
@@ -760,7 +914,7 @@ def main() -> int:
                 relic_parts + [relics_total], GROUP_KEYS + ["Relics"]
             )
             relic_parts = []
-            gods_total = consolidate(god_parts + [gods_total], GROUP_KEYS)
+            gods_total = consolidate(god_parts + [gods_total], GROUP_KEYS, aspect_columns)
             god_parts = []
             starters_total = consolidate(
                 starter_parts + [starters_total], GROUP_KEYS + ["StarterId"]
@@ -782,7 +936,7 @@ def main() -> int:
         build_parts + [builds_total], GROUP_KEYS + ["BuildHash"], SUM_COLUMNS
     )
     relics = consolidate(relic_parts + [relics_total], GROUP_KEYS + ["Relics"])
-    gods = consolidate(god_parts + [gods_total], GROUP_KEYS)
+    gods = consolidate(god_parts + [gods_total], GROUP_KEYS, aspect_columns)
     starters = consolidate(
         starter_parts + [starters_total], GROUP_KEYS + ["StarterId"]
     )
@@ -803,9 +957,17 @@ def main() -> int:
             [decay_totals(previous["relic_stats"], decay), relics],
             GROUP_KEYS + ["Relics"],
         )
-        gods = consolidate(
-            [decay_totals(previous["god_stats"], decay), gods], GROUP_KEYS
-        )
+        # A stored aggregate written before Aspects were counted has no such
+        # column, and dropping it here would mean the new one never survived an
+        # incremental run — the count would silently stay absent until the next
+        # scheduled rebuild. Backfilling it as zero keeps the column and makes
+        # the share it feeds understate rather than vanish, which then corrects
+        # itself as new days are folded in.
+        stored_gods = decay_totals(previous["god_stats"], decay)
+        for column in aspect_columns:
+            if column not in stored_gods.columns:
+                stored_gods[column] = 0
+        gods = consolidate([stored_gods, gods], GROUP_KEYS, aspect_columns)
         if previous.get("starter_stats") is not None:
             starters = consolidate(
                 [decay_totals(previous["starter_stats"], decay), starters],

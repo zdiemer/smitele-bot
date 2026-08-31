@@ -41,6 +41,9 @@ class BuildShape:
     # Smite 2 records the starter outside the core slots; Smite 1 has no such
     # column because a starter occupies a core slot there.
     starter_column: str = None
+    # Smite 2's Aspect, a selection-time choice that changes how a god plays and
+    # sometimes which lane it plays at all. Smite 1 has no analogue.
+    aspect_column: str = None
 
 
 SMITE1 = BuildShape(
@@ -61,6 +64,7 @@ SMITE2 = BuildShape(
     # every Offensive/Defensive/Hybrid item has tier 3 and nothing else does.
     counts_toward_build=lambda item: item.tier >= 3,
     starter_column="StarterId",
+    aspect_column="Aspect",
 )
 
 
