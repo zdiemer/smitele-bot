@@ -42,9 +42,23 @@ htmlcov/
 coverage.*
 *.tgz
 
+# The docs tree. `*.md` above already drops the prose, but not the images that
+# prose embeds — and those are PNGs, so the chart's gzip does nothing for them
+# and they land in the release secret at close to full size. The banner and the
+# three screenshots are ~940KB between them, which is most of the ceiling for
+# files no template will ever read.
+docs/
+
 # Local caches written by running the code from a checkout. `smite2/` is the
 # wiki disk cache and reaches several megabytes on its own, which is enough to
 # push the release past the ceiling by itself.
 smite2/
 session/
 matchData/
+# The Hi-Rez API dumps the bot caches at its data root, which is the checkout
+# when it runs from one. Untracked, regenerated on demand, and 1.4MB and 385KB
+# respectively — gods.json alone is larger than everything the chart actually
+# needs put together.
+gods.json
+items.json
+rh_capture.json
