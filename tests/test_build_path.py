@@ -108,18 +108,47 @@ class TestFork:
         assert not path.forks
         assert len(path.shared) == 2
 
-    def test_the_default_build_is_the_shared_opening_then_ahead(self):
+    def test_the_default_build_is_the_shared_opening_then_the_recommendation(self):
         common = make_item("Common", 1000, 5)
+        recommended = make_item("Recommended", 1000, 5)
         aggressive = make_item("Aggressive", 1000, 5)
         defensive = make_item("Defensive", 1000, 5)
         path = build_path.fork(
-            [common, aggressive],
+            [common, recommended],
             [common, aggressive],
             [common, defensive],
             score,
             price,
         )
-        assert [item.name for item in path.default] == ["Common", "Aggressive"]
+        assert [item.name for item in path.default] == ["Common", "Recommended"]
+
+    def test_the_recommended_build_survives_into_the_path(self):
+        """The bug this exists to stop.
+
+        The path used to carry only the two branches, and the embed drew it in
+        place of the item grid — so a god whose recommendation was neither the
+        most nor the least aggressive build in its top twelve got a picture with
+        none of its six listed items in it. Twenty-three of eighty-eight, on the
+        live Smite 2 aggregate.
+        """
+        common = make_item("Common", 1000, 5)
+        recommended = make_item("Recommended", 1000, 5)
+        path = build_path.fork(
+            [common, recommended],
+            [common, make_item("Aggressive", 1000, 5)],
+            [common, make_item("Defensive", 1000, 5)],
+            score,
+            price,
+        )
+        drawn = {step.item.name for step in path.shared + path.neutral}
+        assert {"Common", "Recommended"} <= drawn
+
+    def test_a_path_built_without_a_recommendation_still_has_a_default(self):
+        """An older three-argument BuildPath, from a caller not yet updated."""
+        path = build_path.BuildPath(
+            [], [build_path.Step(make_item("Ahead", 1000, 5), 1000)], []
+        )
+        assert [item.name for item in path.default] == ["Ahead"]
 
 
 class TestDescribe:
@@ -134,14 +163,30 @@ class TestDescribe:
     def test_says_where_it_forks(self):
         common = make_item("Common", 1000, 5)
         path = build_path.fork(
-            [common, make_item("Push", 1000, 5)],
+            [common, make_item("Standard", 1000, 5)],
             [common, make_item("Push", 1000, 5)],
             [common, make_item("Survive", 1000, 5)],
             score,
             price,
         )
         text = build_path.describe(path)
-        assert "Ahead" in text and "Behind" in text
+        assert "Recommended" in text and "Ahead" in text and "Behind" in text
+
+    def test_a_branch_identical_to_the_recommendation_is_not_named_twice(self):
+        """Labelling the same six items "Recommended" and "Ahead" implies a
+        decision that is not being offered."""
+        common = make_item("Common", 1000, 5)
+        push = make_item("Push", 1000, 5)
+        path = build_path.fork(
+            [common, push],
+            [common, push],
+            [common, make_item("Survive", 1000, 5)],
+            score,
+            price,
+        )
+        text = build_path.describe(path)
+        assert "Ahead" not in text
+        assert "Recommended" in text and "Behind" in text
 
     def test_a_fork_from_the_first_item_does_not_say_then(self):
         """There is no shared step for a "then" to follow."""

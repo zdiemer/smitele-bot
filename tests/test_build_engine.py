@@ -43,6 +43,9 @@ NOTHING = item(7)
 DAMAGE = [POWER, STRENGTH, PEN]
 TANK = [HEALTH, PROTS, MAGIC_PROTS]
 MIXED = [POWER, STRENGTH, PROTS]
+# Defensive, but still a variation on DAMAGE rather than a different build. A
+# branch has to be one of these to be drawn — see MAX_DIVERGENCE.
+KIN_TANK = [POWER, HEALTH, PROTS]
 
 
 class TestOffensiveShare:
@@ -140,22 +143,44 @@ class TestPickingBranches:
         impossible for exactly the gods people ask about most.
         """
         picked = build_engine.branches(
-            candidates(DAMAGE, MIXED, TANK), resolver(DAMAGE, MIXED, TANK)
+            candidates(DAMAGE, MIXED, KIN_TANK), resolver(DAMAGE, MIXED, KIN_TANK)
         )
         assert picked is not None
         assert picked["neutral"] == DAMAGE
         assert picked["ahead"] == DAMAGE
-        assert picked["behind"] == TANK
+        assert picked["behind"] == KIN_TANK
 
     def test_the_best_of_the_aggressive_builds_wins_a_tie(self):
         """Two equally offensive builds: the branch is the higher-ranked one,
         not whichever the scan reached last."""
-        first = [item(40, prop("PHYSICAL_POWER", 60))]
-        second = [item(41, prop("PHYSICAL_POWER", 60))]
+        first = [POWER, STRENGTH, PROTS]
+        second = [POWER, STRENGTH, MAGIC_PROTS]
         picked = build_engine.branches(
-            candidates(TANK, first, second), resolver(TANK, first, second)
+            candidates(KIN_TANK, first, second), resolver(KIN_TANK, first, second)
         )
         assert picked["ahead"] == first
+
+    def test_a_branch_must_be_a_variation_on_the_recommendation(self):
+        """The other half of the diagram fix.
+
+        Drawing the most offensive build in the top twelve as "what to buy when
+        you are ahead" only makes sense if it is the same plan adjusted. On the
+        real aggregate it was routinely not: Bacchus is a support, and his
+        "ahead" row came back a full damage warrior build, because that is what
+        happened to rank inside the top twelve.
+        """
+        stranger = [item(50, prop("HEALTH", 400)), item(51, prop("PHYSICAL_PROTECTION", 70)), item(52, prop("MAGICAL_PROTECTION", 70))]
+        picked = build_engine.branches(
+            candidates(DAMAGE, stranger), resolver(DAMAGE, stranger)
+        )
+        assert picked is None
+
+    def test_kinship_is_measured_against_the_recommendation_not_the_pool(self):
+        """Two builds may each be kin of neutral without being kin of each
+        other, and that is a fork worth drawing."""
+        assert build_engine.is_kin(DAMAGE, MIXED)
+        assert build_engine.is_kin(DAMAGE, KIN_TANK)
+        assert not build_engine.is_kin(DAMAGE, TANK)
 
     def test_a_build_referencing_a_removed_item_is_skipped(self):
         """Item rotations happen between the corpus and the catalogue; the tree
@@ -267,11 +292,134 @@ class TestMatchupFit:
         build_engine.matchup_fit(DAMAGE, self.lobby(wants_anti_heal=True), explode)
 
 
+class TestTheRestOfTheLobby:
+    """The two things `team_context` counted that nothing ever read."""
+
+    def lobby(self, **kwargs):
+        base = dict(
+            physical_share=0.5,
+            wants_anti_heal=False,
+            crowd_control_share=0.0,
+            allied_tanks=0,
+            known=True,
+        )
+        base.update(kwargs)
+        return types.SimpleNamespace(**base)
+
+    def test_tenacity_is_worth_something_against_a_lockdown_team(self):
+        tenacious = [item(60, prop("TENACITY", 20))]
+        plain = [item(61, prop("HEALTH", 400))]
+        against_cc = self.lobby(crowd_control_share=0.8)
+        assert build_engine.matchup_fit(tenacious, against_cc) > (
+            build_engine.matchup_fit(plain, against_cc)
+        )
+
+    def test_tenacity_is_worth_nothing_against_a_team_without_crowd_control(self):
+        """Half the roster carries a lockdown tag, so one stun must not read as
+        a team that chains them."""
+        tenacious = [item(62, prop("TENACITY", 20))]
+        assert build_engine.matchup_fit(
+            tenacious, self.lobby(crowd_control_share=0.2)
+        ) == 0.0
+
+    def test_an_allied_front_line_tilts_toward_damage(self):
+        """`allies:` was a documented option that moved nothing: zero builds of
+        eighty-eight changed for a four-tank ally team.
+
+        Asserted as the change to each build's own score rather than as one
+        build beating another, so the protection term — which TANK scores well
+        on and DAMAGE cannot score on at all — is held constant.
+        """
+        behind = self.lobby(allied_tanks=2)
+        alone = self.lobby(allied_tanks=0)
+        assert build_engine.matchup_fit(DAMAGE, behind) > (
+            build_engine.matchup_fit(DAMAGE, alone)
+        )
+        assert build_engine.matchup_fit(TANK, behind) < (
+            build_engine.matchup_fit(TANK, alone)
+        )
+
+    def test_the_ally_tilt_stops_at_two(self):
+        """A team of five tanks does not make your build a carry's."""
+        two = build_engine.matchup_fit(DAMAGE, self.lobby(allied_tanks=2))
+        five = build_engine.matchup_fit(DAMAGE, self.lobby(allied_tanks=5))
+        assert two == five
+
+    def test_no_allies_means_no_tilt(self):
+        assert build_engine.matchup_fit(DAMAGE, self.lobby()) == 0.0
+
+
+class TestPromotingAntiHeal:
+    """Anti-heal is a requirement against a healer, not a tie-break.
+
+    It reached the top of the ranking for six gods of eighty-eight when it was
+    weighted like one, because the best anti-heal build sits at a median
+    position of eighteen and a tie-break is worth two or three places.
+    """
+
+    def pool(self, *entries):
+        return [
+            {"items": [i.id for i in build], "rank": rank} for build, rank in entries
+        ]
+
+    def carries(self, items):
+        return any(i.id == PEN.id for i in items)
+
+    def test_a_close_enough_anti_heal_build_is_promoted(self):
+        pool = self.pool((TANK, 0.53), (MIXED, 0.52), (DAMAGE, 0.51))
+        promoted = build_engine.promote_anti_heal(
+            pool, resolver(TANK, MIXED, DAMAGE), self.carries, tolerance=0.05
+        )
+        assert promoted[0]["items"] == [i.id for i in DAMAGE]
+
+    def test_a_build_that_costs_too_much_is_left_where_it_is(self):
+        pool = self.pool((TANK, 0.60), (MIXED, 0.59), (DAMAGE, 0.30))
+        promoted = build_engine.promote_anti_heal(
+            pool, resolver(TANK, MIXED, DAMAGE), self.carries, tolerance=0.05
+        )
+        assert promoted[0]["items"] == [i.id for i in TANK]
+
+    def test_a_leader_that_already_carries_it_is_not_disturbed(self):
+        pool = self.pool((DAMAGE, 0.53), (TANK, 0.52))
+        promoted = build_engine.promote_anti_heal(
+            pool, resolver(DAMAGE, TANK), self.carries, tolerance=0.05
+        )
+        assert promoted == pool
+
+    def test_the_best_anti_heal_build_wins_not_the_first_one_seen(self):
+        """`for_lobby` has already reordered by fit, so the pool is no longer
+        sorted by rank and scanning until the score drops would stop early."""
+        other = [PEN, HEALTH, PROTS]
+        pool = self.pool((TANK, 0.55), (other, 0.51), (DAMAGE, 0.54))
+        promoted = build_engine.promote_anti_heal(
+            pool, resolver(TANK, other, DAMAGE), self.carries, tolerance=0.05
+        )
+        assert promoted[0]["items"] == [i.id for i in DAMAGE]
+
+    def test_nothing_in_the_pool_carries_it(self):
+        pool = self.pool((TANK, 0.53), (HEALTH_ONLY := [HEALTH], 0.52))
+        assert (
+            build_engine.promote_anti_heal(
+                pool, resolver(TANK, HEALTH_ONLY), self.carries
+            )
+            == pool
+        )
+
+
 class TestReorderingForALobby:
     def lobby(self, physical_share=0.5, known=True):
         return types.SimpleNamespace(
-            physical_share=physical_share, wants_anti_heal=False, known=known
+            physical_share=physical_share,
+            wants_anti_heal=False,
+            crowd_control_share=0.0,
+            allied_tanks=0,
+            known=known,
         )
+
+    def ranked(self, *entries):
+        return [
+            {"items": [i.id for i in build], "rank": rank} for build, rank in entries
+        ]
 
     def test_no_lobby_leaves_the_ranking_alone(self):
         pool = candidates(DAMAGE, TANK)
@@ -282,28 +430,53 @@ class TestReorderingForALobby:
         it, which is the whole point."""
         physical = [item(30, prop("PHYSICAL_PROTECTION", 70))]
         magical = [item(31, prop("MAGICAL_PROTECTION", 70))]
-        pool = candidates(magical, physical)
+        pool = self.ranked((magical, 0.521), (physical, 0.520))
         reordered = build_engine.for_lobby(
             pool, resolver(magical, physical), self.lobby(physical_share=1.0)
         )
         assert reordered[0]["items"] == [physical[0].id]
 
-    def test_it_cannot_promote_a_build_from_far_down_the_ranking(self):
-        """A perfect fit is worth two places, not twenty. The ranking is
-        measured against held-out win rates and this is not."""
+    def test_it_cannot_overrule_a_real_difference_in_score(self):
+        """The budget is in win rate, not in places.
+
+        Positions were the old currency and they could not work: on a pool of
+        four thousand candidates two places is nothing, and the scheme moved
+        zero builds of eighty-eight between an all-physical and an all-magical
+        enemy team. But it still has to lose to a build that is genuinely, and
+        not marginally, better.
+        """
         magical = [item(32, prop("MAGICAL_PROTECTION", 70))]
         physical = [item(33, prop("PHYSICAL_PROTECTION", 70))]
-        pool = candidates(*([magical] * 6), physical)
+        pool = self.ranked((magical, 0.60), (physical, 0.50))
         reordered = build_engine.for_lobby(
             pool, resolver(magical, physical), self.lobby(physical_share=1.0)
         )
         assert reordered[0]["items"] == [magical[0].id]
 
+    def test_it_can_reach_past_a_build_the_ranking_barely_prefers(self):
+        """The case the position scheme could not reach: many near-identical
+        candidates above the one that fits, separated by noise."""
+        magical = [item(34, prop("MAGICAL_PROTECTION", 70))]
+        physical = [item(35, prop("PHYSICAL_PROTECTION", 70))]
+        pool = self.ranked(
+            *[(magical, 0.5200 - n * 0.0001) for n in range(20)], (physical, 0.5150)
+        )
+        reordered = build_engine.for_lobby(
+            pool, resolver(magical, physical), self.lobby(physical_share=1.0)
+        )
+        assert reordered[0]["items"] == [physical[0].id]
+
     def test_ties_keep_their_original_order(self):
         """Two builds the lobby cannot separate must come back in ranking
-        order, or the same request would answer differently twice."""
-        pool = candidates(DAMAGE, MIXED, TANK)
+        order, or the same request would answer differently twice.
+
+        Same protections in both, so there is genuinely nothing to separate —
+        which is the only way to test the tie-break rather than the term.
+        """
+        first = [POWER, PROTS, MAGIC_PROTS]
+        second = [STRENGTH, PROTS, MAGIC_PROTS]
+        pool = self.ranked((first, 0.53), (second, 0.53))
         reordered = build_engine.for_lobby(
-            pool, resolver(DAMAGE, MIXED, TANK), self.lobby(physical_share=0.5)
+            pool, resolver(first, second), self.lobby(physical_share=0.5)
         )
         assert [c["items"] for c in reordered] == [c["items"] for c in pool]

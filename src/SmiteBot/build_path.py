@@ -48,28 +48,42 @@ class Step(NamedTuple):
 class BuildPath(NamedTuple):
     """A build as a plan rather than a list.
 
-    `shared` is what you buy regardless. `ahead` and `behind` are the two
-    continuations, and are empty when the branches agreed all the way down —
-    which happens, and is worth saying rather than inventing a disagreement.
+    `shared` is what you buy regardless. `neutral` is the rest of the build
+    actually being recommended, and `ahead` and `behind` are the two variations
+    on it — empty when they agreed with it all the way down, which happens and
+    is worth saying rather than inventing a disagreement.
+
+    `neutral` is not decoration. Without it the picture could be drawn entirely
+    out of the two branches, and on the real Smite 2 aggregate twenty-three gods
+    of eighty-eight got a diagram containing none of the six items the embed
+    listed beside it. Whatever else is drawn, the recommended build is drawn.
     """
 
     shared: List[Step]
     ahead: List[Step]
     behind: List[Step]
+    neutral: List[Step] = ()
 
     @property
     def forks(self) -> bool:
-        return bool(self.ahead or self.behind)
+        """Whether either branch actually departs from the recommendation."""
+        recommended = [step.item.id for step in self.neutral]
+        return any(
+            [step.item.id for step in branch] != recommended
+            for branch in (self.ahead, self.behind)
+            if branch
+        )
 
     @property
     def default(self) -> List[Item]:
-        """One build, in order — the shared opening then the ahead branch.
+        """One build, in order — the shared opening then the recommendation.
 
-        Ahead rather than behind because it is the build the optimizer picks
-        when nothing is going wrong, and because a plan has to render as *some*
-        six items in the embed's image strip.
+        Falls back to the ahead branch for a path built before `neutral`
+        existed, so an old caller keeps the build it used to get rather than
+        half of one.
         """
-        return [step.item for step in self.shared + self.ahead]
+        rest = self.neutral or self.ahead
+        return [step.item for step in list(self.shared) + list(rest)]
 
 
 def order(
@@ -125,7 +139,9 @@ def fork(
         ]
         return order_from(rest, bought, spent, score, price, opens) if rest else []
 
-    return BuildPath(shared, continuation(ahead), continuation(behind))
+    return BuildPath(
+        shared, continuation(ahead), continuation(behind), continuation(neutral)
+    )
 
 
 def order_from(
@@ -177,32 +193,48 @@ def describe(path: BuildPath, currency: str = "gold") -> str:
     same six items bought in a different sequence is a different build for the
     twenty minutes it takes to finish them.
     """
-    if not path.shared and not path.forks:
+    if not path.shared and not path.forks and not path.neutral:
         return ""
+
+    def spell(steps: Sequence[Step]) -> str:
+        return " → ".join(
+            f"**{step.item.name}** ({step.spent:,})" for step in steps
+        )
 
     lines: List[str] = []
     if path.shared:
-        opening = " → ".join(
-            f"**{step.item.name}** ({step.spent:,})" for step in path.shared
-        )
-        lines.append(f"**Build order**: {opening}")
+        lines.append(f"**Build order**: {spell(path.shared)}")
 
     if not path.forks:
-        return "\n".join(lines) + f"\n_Total {path.shared[-1].spent:,} {currency}._"
+        # One plan. The recommendation continues the opening rather than
+        # branching off it, so it reads as one sentence.
+        full = list(path.shared) + list(path.neutral)
+        return (
+            f"**Build order**: {spell(full)}"
+            f"\n_Total {full[-1].spent:,} {currency}._"
+            if full
+            else ""
+        )
 
     if lines:
         lines.append("")
         lines.append("_Then:_")
     else:
-        # Every balance wanted a different first item, so there is no opening to
+        # Every branch wanted a different first item, so there is no opening to
         # share. Saying "then" here would be describing a step that does not
         # exist.
         lines.append("_Forks immediately:_")
-    for label, steps in (("Ahead", path.ahead), ("Behind", path.behind)):
+    recommended = [step.item.id for step in path.neutral]
+    for label, steps in (
+        ("Recommended", path.neutral),
+        ("Ahead", path.ahead),
+        ("Behind", path.behind),
+    ):
         if not steps:
             continue
-        branch = " → ".join(
-            f"**{step.item.name}** ({step.spent:,})" for step in steps
-        )
-        lines.append(f"**{label}**: {branch}")
+        if label != "Recommended" and [s.item.id for s in steps] == recommended:
+            # This branch is the recommendation. Drawing it twice under two
+            # names implies a decision that is not being offered.
+            continue
+        lines.append(f"**{label}**: {spell(steps)}")
     return "\n".join(lines)

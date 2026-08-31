@@ -96,6 +96,48 @@ def game_option(command):
     )(command)
 
 
+# The `match_queue:` value that means "do not filter by mode at all".
+#
+# This used to be what an unset option did, and it was the wrong default by some
+# distance. Unspecified dimensions are summed rather than filtered, so no queue
+# and no role pooled Conquest, Arena, Joust, Assault and Duel — and every lane —
+# into one ranking, and the description named neither. Across the Smite 2 roster
+# seventy-five of eighty-eight default answers shared no six items with the
+# Conquest answer for the same god: an Aphrodite who asked for a build got the
+# Arena one, with nothing on screen to say so.
+#
+# It is still a legitimate question, so it is still askable. It is just no
+# longer the question the bot assumes you meant.
+ALL_MODES: str = "All Modes"
+
+
+def common_lane(provider, build_options) -> str:
+    """The lane this god is played in most, in the mode being asked about.
+
+    `/build` calls this when the caller named no role. Summing across lanes is
+    what "any role" used to mean and it averages a support build with a mid one
+    — recommending neither — so the lane is chosen rather than dissolved, and
+    the description names it.
+
+    Empty for a mode that has no lanes, for a god the corpus has never seen, and
+    whenever there is no aggregate to ask. In each case the request goes out
+    without a role, exactly as it used to.
+    """
+    queue_id = build_options.queue_id
+    if queue_id is None or "CONQUEST" not in getattr(queue_id, "name", ""):
+        return ""
+    stats = getattr(provider, "build_stats", None)
+    if stats is None:
+        return ""
+    try:
+        return stats.common_role(
+            id_value(build_options.god_id), queue_id.value
+        ).lower()
+    except Exception as error:  # noqa: BLE001 — a lane guess is not the build
+        print(f"could not read a common lane: {error}", flush=True)
+        return ""
+
+
 def queue_choices() -> List[str]:
     """The `match_queue:` choices, across every game.
 
@@ -125,7 +167,7 @@ def queue_choices() -> List[str]:
         if Smite2QueueId.is_normal(q) or Smite2QueueId.is_ranked(q)
     ]
     seen = set(smite1)
-    return smite1 + [name for name in smite2 if name not in seen]
+    return [ALL_MODES] + smite1 + [name for name in smite2 if name not in seen]
 
 
 async def god_autocomplete(ctx: discord.AutocompleteContext):
@@ -594,14 +636,14 @@ class Smitele(commands.Cog):
     @discord.option(
         name="match_queue",
         type=str,
-        description="The queue to get results for, defaults to any queue",
+        description="The mode to build for; defaults to Conquest",
         choices=queue_choices(),
         default="",
     )
     @discord.option(
         name="role",
         type=str,
-        description="The Conquest role to find a build for",
+        description="The Conquest role; defaults to where this god is played most",
         choices=[p.value.title() for p in list(PlayerRole)],
         default="",
     )
@@ -694,9 +736,22 @@ class Smitele(commands.Cog):
         # choices at registration and cannot narrow them once a game is picked.
         # Naming a mode the chosen game does not have is therefore a normal
         # mistake to make, and gets a normal answer.
+        #
+        # An unset mode means Conquest rather than "every mode at once". See
+        # ALL_MODES for what that default cost; the old behaviour is still
+        # reachable by asking for it.
+        named_a_mode = bool(match_queue) and match_queue != ALL_MODES
         try:
-            if match_queue is not None and match_queue != "":
+            if named_a_mode:
                 build_options.set_option("-q", match_queue)
+            elif match_queue != ALL_MODES:
+                # `high_mmr` only exists in ranked, so an unset mode there means
+                # Ranked Conquest rather than the normal one. Decided here, with
+                # the rest of the mode defaulting, instead of being patched on
+                # afterwards — the lane default below reads the queue.
+                build_options.set_option(
+                    "-q", "RANKED_CONQUEST" if high_mmr else "CONQUEST"
+                )
         except InvalidOptionError:
             await self.__send_invalid(
                 ctx,
@@ -707,6 +762,15 @@ class Smitele(commands.Cog):
 
         if role is not None and role != "":
             build_options.set_option("-r", role)
+        else:
+            # No lane either, so answer for the one this god is actually played
+            # in. Summing across lanes averages a support build with a mid one
+            # and recommends neither; the description names whichever was
+            # chosen, so the reader is never guessing which question was
+            # answered.
+            lane = common_lane(provider, build_options)
+            if lane:
+                build_options.set_option("-r", lane)
 
         for option, value, label in (("-e", enemies, "enemies"), ("-a", allies, "allies")):
             if not value:
@@ -731,7 +795,7 @@ class Smitele(commands.Cog):
 
         if high_mmr:
             if build_options.queue_id is None:
-                build_options.set_option("-q", QueueId.RANKED_CONQUEST.name)
+                build_options.set_option("-q", "RANKED_CONQUEST")
 
             build_options.set_option("-mmr", None)
 

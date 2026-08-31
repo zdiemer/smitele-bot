@@ -5,19 +5,23 @@ forks on whether you are ahead or behind. Saying that in prose took four lines o
 an embed and still left the reader assembling the picture themselves. It is a
 picture, so it is drawn as one.
 
-The layout is a shared row and two labelled branch rows, connected down the left
-gutter:
+The layout is one row per plan, connected down the left gutter:
 
-    SHARED   [item][item]
-              2,250 4,600
-    AHEAD    [item][item][item][item]
-              6,850 9,250 11,400 14,300
-    BEHIND   [item][item][item][item]
-    RELICS   [item][item]
+    RECOMMENDED  [item][item][item][item][item][item]
+                  2,250 4,600 6,850 9,250 11,400 14,300
+    AHEAD        [item][item][item][item][item][item]
+    BEHIND       [item][item][item][item][item][item]
+    RELICS       [item][item]
 
-Every row is still a complete build read across: shared plus one branch is six
-items. The gold under each tile is cumulative, so the last tile of a branch is
-what the whole build costs.
+Every row is a complete build read across, and the first one is always the build
+the embed lists in its Items field. That is not obvious housekeeping: the picture
+used to be drawn from the two branches alone, and on the live Smite 2 aggregate
+twenty-three gods of eighty-eight got a diagram with none of their six listed
+items in it. A branch identical to the recommendation is dropped rather than
+labelled, so the rows below the first are always real alternatives.
+
+The gold under each tile is cumulative, so the last tile of a row is what that
+whole build costs.
 
 Nothing here raises. An icon that will not load becomes a named tile, and the
 caller falls back to the plain grid if the whole thing fails, because a build
@@ -88,14 +92,29 @@ async def render(
     # divergent part is labelled, so the repetition is not mistaken for a
     # different decision.
     shared = list(path.shared)
-    branches = [
-        ("AHEAD", "press", shared + list(path.ahead), len(shared)),
-        ("BEHIND", "survive", shared + list(path.behind), len(shared)),
-    ]
+
+    # The recommendation is drawn first and unconditionally. It used to be
+    # drawn only when it happened to coincide with one of the two branches, and
+    # on the live Smite 2 aggregate it did not coincide for twenty-three gods of
+    # eighty-eight — so the embed listed six items and showed a picture of six
+    # different ones, which for a support was often a full damage build.
+    recommended = [step.item.id for step in path.neutral]
+    branches = [("RECOMMENDED", "", shared + list(path.neutral), len(shared))]
+    for label, note, steps in (
+        ("AHEAD", "press", list(path.ahead)),
+        ("BEHIND", "survive", list(path.behind)),
+    ):
+        if not steps or [step.item.id for step in steps] == recommended:
+            # A branch identical to the recommendation is not a decision, and
+            # drawing it under its own label says there is one.
+            continue
+        branches.append((label, note, shared + steps, len(shared)))
+
     branches = [row for row in branches if len(row[2]) > row[3]]
-    if not branches:
-        # No divergence left once the shared opening is taken out; the plain
-        # grid says the same thing without implying a choice.
+    if len(branches) < 2:
+        # Nothing to choose between once the shared opening and the duplicates
+        # are taken out; the plain grid says the same thing without implying a
+        # choice that isn't being offered.
         return None
 
     rows = [(label, note, steps) for label, note, steps, _ in branches]

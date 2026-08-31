@@ -191,6 +191,68 @@ def _context_note(context) -> str:
     return f"_{described}_\n\n" if described else ""
 
 
+def _edge_note(best: dict) -> str:
+    """How much better this build is than the lane's average, and on what.
+
+    Replaces "This exact build was played 3 times and won 100.00% of them",
+    which was the single most misleading sentence the bot produced. It was true;
+    it was also three coin flips reported to two decimal places, and ten Smite 2
+    gods were getting exactly that.
+
+    What is quoted instead is the number the ranking is actually built on: the
+    build's win rate after its own record has been weighed against its lane's,
+    minus the lane's rate. A build with thousands of games keeps its own figure;
+    a build with three regresses almost entirely to its lane and honestly shows
+    an edge near zero.
+
+    The sample size still appears, because a reader is entitled to know it — it
+    just no longer carries the claim.
+    """
+    plays = int(best.get("plays") or 0)
+    games = f"{plays:,} game{'' if plays == 1 else 's'}"
+    edge = best.get("edge")
+    estimate = best.get("estimate")
+    if edge is None or estimate is None:
+        # An aggregate written before the estimate existed. Say what is known
+        # rather than inventing a number for it.
+        return f"It has {games} behind it. "
+    return (
+        f"Weighing its {games} against the lane, it comes out at "
+        f"**{estimate * 100:,.1f}%** — **{edge * 100:+,.1f}%** on the "
+        f"{best.get('baseline', 0.0) * 100:,.1f}% this lane averages. "
+    )
+
+
+# Above this share of a lane's games, the recommendation is an Aspect build and
+# the embed says so with the Aspect's name and icon. Below it — but above
+# ASPECT_WORTH_SAYING — it says how many took it and leaves the choice open.
+ASPECT_MAJORITY: float = 0.6
+ASPECT_WORTH_SAYING: float = 0.15
+
+
+def _aspect_note(god: God, share) -> str:
+    """Whether these builds assume the god's Aspect, when that is worth saying.
+
+    The corpus has recorded an Aspect per row since the collector was written
+    and nothing has ever read it. That is fine as a ranking input — splitting a
+    cell by Aspect measurably loses more evidence than it gains — and not fine
+    as silence: Geb's carry lane is 98% Aspect of the Stone Wall, so the build
+    `/build` hands back is one that does not work without it.
+    """
+    aspect = getattr(god, "aspect", None)
+    if aspect is None or not share or share < ASPECT_WORTH_SAYING:
+        return ""
+    if share >= ASPECT_MAJORITY:
+        return (
+            f"\n\nThese are **{aspect.name}** builds — "
+            f"{share * 100:,.0f}% of this lane's games took it."
+        )
+    return (
+        f"\n\n{share * 100:,.0f}% of this lane takes **{aspect.name}**; "
+        "the build above is drawn from both."
+    )
+
+
 def _aspect_string(god: God, aspect) -> str:
     """The Aspect paragraph, or a note that the roll came up without one.
 
@@ -445,6 +507,7 @@ class GodBuilder:
         # tree's branches all come out of the same ordering, so they cannot
         # disagree about which build is best.
         candidates = stats.ranked_builds(**query)
+
         context = self.__team_context(build_options)
         if context is not None and context.known:
             candidates = build_engine.for_lobby(
@@ -492,8 +555,16 @@ class GodBuilder:
             high_mmr=build_options.high_mmr,
         )
 
+        # The lane and the lobby, for the same reason `__aggregate_path` needs
+        # them: this optimizer writes the stats paragraph and orders the Smite 1
+        # tree, and without a role it picks an archetype from the god's class
+        # rather than from the lane the caller asked about.
         optimizer = BuildOptimizer(
-            god, self.get_valid_items_for_god(god), self.__items
+            god,
+            self.get_valid_items_for_god(god),
+            self.__items,
+            context=context,
+            role=build_options.role,
         )
 
         role_str = f"**{role}** " if role else ""
@@ -504,10 +575,10 @@ class GodBuilder:
             else ""
         )
 
-        common_role = stats.common_role(id_value(build_options.god_id))
+        common_role = stats.common_role(id_value(build_options.god_id), queue_id)
         common_role_str = (
             f"{god.name}'s most common role is **{common_role}**. "
-            if common_role and (role or build_options.queue_id is not None)
+            if common_role and role and common_role.lower() != role.lower()
             else ""
         )
 
@@ -531,30 +602,68 @@ class GodBuilder:
 
         win_rate = (float(god_wins) / god_plays) if god_plays else 0.0
 
+        aspect = getattr(god, "aspect", None)
+        aspect_share = (
+            stats.aspect_share(
+                god_id=id_value(build_options.god_id),
+                queue_id=queue_id,
+                role=role,
+                high_mmr=build_options.high_mmr,
+            )
+            if aspect is not None
+            else None
+        )
+
         desc = (
             f"here's your {role_str}build, chosen from **{best['unique_builds']:,}**"
             f" distinct winning{' ' + god.name} {role_str}build"
             f"{'s' if best['unique_builds'] > 1 else ''}{in_queue}. "
-            f"This exact build was played **{best['plays']:,}** times and won "
-            f"**{(best['win_rate']*100):,.2f}%** of them. "
-            f"{mmr_str}\n\n{common_role_str}"
+            f"{_edge_note(best)}"
+            f"{mmr_str}\n\n{_context_note(context)}{common_role_str}"
             f"{god.name}'s {'overall ' if not role else role_str}win percentage"
             f"{in_queue} is **{(win_rate*100):,.2f}%**. "
             f"{god.name}'s average winning K/D/A with this build is "
             f"**{int(best['avg_kills'])}/{int(best['avg_deaths'])}/"
             f"{int(best['avg_assists'])}**, dealing an average "
-            f"**{int(best['avg_damage']):,}** player damage.\n\n"
+            f"**{int(best['avg_damage']):,}** player damage.\n"
+            f"{self.__lift_note(role)}\n"
             f"{self.__build_stats_string(optimizer, build, god)}"
         )
 
         return GeneratedBuild(
             build,
             relics,
-            desc,
+            desc + _aspect_note(god, aspect_share),
+            aspect=aspect if aspect_share and aspect_share >= ASPECT_MAJORITY else None,
             path=self.__aggregate_path(
-                stats, build_options, queue_id, role, starters, optimizer
+                stats,
+                build_options,
+                queue_id,
+                role,
+                starters,
+                optimizer,
+                context=context,
             ),
         )
+
+    def __lift_note(self, role) -> str:
+        """How this ranking has actually done on days it had not seen.
+
+        The build's own edge over its lane is computed live and says how good
+        *this build* looks; this says whether the method that picked it works,
+        which is a different question and the only one a holdout can answer.
+        Written nightly by `tools/build_eval.py --emit-lift` and read by the
+        provider — see `ranker_lift` for the three ways it declines to answer.
+        """
+        lift = getattr(self.__provider, "ranker_lift", None)
+        if lift is None:
+            return ""
+        try:
+            described = lift.describe(role)
+        except Exception as error:  # noqa: BLE001 — a footnote is not the build
+            print(f"could not read the ranker's lift: {error}", flush=True)
+            return ""
+        return f"\n{described}\n" if described else ""
 
     def __with_starter(self, god, build, relics, stats=None, query=None):
         """Put a starter in front of Smite 2's extras.
@@ -616,7 +725,7 @@ class GodBuilder:
         )
 
     def __aggregate_path(
-        self, stats, build_options, queue_id, role, starters, optimizer
+        self, stats, build_options, queue_id, role, starters, optimizer, context=None
     ):
         """The conditional tree for a corpus build, drawn from the same ranking.
 
@@ -639,6 +748,13 @@ class GodBuilder:
                 require_starter=True,
                 starter_ids=starters,
             )
+            if context is not None and context.known:
+                candidates = build_engine.for_lobby(
+                    candidates,
+                    self.__resolve_items,
+                    context,
+                    self.__carries_anti_heal,
+                )
             if len(candidates) < 2:
                 return None
 
@@ -651,11 +767,22 @@ class GodBuilder:
             # produces confident nonsense, which is why there are two models at
             # all. The tree only uses it to decide what to buy first, so the
             # cheap Smite 2 optimizer is built here rather than threaded in.
+            #
+            # The lane and the lobby are handed over, which they were not.
+            # Without a role `primary_role` falls back to the god's first
+            # published wiki position, and that is not the lane the caller
+            # asked about for seven gods on the Smite 2 roster — two of them,
+            # Sol and Guan Yu, scoring their build order against the wrong
+            # damage stat entirely. Without a context `__against_the_lobby`
+            # never runs, so the one piece of code that aims protections at the
+            # enemy's actual damage sat unreachable on this path.
             if self.__provider is not None and self.__provider.game is Game.SMITE_2:
                 from smite2_optimizer import Smite2BuildOptimizer  # noqa: PLC0415
 
                 god = self.__gods[build_options.god_id]
-                s2 = Smite2BuildOptimizer(god, self.__items)
+                s2 = Smite2BuildOptimizer(
+                    god, self.__items, role=build_options.role, context=context
+                )
                 score, price, opens = s2.score, s2.price, None
             else:
                 score = optimizer.score_build

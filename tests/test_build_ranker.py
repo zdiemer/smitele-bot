@@ -383,6 +383,64 @@ class TestTheDescription:
         assert stats.best_build(god_id=1)["unique_builds"] == 5
 
 
+class TestWhatToTellAPlayer:
+    """The estimate that replaced "played 3 times and won 100.00% of them".
+
+    That sentence was true and misleading in the same breath, and ten Smite 2
+    gods were getting exactly it. The replacement is the number the ranking is
+    already built on — the build's rate after its evidence has been weighed
+    against its lane's — so a thin build reports an edge near zero instead of a
+    perfect record.
+    """
+
+    def test_a_three_game_build_does_not_claim_a_perfect_record(self):
+        stats = stats_from(
+            [
+                build_row(1, plays=3, wins=3),
+                build_row(2, plays=900, wins=450),
+            ],
+            items=[items_row(1, SIX), items_row(2, OTHER_SIX)],
+        )
+        thin = [
+            candidate
+            for candidate in stats.ranked_builds(god_id=1)
+            if candidate["build_hash"] == 1
+        ][0]
+        assert thin["win_rate"] == 1.0
+        assert thin["estimate"] < 0.6
+        assert thin["edge"] < 0.1
+
+    def test_a_well_evidenced_build_keeps_most_of_its_own_rate(self):
+        stats = stats_from(
+            [
+                build_row(1, plays=2000, wins=1400),
+                build_row(2, plays=2000, wins=1000),
+            ],
+            items=[items_row(1, SIX), items_row(2, OTHER_SIX)],
+        )
+        best = stats.best_build(god_id=1)
+        assert best["estimate"] == pytest.approx(0.70, abs=0.02)
+        assert best["edge"] == pytest.approx(0.10, abs=0.02)
+
+    def test_the_baseline_is_the_lane_the_candidates_came_from(self):
+        stats = stats_from(
+            [
+                build_row(1, plays=500, wins=300),
+                build_row(2, plays=500, wins=200),
+            ],
+            items=[items_row(1, SIX), items_row(2, OTHER_SIX)],
+        )
+        assert stats.best_build(god_id=1)["baseline"] == pytest.approx(0.5)
+
+    def test_the_shown_estimate_is_not_the_pessimistic_ranking_score(self):
+        """`shrunk_rate` biases downward on purpose so uncertainty costs
+        something when *choosing*. That is the wrong number to print."""
+        plays, wins = np.array([40.0]), np.array([30.0])
+        assert build_ranker.shrunk_estimate(plays, wins)[0] > (
+            build_ranker.shrunk_rate(plays, wins)[0]
+        )
+
+
 class TestRecencyWeighting:
     def test_ranking_reads_the_weighted_counts(self):
         """Two builds with identical raw counts; the older one has to lose."""
@@ -427,6 +485,26 @@ class TestItemsAndRoles:
         ]
         stats = stats_from([build_row(1, plays=10, wins=5)], gods=gods)
         assert stats.common_role(1) == "Jungle"
+
+    def test_common_role_can_be_asked_about_one_mode(self):
+        """Arena and Assault have no lanes, and tracker.gg labels one anyway.
+
+        Asked across every mode, a god whose Conquest lane is support comes back
+        a carry — which is not a lane it is ever played in. `/build` reads this
+        to pick a lane when none was given, so it has to be able to ask about
+        the mode it is answering for.
+        """
+        gods = [
+            {"GodId": 1, "match_queue_id": 2100001, "Role": "Support",
+             "HighMmr": False, "plays": 200, "wins": 100, "wplays": 200.0,
+             "wwins": 100.0},
+            {"GodId": 1, "match_queue_id": 2100003, "Role": "Carry",
+             "HighMmr": False, "plays": 900, "wins": 450, "wplays": 900.0,
+             "wwins": 450.0},
+        ]
+        stats = stats_from([build_row(1, plays=10, wins=5)], gods=gods)
+        assert stats.common_role(1) == "Carry"
+        assert stats.common_role(1, queue_id=2100001) == "Support"
 
 
 def relic_row(relics: str, plays: int, wins: int, god_id: int = 1,

@@ -177,6 +177,40 @@ def shrunk_rate(
     return mean - pessimism * deviation
 
 
+def pooled_rate(plays: np.ndarray, wins: np.ndarray) -> float:
+    """The win rate of every candidate in a request, taken together.
+
+    This is the prior `shrunk_rate` shrinks toward, and it is also the honest
+    thing to compare a recommendation against: "how much better than the way
+    this god's lane is usually built" is the question a player is asking, and
+    the lane's own pooled rate is the answer's denominator.
+    """
+    total = float(np.asarray(plays, dtype=float).sum())
+    if total <= 0:
+        return 0.5
+    return float(np.asarray(wins, dtype=float).sum()) / total
+
+
+def shrunk_estimate(
+    plays: np.ndarray, wins: np.ndarray, strength: float = PRIOR_STRENGTH
+) -> np.ndarray:
+    """The posterior mean alone — what to *show*, where `shrunk_rate` ranks.
+
+    The two differ by the pessimism term, and the difference matters for a
+    number a person reads. Subtracting a multiple of the posterior deviation is
+    the right way to *choose* between candidates, because being uncertain should
+    itself cost something; it is the wrong number to print, because it is not an
+    estimate of anything — it is an estimate deliberately biased downward.
+
+    This is what replaced "played 3 times and won 100.00% of them". That
+    sentence was true and useless: a three-game record is not evidence, and
+    quoting it to two decimal places implied it was. Ten Smite 2 gods were being
+    shown a 100% win rate, and the median recommendation rested on 34 games out
+    of a lane with thousands.
+    """
+    return shrunk_rate(plays, wins, strength, pessimism=0.0)
+
+
 RANKINGS: Dict[str, object] = {
     "shrunk": shrunk_rate,
     "lower_bound": agresti_coull_lower,
@@ -352,16 +386,29 @@ class BuildStats:
                 ranking if callable(ranking) else RANKINGS.get(ranking, shrunk_rate)
             )
             rank = scorer(grouped["wplays"], grouped["wwins"])
-        best_hash = grouped.index[int(np.argmax(rank))]
+        position = int(np.argmax(rank))
+        best_hash = grouped.index[position]
+        estimates = shrunk_estimate(grouped["wplays"], grouped["wwins"])
         return self.__described(
             grouped,
             grouped.loc[best_hash],
             best_hash,
             self.items_for(best_hash),
             float(np.max(rank)),
+            estimate=float(estimates[position]),
+            baseline=pooled_rate(grouped["wplays"], grouped["wwins"]),
         )
 
-    def __described(self, grouped, row, build_hash, items, rank: float) -> Dict:
+    def __described(
+        self,
+        grouped,
+        row,
+        build_hash,
+        items,
+        rank: float,
+        estimate: Optional[float] = None,
+        baseline: Optional[float] = None,
+    ) -> Dict:
         """One candidate, with everything /build's description quotes.
 
         Shared by `best_build` and `ranked_builds` so a build reordered by a
@@ -378,6 +425,19 @@ class BuildStats:
             "wins": int(row["wins"]),
             "win_rate": float(row["wins"]) / max(float(row["plays"]), 1.0),
             "rank": rank,
+            # What to tell a player. `estimate` is the build's win rate after
+            # its evidence has been weighed against its lane's, `baseline` is
+            # the lane's own rate, and the difference between them is the only
+            # defensible "this build is better by X" available without a
+            # holdout — which the bot cannot run, because it holds the
+            # aggregate and not the days behind it.
+            "estimate": estimate,
+            "baseline": baseline,
+            "edge": (
+                estimate - baseline
+                if estimate is not None and baseline is not None
+                else None
+            ),
             "unique_builds": int(grouped.shape[0]),
             # Stat sums are over winning rows, so the divisor is the win count.
             "avg_kills": float(row.get("sum_Kills_Player", 0.0)) / max(wins, 1.0),
@@ -458,7 +518,13 @@ class BuildStats:
         starter_ids: Tuple[int, ...] = (),
         ranking=DEFAULT_RANKING,
         min_plays: float = MIN_CANDIDATE_PLAYS,
-        limit: int = 24,
+        # Deep enough to reach an anti-heal build. Twenty-four was chosen when
+        # the only consumer was the three-way fork, which never looks past the
+        # twelfth; `build_engine.promote_anti_heal` needs the pool to actually
+        # contain the build it is allowed to promote, and across the Smite 2
+        # roster the highest-ranked anti-heal build sits at a median position of
+        # eighteen with a long tail past twenty-four.
+        limit: int = 64,
     ) -> List[Dict]:
         """The best builds for these filters, best first.
 
@@ -495,6 +561,8 @@ class BuildStats:
             rank = scorer(grouped["wplays"], grouped["wwins"])
 
         order = np.argsort(np.asarray(rank))[::-1][:limit]
+        estimates = shrunk_estimate(grouped["wplays"], grouped["wwins"])
+        baseline = pooled_rate(grouped["wplays"], grouped["wwins"])
         out: List[Dict] = []
         for position in order:
             build_hash = grouped.index[int(position)]
@@ -505,6 +573,8 @@ class BuildStats:
                 self.__described(
                     grouped, grouped.iloc[int(position)], build_hash, items,
                     float(rank[int(position)]),
+                    estimate=float(estimates[int(position)]),
+                    baseline=baseline,
                 )
             )
         return out
@@ -613,11 +683,50 @@ class BuildStats:
             return (0, 0)
         return (int(selected["plays"].sum()), int(selected["wins"].sum()))
 
-    def common_role(self, god_id: int) -> str:
-        """The role this god is played in most often."""
+    def aspect_share(
+        self,
+        god_id: int,
+        queue_id: Optional[int] = None,
+        role: Optional[str] = None,
+        high_mmr: bool = False,
+    ) -> Optional[float]:
+        """What share of this lane's recorded games took the god's Aspect.
+
+        None for Smite 1, for an aggregate written before the column existed,
+        and for a cell with nothing in it — all three mean "no answer" rather
+        than "nobody takes it", and the embed says nothing in that case.
+
+        The Aspect is not a grouping key and should not become one; splitting a
+        cell in two costs more evidence than knowing the Aspect adds, which
+        `tools/aspect_value.py` measures. But it is not nothing either: uptake
+        runs at 14% across Conquest and reaches 98% in the lanes an Aspect is
+        what makes viable, so a recommendation is often an Aspect build that has
+        never said so.
+        """
+        if "aspect_plays" not in self.gods.columns:
+            return None
+        selected = self.__filter(self.gods, god_id, queue_id, role, high_mmr)
+        if not selected.shape[0]:
+            return None
+        plays = float(selected["plays"].sum())
+        if plays <= 0:
+            return None
+        return float(selected["aspect_plays"].sum()) / plays
+
+    def common_role(self, god_id: int, queue_id: Optional[int] = None) -> str:
+        """The role this god is played in most often, optionally in one mode.
+
+        The queue matters more than it looks. Asked without one, this answers
+        from every mode at once, and Arena and Assault have no lanes at all —
+        tracker.gg labels a role in them anyway, and an "Arena support" is a
+        full damage build. A god whose Conquest lane is support can therefore
+        come back as a carry, which is not a lane it is ever played in.
+        """
         selected = self.gods[
             (self.gods["GodId"] == god_id) & (self.gods["Role"] != "Unknown")
         ]
+        if queue_id is not None:
+            selected = selected[selected["match_queue_id"] == queue_id]
         if not selected.shape[0]:
             return ""
         by_role = selected.groupby("Role", observed=True)["plays"].sum()
