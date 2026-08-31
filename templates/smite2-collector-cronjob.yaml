@@ -127,6 +127,30 @@ spec:
                   mountPath: /data
                 - name: tmp
                   mountPath: /tmp
+                {{/*
+                  The one directory under XDG_CACHE_HOME that camoufox writes
+                  rather than reads. `utils._generate_fontconfig` builds a
+                  fonts.conf at browser startup and puts it in
+                  `platformdirs.user_cache_dir("camoufox")/fontconfig`, which
+                  resolves through the XDG_CACHE_HOME the image sets so the
+                  browser can be found at all — so the browser bundle and a
+                  runtime scratch directory are the same directory, on a
+                  read-only root.
+
+                  Two nights of crawling were lost to this and it was invisible
+                  until then, because the mint only runs when there is no usable
+                  cookie: the runs before it reused one and never launched the
+                  browser. `STOPPED — no clearance: mint failed: [Errno 30]
+                  Read-only file system`.
+
+                  Mounted over that path alone rather than making the cache
+                  writable. The browser bundle is several hundred megabytes the
+                  pod has no business being able to modify, and camoufox derives
+                  both paths from the same variable, so this is the only seam
+                  between them.
+                */}}
+                - name: fontconfig
+                  mountPath: /home/smitele/.cache/camoufox/fontconfig
               resources:
                 {{- toYaml .Values.smite2.collector.resources | nindent 16 }}
           volumes:
@@ -144,6 +168,10 @@ spec:
               emptyDir:
                 {{/* A browser needs considerably more scratch than a script. */}}
                 sizeLimit: 2Gi
+            {{/* A generated fonts.conf and the font caches beside it. */}}
+            - name: fontconfig
+              emptyDir:
+                sizeLimit: 64Mi
           {{- with .Values.nodeSelector }}
           nodeSelector:
             {{- toYaml . | nindent 12 }}

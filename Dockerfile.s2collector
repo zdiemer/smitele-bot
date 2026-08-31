@@ -58,7 +58,21 @@ RUN set -eu; \
 # looks there, finds nothing, and fails with "official/stable is not installed"
 # at the first mint. Setting it in the image means the pod cannot get it wrong
 # by supplying its own HOME.
+#
+# The catch, and it cost two nights of crawling: camoufox writes as well as
+# reads under this path. `utils._generate_fontconfig` builds a fonts.conf at
+# browser startup and puts it in
+# `platformdirs.user_cache_dir("camoufox")/fontconfig` — which resolves through
+# the same XDG_CACHE_HOME, so the browser bundle and a runtime scratch
+# directory are the same directory, and that directory is on a read-only root.
+#
+# The two cannot be separated by environment, because camoufox derives both
+# from XDG_CACHE_HOME. So the pod mounts a writable emptyDir over exactly this
+# subdirectory and nothing else; created here so the mount has a point to land
+# on and so the failure, if the mount is ever dropped, is a clear one.
 ENV XDG_CACHE_HOME=/home/smitele/.cache
+RUN mkdir -p /home/smitele/.cache/camoufox/fontconfig \
+ && chown -R smitele:smitele /home/smitele/.cache
 
 # Fetch at build time, not at run time. The CronJob runs with
 # readOnlyRootFilesystem, so a first-run download would have nowhere to land —

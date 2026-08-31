@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.10.3"
+  tag: "1.10.5"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
