@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.10.2"
+  tag: "1.10.3"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -304,17 +304,27 @@ buildEval:
     # this reads ~180 days where the aggregate reads ~3,900.
     trainDays: 180
     evalDays: 14
-    # Held-out rows a cell needs before its result counts. Smite 1 has an order
-    # of magnitude more rows per day than Smite 2, so it can afford to ask for
-    # more before believing a cell.
-    minEvalPlays: 400
+    # Held-out rows a cell needs before its result counts.
+    #
+    # Was 400, on the reasoning that Smite 1's corpus is deeper per day so it
+    # could afford to ask for more. Measured, that is backwards: the first run
+    # kept 73 cells from 50,793 held-out rows where Smite 2 kept 146 from
+    # 68,776, because Smite 1's corpus is deeper in *total* and not in Conquest.
+    # At 400 no lane cleared `ranker_lift.MIN_DECIDED`, so every Smite 1 build
+    # quoted the pooled figure and the per-lane breakdown — the thing that found
+    # Smite 2's support problem — could never bind here.
+    minEvalPlays: 200
     strategies: most_played,shrunk_ranker
-    # The train window is held in memory rather than streamed, because it is a
-    # window and not the corpus. Sized from the aggregate's own experience: the
-    # full corpus reaches 18.2M build groups at 12Gi, and this touches roughly a
-    # twentieth of the days. Generous rather than tuned — the first real run
-    # should replace this comment with a measurement.
-    activeDeadlineSeconds: 10800
+    # Measured on the first run, 2026-08-31: 8m40s over 1,229 train files and
+    # 14 held-out days, on a corpus whose full aggregate takes 46 minutes and
+    # 8.3GiB. The deadline is an hour because the share is the variable part,
+    # not the arithmetic.
+    #
+    # The memory is still an estimate — the run that measured the time predates
+    # the peak-resident line this now prints, so the next one replaces it. The
+    # train window is held rather than streamed, which is what makes it a window
+    # and not the corpus.
+    activeDeadlineSeconds: 3600
     tmpSizeLimit: 2Gi
     resources:
       requests:
@@ -335,9 +345,9 @@ buildEval:
     # the corpus is far smaller, and 400 would leave almost no cells standing.
     minEvalPlays: 200
     strategies: most_played,shrunk_ranker
-    # Measured locally over the same window: ~30s to aggregate 180 days and
-    # ~60s to score 151 cells, at well under a gigabyte. The margins here are
-    # for the share being slower than a local disk, not for the arithmetic.
+    # Measured on the first cluster run, 2026-08-31: 49 seconds end to end,
+    # 180 train files and 146 cells. The margins here are for the share being
+    # slower than a local disk, not for the arithmetic.
     activeDeadlineSeconds: 3600
     tmpSizeLimit: 1Gi
     resources:

@@ -1368,6 +1368,15 @@ def main() -> int:
             args.baseline,
             len(cells),
         )
+
+    # Same reason build_aggregate reports it: this now runs as a nightly job,
+    # and a job's memory request is what decides whether it can be scheduled at
+    # all. The first Smite 1 and Smite 2 runs were sized from estimates, and an
+    # estimate is what this replaces.
+    print(
+        f"Peak resident: {build_aggregate.peak_resident_gib():.2f} GiB",
+        flush=True,
+    )
     return 0
 
 
