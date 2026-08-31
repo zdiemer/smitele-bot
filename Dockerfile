@@ -65,6 +65,11 @@ COPY src/ml/*.py src/ml/
 # server, which additionally needs a built SPA, is layered on top in
 # Dockerfile.web. Deliberately not `src/web/ui`: node has no business here.
 COPY src/web/*.py src/web/
+# The measurement tools. These were dev-time only until the nightly holdout
+# needed one: `buildeval` runs src/tools/build_eval.py in this image, and
+# without this line the CronJob's first run died on "can't open file". They
+# import from the packages above and add no dependency of their own.
+COPY src/tools/*.py src/tools/
 
 # Adding HirezAPI and ml to PYTHONPATH
 ENV PYTHONPATH="/home/smitele/src/HirezAPI:/home/smitele/src/ml"
@@ -76,8 +81,14 @@ RUN python -c "import sys; sys.path[:0] = ['src/HirezAPI', 'src/ml', 'src/SmiteB
 import smite2.players, smite2.provider, smite2.tracker_client, smite2.voicelines, smite2.wikitext; \
 import smite2.cooldown, smite2.clearance, smite2.last_run; \
 import providers, game, guild_settings, roster, queue_stats; \
-import build_engine, live_lobby, linked_players, build_ranker; \
+import build_engine, live_lobby, linked_players, build_ranker, ranker_lift; \
 print('image imports ok')"
+
+# The nightly holdout runs a tool from this image, so a missed COPY there is a
+# CronJob that fails at 07:20 rather than a build that fails here. Checked by
+# path rather than by import: build_eval parses arguments at import time under
+# no package, and the point is only that the file arrived.
+RUN test -f src/tools/build_eval.py && echo 'tools ok'
 
 # Data the image needs and cannot rebuild. An absent item-value table is a
 # *supported* state — it means nobody has derived one yet — so a missed COPY
