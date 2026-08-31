@@ -425,29 +425,37 @@ class PlayerStats(commands.Cog):
             match = None
 
         if match is None:
-            # tracker.gg is the only lobby source there is, and its live
-            # snapshots refresh on a roughly ten minute cadence — so before
-            # answering a flat no, ask Steam whether the player is running
-            # the game at all. Steam answers in seconds where tracker lags
-            # minutes; it just cannot see past "running" into "in a match".
-            from smite2 import steam  # noqa: PLC0415
+            # Every lobby source lags the match starting — tracker.gg by about
+            # ten minutes, SmiteSource by four or five — so before answering a
+            # flat no, ask Steam whether the player is running the game at all.
+            # Steam answers in seconds; it just cannot see past "running" into
+            # "in a match".
+            from smite2 import smitesource, steam  # noqa: PLC0415
 
             playing = (
                 await steam.running_smite2(handle) if platform == "steam" else None
             )
+            # Named only on the tracker.gg path, and that asymmetry is
+            # deliberate. With SmiteSource selected, a handle it cannot resolve
+            # falls back to tracker.gg — so a negative may have come from
+            # either site, and naming one of them would be a guess. The lag is
+            # true of both, so that is what the copy says.
+            if smitesource.selected_source() == smitesource.SMITESOURCE:
+                source_clause = "no live lobby has been posted for them yet"
+            else:
+                source_clause = "tracker.gg hasn't posted their lobby yet"
             if playing:
                 description = (
                     f"**{player_name}** is in Smite 2 right now, but "
-                    f"tracker.gg hasn't posted their lobby yet. Its live "
-                    f"status lags several minutes behind a match starting, "
-                    f"so ask again shortly."
+                    f"{source_clause}. Live status lags several minutes "
+                    f"behind a match starting, so ask again shortly."
                 )
             else:
                 description = (
-                    f"**{player_name}** isn't in a match that tracker.gg "
-                    f"can see yet. Its live status often lags several "
-                    f"minutes behind the start of a match, so it's worth "
-                    f"retrying if you know they're in one."
+                    f"**{player_name}** isn't in a match that can be seen "
+                    f"yet. Live status often lags several minutes behind the "
+                    f"start of a match, so it's worth retrying if you know "
+                    f"they're in one."
                 )
             await self.__send_response_or_message_embed(
                 ctx_or_message,
@@ -462,13 +470,14 @@ class PlayerStats(commands.Cog):
             color=discord.Color.blue(),
             title=f"{player_name}'s Live {match.mode_name or 'Match'} Details",
         )
-        # The lobby is tracker.gg's snapshot, not a live feed, and its
-        # snapshots refresh about every ten minutes. Saying how old the data
-        # is beats letting it read as real time.
+        # The lobby is a snapshot, not a live feed — tracker.gg refreshes about
+        # every ten minutes, SmiteSource about every four and a half. Saying
+        # how old the data is, and who it came from, beats letting either read
+        # as real time.
         if match.age_seconds >= 60:
             embed.set_footer(
                 text=(
-                    f"As tracker.gg last saw it, "
+                    f"As {match.source} last saw it, "
                     f"{int(match.age_seconds // 60)} min ago"
                 )
             )

@@ -76,6 +76,14 @@ spec:
             - name: SMITELE_CORPUS_PARQUET_ONLY
               value: "1"
             {{- end }}
+            {{- if eq .Values.bot.liveMatchSource "smitesource" }}
+            # Only the bot: /live_match and the lobby behind /build are the
+            # only readers. Emitted only when it is not the default, so a
+            # deployment on tracker.gg renders byte-for-byte as it did before
+            # this existed.
+            - name: SMITELE_LIVE_MATCH_SOURCE
+              value: {{ .Values.bot.liveMatchSource | quote }}
+            {{- end }}
           ports:
             - name: status
               containerPort: {{ .Values.bot.statusPort }}

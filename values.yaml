@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.9.11"
+  tag: "1.9.12"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -52,6 +52,30 @@ bot:
   # memory — far past this pod's limit — so the bot reads only Parquet and
   # anything awaiting conversion is simply invisible to it.
   parquetOnlyCorpus: true
+  # Which site answers /live_match, and the lobby /build reads to infer game
+  # state. Backend only, deliberately: which third party's undocumented API we
+  # lean on is an operational choice, not something to ask a player in a slash
+  # command.
+  #
+  #   tracker      tracker.gg alone, which is what every deployment did before
+  #                this existed and what the code falls back to.
+  #   smitesource  smitesource.com first, tracker.gg whenever it cannot
+  #                answer. A lobby that refreshes about every four and a half
+  #                minutes rather than ten, carrying the match in progress
+  #                rather than a roster, and reachable for a player without
+  #                waiting for tracker.gg to post them.
+  #
+  # Reverting is this line plus ./upgrade.sh — no rebuild, since the image
+  # carries both backends either way.
+  #
+  # It spends no credential and no clearance: the smitesource.com RPC surface
+  # answers a plain HTTP client, so unlike the tracker.gg path it never
+  # launches Camoufox, and a lookup it answers is one that does not spend the
+  # shared cookie either.
+  #
+  # Anything unrecognised means tracker.gg, so a typo here degrades to today's
+  # behaviour rather than to none.
+  liveMatchSource: smitesource
   resources:
     requests:
       cpu: 100m

@@ -1,19 +1,25 @@
 # Smite 2 live-match data: what is reachable, and why the lobby lags
 
-`/livematch` for Smite 2 reads tracker.gg, whose live snapshots refresh only
-about every ten minutes. This document records the investigation into whether
-anything fresher exists, so the question does not have to be re-opened from
-scratch. The short answer: the complete lobby is reachable only through a
-permission a player token does not hold, and the fast alternatives are coarse
-("is this person running the game") rather than precise ("who is in their
-match"). What shipped is the coarse-but-honest version.
+`/livematch` for Smite 2 reads tracker.gg by default, whose live snapshots
+refresh only about every ten minutes. This document records the investigation
+into whether anything fresher exists, so the question does not have to be
+re-opened from scratch.
 
-Everything below was checked against primary sources on 2026-08-11 — the
-RallyHere OpenAPI spec, the Steam Web API docs, and live tracker.gg traffic
-against a real match — not inferred. Where a claim rests on an observation of a
+The answer came in two parts, a fortnight apart. **2026-08-11:** the complete
+lobby is reachable from the game's own backend only through a permission a
+player token does not hold, and the fast alternatives there are coarse ("is
+this person running the game") rather than precise ("who is in their match") —
+so what shipped was the coarse-but-honest version. **2026-08-31:** that wall is
+still exactly where it was, but it no longer has to be climbed. smitesource.com
+answers the gated hop for us at roughly a four-and-a-half minute cadence, with
+the match in progress rather than a roster.
+
+Everything below was checked against primary sources — the RallyHere OpenAPI
+spec, the Steam Web API docs, and live tracker.gg and smitesource.com traffic
+against real matches — not inferred. Where a claim rests on an observation of a
 single live match, it says so.
 
-## The four sources, ranked by freshness
+## The sources, ranked by freshness
 
 | Source | Freshness | Granularity | Verdict |
 | --- | --- | --- | --- |
@@ -21,7 +27,8 @@ single live match, it says so.
 | RallyHere presence API | seconds | coarse (online/in-game) | reachable, but carries no session id |
 | Steam `GetPlayerSummaries` | seconds | coarse (running the game) | **shipped** as the fallback |
 | Discord guild presence | seconds | coarse (running the game) | viable, not yet built |
-| tracker.gg `/live` | ~10 min | full lobby | what we use for the lobby itself |
+| tracker.gg `/live` | ~10 min | full lobby | the default lobby source |
+| smitesource.com `/rpc` | ~4.5 min | full lobby, mid-match stats | **shipped**, behind `SMITELE_LIVE_MATCH_SOURCE` |
 
 ## RallyHere: the real source, behind the real wall
 
@@ -164,17 +171,63 @@ tracker.gg's own staff state they cannot offer a Smite 2 developer API. The
 `api.tracker.gg/api/v2/smite2/...` routes the site uses are Cloudflare-gated and
 inherit the same ~10-minute ingest, so bypassing the WAF buys no freshness. The
 Overwolf overlay is fast only because it reads the *local* game client, not a
-remote API. Other tracker sites (smite2.live, smitetracker.com, smitesource) are
-all downstream of the same slow ingest and expose no faster public feed.
+remote API. Other tracker sites (smite2.live, smitetracker.com) appear to be
+downstream of the same slow ingest and expose no faster public feed.
+
+**That claim used to include smitesource.com, and it was wrong.** See below.
+
+## smitesource.com: faster, and it answers the gated hop
+
+Measured 2026-08-31 against a live casual Conquest match. SmiteSource has what
+this document concluded no public source had — arbitrary player to the session
+they are in right now — and serves the match in progress rather than a roster:
+
+    GET /rpc/matches/getLiveMatch?data={"json":{"playerUuid":"…"}}
+    GET /rpc/matches/getMatch?data={"json":{"matchId":"…"}}
+
+`liveUpdatedAt` advanced 17:08:38 → 17:13:05 → 17:17:37 — **267s and 272s
+apart**, reaching us within ~10s of each move, against tracker.gg's ~10 minutes.
+The match payload carries all ten players with live K/D/A, damage, mitigation,
+gold, wards and per-ability damage.
+
+This does **not** reopen the RallyHere analysis above: the permission wall is
+still exactly where it was. SmiteSource is simply a third party that already
+holds the access we cannot get, and reading their site is a different question
+from minting a token.
+
+Three things worth knowing before touching it:
+
+- **No credential and no clearance.** Unlike tracker.gg, the `/rpc` routes
+  answer a plain HTTP client — verified from a cold session with no cookies and
+  no impersonation. The HTML pages are challenged; the API is not. So this path
+  never launches Camoufox and never spends a solve.
+- **It still cannot be aiohttp.** aiohttp draws a 403 where `curl`, `curl_cffi`
+  and the browser all get 200 — the same fingerprint conclusion `tracker_client`
+  reached, so `smitesource.py` uses curl_cffi too.
+- **There is no name lookup on that surface.** The site's search box is a
+  Next.js server action, not an RPC procedure. Resolution goes platform account
+  id → `getPlayerOverlaySession` → uuid, so a display name resolves to nothing
+  and falls back to tracker.gg. That is the main gap, and capturing the search
+  action is the obvious way to close it.
+
+Shipped in `src/HirezAPI/smite2/smitesource.py`, behind
+`SMITELE_LIVE_MATCH_SOURCE=smitesource` (`bot.liveMatchSource` in values).
+Default is unchanged, and anything that source cannot answer falls through to
+the tracker.gg path below it — including, deliberately, only the *unanswerable*
+cases: a fresh "not in a match" is an answer and is not second-guessed against
+a ten-minute-old snapshot.
 
 ## Bottom line
 
-The precise lobby exists in RallyHere and is fresh to the second, but the one
+The precise lobby exists in RallyHere and is fresh to the second, and the one
 hop a bot needs — arbitrary player to their live session — is gated behind
-`session:read-player:any`, which a player token does not carry, and no courier
-account or presence read routes around it. Confirm with the probe before
-treating it as final. Until then, the honest ceiling is the coarse "is this
-person running Smite 2" signal (shipped via Steam), plus surfacing tracker.gg's
-snapshot age so a ten-minute-old lobby does not read as real time.
+`session:read-player:any`, which a player token does not carry. No courier
+account or presence read routes around it, and that has not changed.
+
+What changed is that it no longer has to. SmiteSource answers that hop for us
+at a ~4.5 minute cadence with the match in progress, so the honest ceiling is
+no longer the coarse "is this person running Smite 2" signal — that is now the
+fallback's fallback. Surfacing the snapshot age still matters: four minutes is
+much better than ten and is still not real time.
 
 [spec]: https://github.com/RallyHereInteractive/openapi-spec-environment

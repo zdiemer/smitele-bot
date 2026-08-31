@@ -149,11 +149,15 @@ class LiveMatch:
     own_god: str
     own_team: str
     players: List[LivePlayer]
-    # When tracker.gg last refreshed this lobby (its `snapshotTimestamp`),
-    # as epoch seconds, or 0 when the payload did not carry one. Observed
-    # cadence is roughly ten minutes, which is the whole of the "live status
-    # lags" complaint; showing the age is the honest thing a display can do.
+    # When the source last refreshed this lobby, as epoch seconds, or 0 when
+    # the payload did not carry one. tracker.gg's `snapshotTimestamp` moves
+    # about every ten minutes, which is the whole of the "live status lags"
+    # complaint; showing the age is the honest thing a display can do.
     snapshot_at: float = 0.0
+    # Which site this came from, for a display that would otherwise credit
+    # tracker.gg for a lobby it never saw. Defaults to tracker.gg because that
+    # is where every lobby came from before there was a second backend.
+    source: str = "tracker.gg"
 
     @property
     def age_seconds(self) -> float:
@@ -327,11 +331,37 @@ class PlayerLookups:
         Not-in-a-match is the common answer and costs exactly one request, and
         the negative is cached too. Any failure returns None: a build should
         lose its matchup, never its response.
+
+        With `SMITELE_LIVE_MATCH_SOURCE=smitesource` this asks SmiteSource
+        first — a fresher lobby, and one it can find without tracker.gg's
+        ten-minute wait — and falls through to the two requests below whenever
+        that source cannot answer.
         """
-        key = f"live:{platform}:{handle}"
+        from smite2 import smitesource  # noqa: PLC0415
+
+        source = smitesource.selected_source()
+        # The source is part of the key. Two backends disagree about the same
+        # lobby — one is minutes fresher — so a cache shared across a toggle
+        # flip would serve the answer the operator just turned off.
+        key = f"live:{source}:{platform}:{handle}"
         cached = self.__cached(key, LIVE_MATCH_CACHE_SECONDS)
         if cached is not None:
             return cached or None
+
+        if source == smitesource.SMITESOURCE:
+            try:
+                found = await smitesource.live_match(platform, handle)
+            except smitesource.SmiteSourceUnavailable as error:
+                # Not an answer, so tracker.gg still gets asked and the command
+                # is none the wiser. Expected traffic rather than a fault: a
+                # display name resolves to nothing on that surface, so every
+                # lookup for one lands here and then succeeds below.
+                self.__log(f"smitesource could not answer, using tracker.gg: {error}")
+            except Exception as error:  # noqa: BLE001 — never fatal to a command
+                self.__log(f"smitesource live match failed: {error}")
+            else:
+                self.__store(key, found or False)
+                return found
 
         try:
             async with self.__client_factory() as client:
