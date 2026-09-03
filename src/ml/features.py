@@ -29,9 +29,10 @@ where that field is missing or inconsistent.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,97 @@ SKILL_FEATURES: List[str] = [
 ]
 
 TEAM_SIZE: int = 5
+
+
+@dataclasses.dataclass(frozen=True)
+class Shape:
+    """Which corpus columns are a training row, for one game.
+
+    `build_features.BuildShape` already says how a *build* is laid out; this is
+    the model's version of the same question, and it is deliberately separate.
+    That one exists to hash a build identically in the aggregate and the bot, so
+    it carries what counts toward a build. This one decides what the network
+    gets to look at, which is a different list — it includes the matchup and the
+    skill columns, and it excludes anything the corpus records as a constant.
+
+    Constants are the reason a shape is needed at all rather than a single union
+    of columns. tracker.gg cannot see a Smite 2 player's account level, mastery
+    or Conquest tier, so `rows.py` writes those as literal zeros to keep the
+    downstream column names identical. Fed to the model they are three inputs
+    with no variance: they cost parameters, they dilute the normalisation, and
+    they contribute nothing. Meanwhile the two columns that *are* Smite 2's own
+    signal — the starter, filled on 99% of rows, and the Aspect on 15% — were
+    not in the Smite 1 layout at all and so were never read.
+    """
+
+    item_columns: List[str]
+    relic_columns: List[str]
+    skill_features: List[str]
+    # Columns where "recorded at all" is its own signal. A Smite 2 row outside
+    # Ranked Conquest has no rating, and a rating of zero normalises to roughly
+    # the mean — so without this the model cannot tell an unranked player from
+    # an average one. The indicator is 1.0 when the column is non-zero.
+    skill_indicators: Tuple[str, ...] = ()
+    # Smite 2 records the starter outside the six core slots, and the Aspect is
+    # a selection-time choice with no Smite 1 analogue. Both are single ids, so
+    # they join the context fields rather than the pooled ones.
+    starter_column: Optional[str] = None
+    aspect_column: Optional[str] = None
+
+    @property
+    def skill_width(self) -> int:
+        return len(self.skill_features) + len(self.skill_indicators)
+
+    @property
+    def context_fields(self) -> List[str]:
+        """Single-id inputs, in the order the feature vector concatenates them."""
+        fields = list(BASE_CONTEXT_FIELDS)
+        if self.starter_column:
+            fields.append("starter")
+        if self.aspect_column:
+            fields.append("aspect")
+        return fields
+
+    def build_columns(self) -> List[str]:
+        """Every column that describes the build itself."""
+        columns = list(self.item_columns) + list(self.relic_columns)
+        for column in (self.starter_column, self.aspect_column):
+            if column:
+                columns.append(column)
+        return columns
+
+
+# The context fields every game has. `model.CONTEXT_FIELDS` is the same list;
+# it lives there too so the scorer can be read without this module.
+BASE_CONTEXT_FIELDS: Tuple[str, ...] = ("god", "opponent", "role")
+
+SMITE1 = Shape(
+    item_columns=ITEM_SLOTS,
+    relic_columns=RELIC_SLOTS,
+    skill_features=SKILL_FEATURES,
+)
+
+SMITE2 = Shape(
+    item_columns=ITEM_SLOTS,
+    # One relic. ActiveId2 is written as a constant 0 by the collector, so
+    # reading it would pool a permanent absence into every build's relic mean.
+    relic_columns=["ActiveId1"],
+    # The only skill column tracker.gg fills, and only for Ranked Conquest.
+    skill_features=["Rank_Stat_Conquest"],
+    skill_indicators=("Rank_Stat_Conquest",),
+    starter_column="StarterId",
+    aspect_column="Aspect",
+)
+
+
+def shape_for(game) -> Shape:
+    """The shape for a `Game`, its value, or anything that stringifies to one.
+
+    Takes the value rather than importing `Game`, because this module is loaded
+    by the bot, by the trainer and by the eval tool, and only some of those have
+    `HirezAPI` on the path at import time.
+    """
+    return SMITE2 if str(getattr(game, "value", game)) == "smite2" else SMITE1
 
 
 class Vocabulary:
@@ -114,21 +206,31 @@ def recent_days(paths: List[str], days: int) -> List[str]:
     return sorted(undated + [p for day in keep for p in dated[day]])
 
 
-def load_corpus(
-    directories: List[str],
-    queue_ids: List[int] = None,
-    limit_files: int = None,
-    max_files: int = None,
-) -> pd.DataFrame:
-    """Read corpus files, keeping only the columns the model needs.
+def before_day(paths: List[str], cutoff: str) -> List[str]:
+    """The files belonging to days strictly before `cutoff` (YYYY-MM-DD).
 
-    max_files bounds the read itself. Sampling rows after loading cannot help
-    when loading is what runs out of memory: the corpus is 3,300 files and 158M
-    rows, and accumulating even the 8% that is Ranked Conquest exceeded 8GB.
-    Files are sampled uniformly across the whole corpus rather than truncated
-    to the most recent, so the sample still spans its full range.
+    The inverse of the window `build_eval --cutoff` holds out, so that a model
+    can be trained without having seen the days it is about to be scored on.
+    Undated files are dropped rather than kept, which is the opposite of what
+    `recent_days` does and for the opposite reason: there, including an
+    unlabelled file at worst adds old data; here it could be a held-out day,
+    and a leaked evaluation is worth less than a smaller one.
     """
-    columns = list(
+    keep = []
+    for path in paths:
+        found = _DATE_IN_NAME.search(os.path.basename(path))
+        if found and found.group(1) < cutoff:
+            keep.append(path)
+    return sorted(keep)
+
+
+def corpus_columns(shape: Shape = SMITE1) -> List[str]:
+    """Every column a training row is built from, deduplicated.
+
+    Shared by the trainer and by `build_eval`, which reads the held-out files
+    itself rather than by directory and so has to ask for the same columns.
+    """
+    return list(
         dict.fromkeys(
             [
                 "Match",
@@ -138,13 +240,34 @@ def load_corpus(
                 "Role",
                 "match_queue_id",
             ]
-            + ITEM_SLOTS
-            + RELIC_SLOTS
-            + SKILL_FEATURES
+            + shape.build_columns()
+            + list(shape.skill_features)
         )
     )
 
+
+def load_corpus(
+    directories: List[str],
+    queue_ids: List[int] = None,
+    limit_files: int = None,
+    max_files: int = None,
+    shape: Shape = SMITE1,
+    until: str = None,
+) -> pd.DataFrame:
+    """Read corpus files, keeping only the columns the model needs.
+
+    max_files bounds the read itself. Sampling rows after loading cannot help
+    when loading is what runs out of memory: the corpus is 3,300 files and 158M
+    rows, and accumulating even the 8% that is Ranked Conquest exceeded 8GB.
+    Files are sampled uniformly across the whole corpus rather than truncated
+    to the most recent, so the sample still spans its full range.
+    """
+    columns = corpus_columns(shape)
+
     paths = match_storage.corpus_paths(*directories)
+    if until:
+        paths = before_day(paths, until)
+        print(f"  {len(paths)} files from before {until}", flush=True)
     if limit_files:
         paths = recent_days(paths, limit_files)
     if max_files and len(paths) > max_files:
@@ -240,6 +363,8 @@ def encode(
     items: Vocabulary,
     roles: Vocabulary,
     skill_stats: Dict[str, Tuple[float, float]] = None,
+    shape: Shape = SMITE1,
+    aspects: Vocabulary = None,
 ) -> Tuple[Dict[str, np.ndarray], np.ndarray, Dict[str, Tuple[float, float]]]:
     """Encode a matchup frame into model inputs.
 
@@ -256,32 +381,101 @@ def encode(
     }
 
     encoded["items"] = np.stack(
-        [items.encode_series(frame[slot]) for slot in ITEM_SLOTS], axis=1
+        [items.encode_series(frame[slot]) for slot in shape.item_columns], axis=1
     )
     encoded["relics"] = np.stack(
-        [items.encode_series(frame[slot]) for slot in RELIC_SLOTS], axis=1
+        [items.encode_series(frame[slot]) for slot in shape.relic_columns], axis=1
     )
+    # The starter shares the item vocabulary — a starter is an item, and one
+    # index space means a starter that upgrades into a core item is the same
+    # id in both places. Its embedding table is still its own, because what a
+    # starter does for a build is not what the same id does in slot four.
+    if shape.starter_column:
+        encoded["starter"] = items.encode_series(frame[shape.starter_column])
+    if shape.aspect_column:
+        encoded["aspect"] = (aspects or Vocabulary()).encode_series(
+            frame[shape.aspect_column]
+        )
     encoded["allies"] = _encode_composition(frame["ally_gods"], gods, TEAM_SIZE - 1)
     encoded["enemies"] = _encode_composition(frame["enemy_gods"], gods, TEAM_SIZE)
 
-    skill = np.stack(
-        [
-            pd.to_numeric(frame[column], errors="coerce").fillna(0.0).to_numpy(float)
-            for column in SKILL_FEATURES
-        ],
-        axis=1,
-    )
-    if skill_stats is None:
-        skill_stats = {
-            column: (float(skill[:, i].mean()), float(skill[:, i].std() or 1.0))
-            for i, column in enumerate(SKILL_FEATURES)
-        }
-    for i, column in enumerate(SKILL_FEATURES):
-        mean, deviation = skill_stats[column]
-        skill[:, i] = (skill[:, i] - mean) / (deviation or 1.0)
-    encoded["skill"] = skill.astype(np.float32)
+    encoded["skill"], skill_stats = encode_skill(frame, shape, skill_stats)
 
     return encoded, frame["won"].to_numpy(np.float32), skill_stats
+
+
+def encode_skill(
+    frame: pd.DataFrame,
+    shape: Shape = SMITE1,
+    skill_stats: Dict[str, Tuple[float, float]] = None,
+) -> Tuple[np.ndarray, Dict[str, Tuple[float, float]]]:
+    """The normalised skill block, plus the stats used to normalise it.
+
+    Indicators are appended after the normalised columns and are deliberately
+    not themselves normalised: a 0/1 flag means "this was recorded", and
+    centring it would spread that meaning across both values.
+
+    A column that has an indicator is normalised over its *observed* rows only,
+    and its missing rows are imputed at that mean rather than left at zero.
+    Both halves of that matter, and the first Smite 2 model is why. Half its
+    rows have no Rank_Stat_Conquest, so filling with zero and normalising over
+    the mixture put every unrated player 1.92 deviations below the mean — the
+    model read "no rank recorded" as "worst player in the game" and quoted them
+    a 6% win chance on days they won 51.6% of. Held-out ECE was 0.21. It also
+    dragged the mean down for the rated players, so the rows that did carry a
+    rank were mis-scaled too.
+
+    Only columns with an indicator get this. Without a flag to carry the
+    missingness there is nothing to distinguish an imputed row from a real
+    average one, and Smite 1 — whose skill columns are near-always present —
+    keeps the behaviour it was trained under.
+    """
+    columns = list(shape.skill_features)
+    raw = np.stack(
+        [
+            pd.to_numeric(frame[column], errors="coerce").fillna(0.0).to_numpy(float)
+            for column in columns
+        ],
+        axis=1,
+    ) if columns else np.zeros((len(frame), 0), float)
+
+    # Which rows actually recorded the column, for the columns that say so.
+    observed = {
+        column: raw[:, columns.index(column)] > 0
+        for column in shape.skill_indicators
+        if column in columns
+    }
+
+    if skill_stats is None:
+        skill_stats = {}
+        for i, column in enumerate(columns):
+            values = raw[:, i]
+            seen = observed.get(column)
+            if seen is not None and seen.any():
+                values = values[seen]
+            skill_stats[column] = (float(values.mean()), float(values.std() or 1.0))
+
+    skill = raw.copy()
+    for i, column in enumerate(columns):
+        mean, deviation = skill_stats.get(column, (0.0, 1.0))
+        seen = observed.get(column)
+        if seen is not None:
+            skill[~seen, i] = mean
+        skill[:, i] = (skill[:, i] - mean) / (deviation or 1.0)
+
+    if shape.skill_indicators:
+        flags = np.stack(
+            [
+                (
+                    pd.to_numeric(frame[column], errors="coerce").fillna(0.0) > 0
+                ).to_numpy(float)
+                for column in shape.skill_indicators
+            ],
+            axis=1,
+        )
+        skill = np.concatenate([skill, flags], axis=1)
+
+    return skill.astype(np.float32), skill_stats
 
 
 _ROLE_ORDER = ["solo", "jungle", "mid", "support", "carry", "adc"]
@@ -306,16 +500,32 @@ def _encode_composition(
 
 
 def build_vocabularies(
-    frame: pd.DataFrame,
-) -> Tuple[Vocabulary, Vocabulary, Vocabulary]:
+    frame: pd.DataFrame, shape: Shape = SMITE1
+) -> Tuple[Vocabulary, Vocabulary, Vocabulary, Vocabulary]:
+    """Stable index maps for gods, items, roles and Aspects.
+
+    The Aspect vocabulary is empty for a game that has none, which makes its
+    embedding table one row — the "absent" row — rather than a special case in
+    the model.
+    """
     god_ids = pd.to_numeric(frame["GodId"], errors="coerce").dropna().astype(int)
+    item_columns = list(shape.item_columns) + list(shape.relic_columns)
+    if shape.starter_column:
+        item_columns.append(shape.starter_column)
     item_ids = pd.concat(
-        [
-            pd.to_numeric(frame[slot], errors="coerce")
-            for slot in ITEM_SLOTS + RELIC_SLOTS
-        ]
+        [pd.to_numeric(frame[slot], errors="coerce") for slot in item_columns]
     )
     item_ids = item_ids[item_ids > 0].dropna().astype(int)
 
+    aspect_ids: List[int] = []
+    if shape.aspect_column:
+        values = pd.to_numeric(frame[shape.aspect_column], errors="coerce")
+        aspect_ids = values[values > 0].dropna().astype(int).tolist()
+
     roles = Vocabulary(list(range(1, len(_ROLE_ORDER) + 1)))
-    return Vocabulary(god_ids.tolist()), Vocabulary(item_ids.tolist()), roles
+    return (
+        Vocabulary(god_ids.tolist()),
+        Vocabulary(item_ids.tolist()),
+        roles,
+        Vocabulary(aspect_ids),
+    )

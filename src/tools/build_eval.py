@@ -776,15 +776,11 @@ def model_metrics(files: Sequence[str], queues: Sequence[int], recommender):
     import features  # noqa: PLC0415
     import train as train_module  # noqa: PLC0415
 
-    columns = list(
-        dict.fromkeys(
-            ["Match", "TaskForce", "Winning_TaskForce", "GodId", "Role",
-             "match_queue_id"]
-            + features.ITEM_SLOTS
-            + features.RELIC_SLOTS
-            + features.SKILL_FEATURES
-        )
-    )
+    # The model's own shape, not this game's: a model trained before the shape
+    # existed reads the Smite 1 columns whatever corpus it is being scored on,
+    # and asking for columns it never saw would encode a frame it cannot score.
+    shape = recommender.shape
+    columns = features.corpus_columns(shape)
     queue_set = set(int(queue) for queue in queues)
 
     frames = []
@@ -803,7 +799,7 @@ def model_metrics(files: Sequence[str], queues: Sequence[int], recommender):
     frame = features.build_matchup_frame(pd.concat(frames, ignore_index=True))
     if not frame.shape[0]:
         return None
-    frame = train_module.full_builds_only(frame)
+    frame = train_module.full_builds_only(frame, shape)
     if not frame.shape[0]:
         return None
 
@@ -814,14 +810,31 @@ def model_metrics(files: Sequence[str], queues: Sequence[int], recommender):
         recommender.items,
         recommender.roles,
         skill_stats=meta.get("skill_stats"),
+        shape=shape,
+        aspects=recommender.aspects,
     )
     scores = recommender.scorer(encoded)
-    return {
+    metrics = {
         "rows": int(len(labels)),
         "auc": train_module.roc_auc(scores, labels),
         "brier": float(np.mean((scores - labels) ** 2)),
         "reliability": reliability(scores, labels),
     }
+
+    # The claim the trainer made about its calibration, checked on a different
+    # window than the one it was measured on. Training holds out the tail of
+    # its own corpus; this is the eval split, which is later still.
+    if recommender.is_calibrated:
+        calibrated = recommender.scorer.calibrate(scores)
+        import model as model_module  # noqa: PLC0415
+
+        metrics["calibrated"] = {
+            "brier": float(np.mean((calibrated - labels) ** 2)),
+            "ece": model_module.expected_calibration_error(calibrated, labels),
+            "ece_raw": model_module.expected_calibration_error(scores, labels),
+            "reliability": reliability(calibrated, labels),
+        }
+    return metrics
 
 
 # --------------------------------------------------------------------- main
@@ -1351,6 +1364,18 @@ def main() -> int:
                     f"  {row['bin']:<12}{row['n']:>10,}"
                     f"{row['predicted']:>12.3f}{row['actual']:>10.3f}"
                 )
+            if "calibrated" in metrics:
+                fitted = metrics["calibrated"]
+                print(
+                    f"  calibrated: ECE {fitted['ece_raw']:.4f} -> "
+                    f"{fitted['ece']:.4f}   Brier {metrics['brier']:.4f} -> "
+                    f"{fitted['brier']:.4f}"
+                )
+                for row in fitted["reliability"]:
+                    print(
+                        f"  {row['bin']:<12}{row['n']:>10,}"
+                        f"{row['predicted']:>12.3f}{row['actual']:>10.3f}"
+                    )
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:

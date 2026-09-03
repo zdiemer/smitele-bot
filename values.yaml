@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.10.5"
+  tag: "1.11.0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -516,6 +516,45 @@ smite2:
         memory: 2Gi
       limits:
         memory: 4Gi
+
+  # The win-probability model, over the Smite 2 corpus. Same trainer, same
+  # image; `--game smite2` selects the corpus, the output directory and the
+  # feature shape. The shape is the part that is not merely a path: Smite 2 has
+  # one relic where Smite 1 has two, tracker.gg cannot see account level,
+  # mastery or Conquest tier and writes them as zeros, and the starter and the
+  # Aspect are columns Smite 1 has no analogue for. Feeding the Smite 1 layout
+  # to this corpus would spend three inputs on constants and read neither of
+  # the two that are this game's own.
+  trainer:
+    enabled: false
+    image:
+      # Defaults to the Smite 1 trainer's tag, and through it to image.tag.
+      tag: ""
+    # 05:40 Sunday UTC, an hour after Smite 1's. They read the same share and a
+    # weekly job has no reason to contend for it.
+    schedule: "40 5 * * 0"
+    timeZone: "Etc/UTC"
+    # The whole corpus — 737 days as of 2026-09-02, and the row cap below is
+    # what actually bounds the run.
+    days: 3650
+    epochs: 10
+    # Ranked Conquest (2100002). Same reasoning as Smite 1's 451: builds are
+    # queue-specific and mixing modes averages over strategies with nothing to
+    # do with each other. It is 891k complete six-item builds of the corpus's
+    # 6.26M, which is the range where Smite 1's model stopped improving.
+    # Casual Conquest is 2100001 and roughly doubles that if it turns out to be
+    # needed; it is a different player pool, so adding it is a measurement.
+    queues:
+      - 2100002
+    threads: 2
+    activeDeadlineSeconds: 5400
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
 
 # --- smite.diemer.codes -------------------------------------------------------
 #

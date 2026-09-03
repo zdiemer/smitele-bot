@@ -1,27 +1,47 @@
-{{- if .Values.trainer.enabled }}
-{{- if not .Values.matchData.enabled }}
-{{- fail "trainer.enabled requires matchData.enabled — there is no corpus to train on otherwise" }}
-{{- end }}
 {{/*
 Weekly retrain of the build-recommendation model. Writes model.npz and
-candidates.npz to the root of the match-data share, where the bot picks them up.
+candidates.npz where the bot picks them up — the root of the share for Smite 1,
+the smite2/ subtree for Smite 2, matching `paths.game_model_dir`.
 
 Separate image from the bot: this one carries torch, which is ~800MB and only
 needed to fit the model. The bot scores builds with a numpy copy of the same
 forward pass, and training refuses to save if the two disagree.
 
+One job per game, for the reasons the two aggregates are separate jobs: they
+read different corpora, and the models are not interchangeable — the games share
+no god or item vocabulary, and Smite 2's rows carry a starter and an Aspect that
+Smite 1 has no column for.
+
+The two are assembled from different places in values.yaml rather than from one
+map keyed by game, which is what `buildEval` does. `trainer.enabled` is already
+set in the deployed release and in the vault copy of values.local.yaml; moving
+it under `trainer.smite` would rename a key someone has to go and edit before
+the next upgrade renders, to gain symmetry with one other template. Smite 2's
+knobs go where its collector and aggregate already keep theirs.
+
 Manual run:
   kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-trainer smitele-train-manual
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-s2trainer smitele-s2train-manual
 */}}
+{{- $jobs := list (dict "game" "smite" "name" "trainer" "out" "/matchdata/model.npz" "cfg" .Values.trainer) }}
+{{- with .Values.smite2.trainer }}
+{{- $jobs = append $jobs (dict "game" "smite2" "name" "s2trainer" "out" "/matchdata/smite2/model.npz" "cfg" .) }}
+{{- end }}
+{{- range $job := $jobs }}
+{{- $trainer := $job.cfg }}
+{{- if $trainer.enabled }}
+{{- if not $.Values.matchData.enabled }}
+{{- fail (printf "%s.enabled requires matchData.enabled — there is no corpus to train on otherwise" $job.name) }}
+{{- end }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "smitele-bot.fullname" . }}-trainer
+  name: {{ include "smitele-bot.fullname" $ }}-{{ $job.name }}
   labels:
-    {{- include "smitele-bot.labels" . | nindent 4 }}
+    {{- include "smitele-bot.labels" $ | nindent 4 }}
 spec:
-  schedule: {{ .Values.trainer.schedule | quote }}
-  {{- with .Values.trainer.timeZone }}
+  schedule: {{ $trainer.schedule | quote }}
+  {{- with $trainer.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
   concurrencyPolicy: Forbid
@@ -31,42 +51,44 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
-      activeDeadlineSeconds: {{ .Values.trainer.activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ $trainer.activeDeadlineSeconds }}
       template:
         metadata:
           labels:
-            {{- include "smitele-bot.selectorLabels" . | nindent 12 }}
-            app.kubernetes.io/component: trainer
+            {{- include "smitele-bot.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ $job.name }}
         spec:
           restartPolicy: Never
-          {{- include "smitele-bot.imagePullSecrets" . | nindent 10 }}
+          {{- include "smitele-bot.imagePullSecrets" $ | nindent 10 }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
             fsGroup: 1000
           containers:
-            - name: trainer
-              image: "{{ .Values.trainer.image.repository }}:{{ .Values.trainer.image.tag | default .Values.image.tag }}"
-              imagePullPolicy: {{ .Values.image.pullPolicy }}
+            - name: {{ $job.name }}
+              image: "{{ $.Values.trainer.image.repository }}:{{ $trainer.image.tag | default $.Values.trainer.image.tag | default $.Values.image.tag }}"
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
               args:
+                - --game
+                - {{ $job.game }}
                 - --days
-                - {{ .Values.trainer.days | quote }}
+                - {{ $trainer.days | quote }}
                 - --epochs
-                - {{ .Values.trainer.epochs | quote }}
-                {{- range .Values.trainer.queues }}
+                - {{ $trainer.epochs | quote }}
+                {{- range $trainer.queues }}
                 - --queue
                 - {{ . | quote }}
                 {{- end }}
                 - --out
-                - /matchdata/model.npz
+                - {{ $job.out }}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
               env:
-                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
+                {{- include "smitele-bot.credentialEnv" $ | nindent 16 }}
                 # Train on converted days only. A raw JSON day needs many times
                 # its size in memory and would take the job out.
                 - name: SMITELE_CORPUS_PARQUET_ONLY
@@ -76,19 +98,25 @@ spec:
                 # Torch defaults to one thread per core and then thrashes on a
                 # shared node; the job is bounded by its CPU limit anyway.
                 - name: OMP_NUM_THREADS
-                  value: {{ .Values.trainer.threads | quote }}
+                  value: {{ $trainer.threads | quote }}
+                - name: SMITELE_S2_MATCH_DATA_DIR
+                  value: /matchdata/smite2/output
+                - name: SMITELE_S2_MATCH_ARCHIVE_DIR
+                  value: /matchdata/smite2/archive
               volumeMounts:
                 - name: matchdata
                   mountPath: /matchdata
                 - name: tmp
                   mountPath: /tmp
               resources:
-                {{- toYaml .Values.trainer.resources | nindent 16 }}
+                {{- toYaml $trainer.resources | nindent 16 }}
           volumes:
             - name: matchdata
               persistentVolumeClaim:
-                claimName: {{ include "smitele-bot.fullname" . }}-matchdata
+                claimName: {{ include "smitele-bot.fullname" $ }}-matchdata
             - name: tmp
               emptyDir:
                 sizeLimit: 2Gi
+---
+{{- end }}
 {{- end }}
