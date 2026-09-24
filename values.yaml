@@ -121,6 +121,12 @@ matchData:
     - dir_mode=0775
     - file_mode=0664
     - noserverino
+    # A TCP connection of our own. The kernel otherwise multiplexes every mount
+    # of this NAS on a node over one socket, and romm's library scan of
+    # //192.168.4.36/games queues sixteen 4MB reads on it at a time: the
+    # snapshot's single stat() waited behind them until its 300s deadline,
+    # and every 759-file directory walk took 6s instead of 0.12s.
+    - nosharesock
   # SMB username/password live in values.local.yaml.
   username: ""
   password: ""
