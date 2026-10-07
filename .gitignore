@@ -17,6 +17,7 @@
 !src/web/ui/package.json
 !src/web/ui/package-lock.json
 !src/web/ui/tsconfig*.json
+!src/web/ui/public/smite-gods.json
 
 # Installed and generated, not source. dist/ is rebuilt by Dockerfile.web on
 # every image build; node_modules is 100MB of other people's code.

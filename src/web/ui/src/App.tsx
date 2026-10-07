@@ -17,8 +17,10 @@ import Data from './views/Data'
 import ApiHealth from './views/ApiHealth'
 import { PlayerDetail, PlayerList, Smite2Detail } from './views/Players'
 import StatsView from './views/Stats'
+import Smitele from './views/Smitele'
 
 const TABS = [
+  { to: '/smitele', label: 'Smite-le' },
   { to: '/', label: 'Overview', end: true },
   { to: '/data', label: 'Data' },
   { to: '/stats', label: 'Corpus' },
@@ -105,6 +107,7 @@ function Body({ status }: { status: Status | null }) {
   const { path } = usePath()
   const waiting = <Empty>Waiting for a snapshot…</Empty>
 
+  if (match('/smitele', path)) return <Smitele />
   if (match('/', path)) return status ? <Overview status={status} /> : waiting
   if (match('/data', path)) return status ? <Data status={status} /> : waiting
   if (match('/upstreams', path)) return status ? <ApiHealth status={status} /> : waiting

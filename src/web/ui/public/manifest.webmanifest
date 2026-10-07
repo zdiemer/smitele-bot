@@ -1,8 +1,8 @@
 {
-  "name": "Smite · data and API liveness",
-  "short_name": "Smite data",
-  "description": "How fresh the Smite 1 and Smite 2 corpora are, and whether either upstream is refusing us.",
-  "start_url": "/",
+  "name": "Smite-le · daily Smite god game",
+  "short_name": "Smite-le",
+  "description": "Guess the daily Smite god in six clues and share your result.",
+  "start_url": "/smitele",
   "scope": "/",
   "display": "standalone",
   "background_color": "#14171a",

@@ -1,0 +1,4295 @@
+{
+  "version": 1,
+  "gods": [
+    {
+      "id": 3492,
+      "name": "Achilles",
+      "title": "Hero of the Trojan War",
+      "pantheon": "Greek",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/achilles.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/achilles.jpg",
+      "abilities": [
+        {
+          "name": "Shield of Achilles",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shield-of-achilles.jpg"
+        },
+        {
+          "name": "Radiant Glory",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/radiant-glory.jpg"
+        },
+        {
+          "name": "Combat Dodge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/combat-dodge.jpg"
+        },
+        {
+          "name": "Fatal Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fatal-strike.jpg"
+        },
+        {
+          "name": "Gift of the Gods",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gift-of-the-gods.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1737,
+      "name": "Agni",
+      "title": "God of Fire",
+      "pantheon": "Hindu",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/agni.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/agni.jpg",
+      "abilities": [
+        {
+          "name": "Noxious Fumes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/noxious-fumes.jpg"
+        },
+        {
+          "name": "Flame Wave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flame-wave.jpg"
+        },
+        {
+          "name": "Path of Flames",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/path-of-flames.jpg"
+        },
+        {
+          "name": "Rain Fire",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rain-fire.jpg"
+        },
+        {
+          "name": "Combustion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/combustion.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1956,
+      "name": "Ah Muzen Cab",
+      "title": "God of Bees",
+      "pantheon": "Maya",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ah-muzen-cab.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ah-muzen-cab.jpg",
+      "abilities": [
+        {
+          "name": "Hive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hive.jpg"
+        },
+        {
+          "name": "Swarm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/swarm.jpg"
+        },
+        {
+          "name": "Honey",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/honey.jpg"
+        },
+        {
+          "name": "Stinger",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stinger.jpg"
+        },
+        {
+          "name": "Bees!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bees.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2056,
+      "name": "Ah Puch",
+      "title": "Horrific God of Decay",
+      "pantheon": "Maya",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ah-puch.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ah-puch.jpg",
+      "abilities": [
+        {
+          "name": "Undead Surge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/undead-surge.jpg"
+        },
+        {
+          "name": "Corpse Explosion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/corpse-explosion.jpg"
+        },
+        {
+          "name": "Fleeting Breath",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fleeting-breath.jpg"
+        },
+        {
+          "name": "Empty the Crypts",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/empty-the-crypts.jpg"
+        },
+        {
+          "name": "Hollow Ground",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hollow-ground.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2110,
+      "name": "Amaterasu",
+      "title": "The Shining Light",
+      "pantheon": "Japanese",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/amaterasu.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/amaterasu.jpg",
+      "abilities": [
+        {
+          "name": "Divine Presence",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divine-presence.jpg"
+        },
+        {
+          "name": "Heavenly Reflection",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heavenly-reflection.jpg"
+        },
+        {
+          "name": "Glorious Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/glorious-charge.jpg"
+        },
+        {
+          "name": "Dazzling Offensive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dazzling-offensive.jpg"
+        },
+        {
+          "name": "Illuminating Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/illuminating-strike.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1773,
+      "name": "Anhur",
+      "title": "Slayer of Enemies",
+      "pantheon": "Egyptian",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/anhur.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/anhur.jpg",
+      "abilities": [
+        {
+          "name": "Shifting Sands",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shifting-sands.jpg"
+        },
+        {
+          "name": "Impale",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/impale.jpg"
+        },
+        {
+          "name": "Disperse",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/disperse.jpg"
+        },
+        {
+          "name": "Desert Fury",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/desert-fury.jpg"
+        },
+        {
+          "name": "Enfeeble",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/enfeeble.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1668,
+      "name": "Anubis",
+      "title": "God of the Dead",
+      "pantheon": "Egyptian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/anubis.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/anubis.jpg",
+      "abilities": [
+        {
+          "name": "Plague of Locusts",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/plague-of-locusts.jpg"
+        },
+        {
+          "name": "Mummify",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mummify.jpg"
+        },
+        {
+          "name": "Grasping Hands",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/grasping-hands.jpg"
+        },
+        {
+          "name": "Death Gaze",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-gaze.jpg"
+        },
+        {
+          "name": "Sorrow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sorrow.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2034,
+      "name": "Ao Kuang",
+      "title": "Dragon King of the Eastern Seas",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ao-kuang.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ao-kuang.jpg",
+      "abilities": [
+        {
+          "name": "Water Illusion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/water-illusion.jpg"
+        },
+        {
+          "name": "Dragon Call",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dragon-call.jpg"
+        },
+        {
+          "name": "Wild Storm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wild-storm.jpg"
+        },
+        {
+          "name": "King of the Eastern Seas",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/king-of-the-eastern-seas.jpg"
+        },
+        {
+          "name": "Dragon King's Sword",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dragon-kings-sword.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1898,
+      "name": "Aphrodite",
+      "title": "Goddess of Beauty",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/aphrodite.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/aphrodite.jpg",
+      "abilities": [
+        {
+          "name": "Kiss",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/kiss.jpg"
+        },
+        {
+          "name": "Back Off!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/back-off.jpg"
+        },
+        {
+          "name": "Love Birds",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/love-birds.jpg"
+        },
+        {
+          "name": "Undying Love",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/undying-love.jpg"
+        },
+        {
+          "name": "Center of Attention",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/center-of-attention.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1899,
+      "name": "Apollo",
+      "title": "God of Music",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/apollo.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/apollo.jpg",
+      "abilities": [
+        {
+          "name": "So Beautiful",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/so-beautiful.jpg"
+        },
+        {
+          "name": "Serenade",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/serenade.jpg"
+        },
+        {
+          "name": "The Moves",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-moves.jpg"
+        },
+        {
+          "name": "Across The Sky",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/across-the-sky.jpg"
+        },
+        {
+          "name": "Audacity",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/audacity.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1699,
+      "name": "Arachne",
+      "title": "the Weaver",
+      "pantheon": "Greek",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/arachne.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/arachne.jpg",
+      "abilities": [
+        {
+          "name": "Venomous Bite",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/venomous-bite.jpg"
+        },
+        {
+          "name": "Cocoon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cocoon.jpg"
+        },
+        {
+          "name": "Web",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/web.jpg"
+        },
+        {
+          "name": "Night Crawler",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/night-crawler.jpg"
+        },
+        {
+          "name": "Predator",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/predator.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1782,
+      "name": "Ares",
+      "title": "God of War",
+      "pantheon": "Greek",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ares.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ares.jpg",
+      "abilities": [
+        {
+          "name": "Shackles",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shackles.jpg"
+        },
+        {
+          "name": "Bolster Defenses",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bolster-defenses.jpg"
+        },
+        {
+          "name": "Searing Flesh",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/searing-flesh.jpg"
+        },
+        {
+          "name": "No Escape",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/no-escape.jpg"
+        },
+        {
+          "name": "Blessed Presence",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/blessed-presence.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1748,
+      "name": "Artemis",
+      "title": "Goddess of the Hunt",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/artemis.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/artemis.jpg",
+      "abilities": [
+        {
+          "name": "Transgressor's Fate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/transgressors-fate.jpg"
+        },
+        {
+          "name": "Vengeful Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vengeful-assault.jpg"
+        },
+        {
+          "name": "Suppress the Insolent",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/suppress-the-insolent.jpg"
+        },
+        {
+          "name": "Calydonian Boar",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/calydonian-boar.jpg"
+        },
+        {
+          "name": "Still Target",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/still-target.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3336,
+      "name": "Artio",
+      "title": "The Bear Goddess",
+      "pantheon": "Celtic",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/artio.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/artio.jpg",
+      "abilities": [
+        {
+          "name": "Energy Surge (Maul Prey)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/energy-surge.jpg"
+        },
+        {
+          "name": "Entangling Vines (Ferocious Roar)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/entangling-vines.jpg"
+        },
+        {
+          "name": "Life Tap (Heavy Charge)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/life-tap.jpg"
+        },
+        {
+          "name": "Shapeshift",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shapeshift.jpg"
+        },
+        {
+          "name": "Decompose",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/decompose.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1919,
+      "name": "Athena",
+      "title": "Goddess of Wisdom",
+      "pantheon": "Greek",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/athena.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/athena.jpg",
+      "abilities": [
+        {
+          "name": "Preemptive Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/preemptive-strike.jpg"
+        },
+        {
+          "name": "Confound",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/confound.jpg"
+        },
+        {
+          "name": "Shield Wall",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shield-wall.jpg"
+        },
+        {
+          "name": "Defender of Olympus",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/defender-of-olympus.jpg"
+        },
+        {
+          "name": "Reach",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/reach.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4034,
+      "name": "Atlas",
+      "title": "Titan of the Cosmos",
+      "pantheon": "Greek",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/atlas.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/atlas.jpg",
+      "abilities": [
+        {
+          "name": "Unburden",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unburden.jpg"
+        },
+        {
+          "name": "Gravity Pull",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gravity-pull.jpg"
+        },
+        {
+          "name": "Kinetic Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/kinetic-charge.jpg"
+        },
+        {
+          "name": "Gamma-Ray Burst",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gamma-ray-burst.jpg"
+        },
+        {
+          "name": "The Astrolabe",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-astrolabe.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2037,
+      "name": "Awilix",
+      "title": "Goddess of the Moon",
+      "pantheon": "Maya",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/awilix.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/awilix.jpg",
+      "abilities": [
+        {
+          "name": "Summon Suku",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/summon-suku.jpg"
+        },
+        {
+          "name": "Feather Step",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/feather-step.jpg"
+        },
+        {
+          "name": "Moonlight Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/moonlight-charge.jpg"
+        },
+        {
+          "name": "Gravity Surge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gravity-surge.jpg"
+        },
+        {
+          "name": "Initiative",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/initiative.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3925,
+      "name": "Baba Yaga",
+      "title": "Witch of the Woods",
+      "pantheon": "Slavic",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/baba-yaga.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/baba-yaga.jpg",
+      "abilities": [
+        {
+          "name": "Wild Witchcraft",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wild-witchcraft.jpg"
+        },
+        {
+          "name": "Baba's Brew",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/babas-brew.jpg"
+        },
+        {
+          "name": "Blast Off!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/blast-off.jpg"
+        },
+        {
+          "name": "Home Sweet Home",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/home-sweet-home.jpg"
+        },
+        {
+          "name": "Creeping Cabin",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/creeping-cabin.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1809,
+      "name": "Bacchus",
+      "title": "God of Wine",
+      "pantheon": "Roman",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/bacchus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/bacchus.jpg",
+      "abilities": [
+        {
+          "name": "Chug",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/chug.jpg"
+        },
+        {
+          "name": "Belly Flop",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/belly-flop.jpg"
+        },
+        {
+          "name": "Belch of the Gods",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/belch-of-the-gods.jpg"
+        },
+        {
+          "name": "Intoxicate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/intoxicate.jpg"
+        },
+        {
+          "name": "Drunk-O-Meter",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/drunk-o-meter.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1755,
+      "name": "Bakasura",
+      "title": "the Great Devourer",
+      "pantheon": "Hindu",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/bakasura.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/bakasura.jpg",
+      "abilities": [
+        {
+          "name": "Take Down",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/take-down.jpg"
+        },
+        {
+          "name": "Eat Minion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/eat-minion.jpg"
+        },
+        {
+          "name": "Butcher Blades",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/butcher-blades.jpg"
+        },
+        {
+          "name": "Regurgitate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/regurgitate.jpg"
+        },
+        {
+          "name": "Insatiable Hunger",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/insatiable-hunger.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4312,
+      "name": "Bake Kujira",
+      "title": "Yokai of Despair",
+      "pantheon": "Japanese",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/bake-kujira.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/bake-kujira.jpg",
+      "abilities": [
+        {
+          "name": "Rough Waters",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rough-waters.jpg"
+        },
+        {
+          "name": "Sonic Wave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sonic-wave.jpg"
+        },
+        {
+          "name": "Twisting Dive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/twisting-dive.jpg"
+        },
+        {
+          "name": "Yokai's Lament",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/yokais-lament.jpg"
+        },
+        {
+          "name": "Curse of the Ghost Whale",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/curse-of-the-ghost-whale.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3518,
+      "name": "Baron Samedi",
+      "title": "God of Life and Death",
+      "pantheon": "Voodoo",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/baron-samedi.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/baron-samedi.jpg",
+      "abilities": [
+        {
+          "name": "Vivid Gaze",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vivid-gaze.jpg"
+        },
+        {
+          "name": "Consign Spirits",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/consign-spirits.jpg"
+        },
+        {
+          "name": "Wrap It Up",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wrap-it-up.jpg"
+        },
+        {
+          "name": "Life of the Party",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/life-of-the-party.jpg"
+        },
+        {
+          "name": "Hysteria",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hysteria.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1678,
+      "name": "Bastet",
+      "title": "Goddess of Cats",
+      "pantheon": "Egyptian",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/bastet.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/bastet.jpg",
+      "abilities": [
+        {
+          "name": "Pounce",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pounce.jpg"
+        },
+        {
+          "name": "Razor Whip",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/razor-whip.jpg"
+        },
+        {
+          "name": "Ensnaring Claw",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ensnaring-claw.jpg"
+        },
+        {
+          "name": "Huntress of Bast",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/huntress-of-bast.jpg"
+        },
+        {
+          "name": "Nightstalker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/nightstalker.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2047,
+      "name": "Bellona",
+      "title": "Goddess of War",
+      "pantheon": "Roman",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/bellona.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/bellona.jpg",
+      "abilities": [
+        {
+          "name": "Shield Bash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shield-bash.jpg"
+        },
+        {
+          "name": "Bludgeon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bludgeon.jpg"
+        },
+        {
+          "name": "Scourge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/scourge.jpg"
+        },
+        {
+          "name": "Eagle's Rally",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/eagles-rally.jpg"
+        },
+        {
+          "name": "Master of War",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/master-of-war.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2008,
+      "name": "Cabrakan",
+      "title": "Destroyer of Mountains",
+      "pantheon": "Maya",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cabrakan.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cabrakan.jpg",
+      "abilities": [
+        {
+          "name": "Seismic Crush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/seismic-crush.jpg"
+        },
+        {
+          "name": "Refraction Shield",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/refraction-shield.jpg"
+        },
+        {
+          "name": "Tremors",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tremors.jpg"
+        },
+        {
+          "name": "Tectonic Shift",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tectonic-shift.jpg"
+        },
+        {
+          "name": "Shadow Zone",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shadow-zone.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2189,
+      "name": "Camazotz",
+      "title": "Deadly God of Bats",
+      "pantheon": "Maya",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/camazotz.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/camazotz.jpg",
+      "abilities": [
+        {
+          "name": "Screech",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/screech.jpg"
+        },
+        {
+          "name": "Vampire Bats",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vampire-bats.jpg"
+        },
+        {
+          "name": "Devour",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/devour.jpg"
+        },
+        {
+          "name": "Bat Out of Hell",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bat-out-of-hell.jpg"
+        },
+        {
+          "name": "Essence Drinker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/essence-drinker.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3419,
+      "name": "Cerberus",
+      "title": "Warden of the Underworld",
+      "pantheon": "Greek",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cerberus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cerberus.jpg",
+      "abilities": [
+        {
+          "name": "Paralyzing Spit",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/paralyzing-spit.jpg"
+        },
+        {
+          "name": "Ghastly Breath",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ghastly-breath.jpg"
+        },
+        {
+          "name": "Soul Expulsion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/soul-expulsion.jpg"
+        },
+        {
+          "name": "Stygian Torment",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stygian-torment.jpg"
+        },
+        {
+          "name": "Spirit of Death",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-of-death.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2268,
+      "name": "Cernunnos",
+      "title": "The Horned God",
+      "pantheon": "Celtic",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cernunnos.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cernunnos.jpg",
+      "abilities": [
+        {
+          "name": "Shifter of Seasons",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shifter-of-seasons.jpg"
+        },
+        {
+          "name": "Bramble Blast",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bramble-blast.jpg"
+        },
+        {
+          "name": "Horn Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/horn-charge.jpg"
+        },
+        {
+          "name": "The Wild Hunt",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-wild-hunt.jpg"
+        },
+        {
+          "name": "Heavy Glaive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heavy-glaive.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1966,
+      "name": "Chaac",
+      "title": "God of Rain",
+      "pantheon": "Maya",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/chaac.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/chaac.jpg",
+      "abilities": [
+        {
+          "name": "Thunder Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/thunder-strike.jpg"
+        },
+        {
+          "name": "Torrent",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/torrent.jpg"
+        },
+        {
+          "name": "Rain Dance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rain-dance.jpg"
+        },
+        {
+          "name": "Storm Call",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/storm-call.jpg"
+        },
+        {
+          "name": "Overflow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overflow.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1921,
+      "name": "Chang'e",
+      "title": "Faerie of the Moon",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/change.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/change.jpg",
+      "abilities": [
+        {
+          "name": "Crescent Moon Dance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crescent-moon-dance.jpg"
+        },
+        {
+          "name": "Moonlit Waltz",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/moonlit-waltz.jpg"
+        },
+        {
+          "name": "Moonflower Dance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/moonflower-dance.jpg"
+        },
+        {
+          "name": "Waxing Moon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/waxing-moon.jpg"
+        },
+        {
+          "name": "Jade Rabbit",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/jade-rabbit.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4268,
+      "name": "Charon",
+      "title": "The Ferryman",
+      "pantheon": "Greek",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/charon.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/charon.jpg",
+      "abilities": [
+        {
+          "name": "Spectral Surge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spectral-surge.jpg"
+        },
+        {
+          "name": "Damnation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/damnation.jpg"
+        },
+        {
+          "name": "Swift Voyage",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/swift-voyage.jpg"
+        },
+        {
+          "name": "Summon Styx",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/summon-styx.jpg"
+        },
+        {
+          "name": "Ferryman of Souls",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ferryman-of-souls.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4010,
+      "name": "Charybdis",
+      "title": "The Ceaseless Whirlpool",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/charybdis.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/charybdis.jpg",
+      "abilities": [
+        {
+          "name": "Spike Shot",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spike-shot.jpg"
+        },
+        {
+          "name": "Capsize",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/capsize.jpg"
+        },
+        {
+          "name": "Whirlpool Form",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/whirlpool-form.jpg"
+        },
+        {
+          "name": "The Maw Hungers",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-maw-hungers.jpg"
+        },
+        {
+          "name": "Raging Tides",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/raging-tides.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3509,
+      "name": "Chernobog",
+      "title": "Lord of Darkness",
+      "pantheon": "Slavic",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/chernobog.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/chernobog.jpg",
+      "abilities": [
+        {
+          "name": "Crystallized Curses",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crystallized-curses.jpg"
+        },
+        {
+          "name": "Vicious Barrage",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vicious-barrage.jpg"
+        },
+        {
+          "name": "Into Darkness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/into-darkness.jpg"
+        },
+        {
+          "name": "Living Nightmare",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/living-nightmare.jpg"
+        },
+        {
+          "name": "Heart of Cold",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heart-of-cold.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2075,
+      "name": "Chiron",
+      "title": "The Great Teacher",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/chiron.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/chiron.jpg",
+      "abilities": [
+        {
+          "name": "Training Exercise",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/training-exercise.jpg"
+        },
+        {
+          "name": "Masterful Shot",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/masterful-shot.jpg"
+        },
+        {
+          "name": "Giddyup!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/giddyup.jpg"
+        },
+        {
+          "name": "Centaurus",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/centaurus.jpg"
+        },
+        {
+          "name": "Herbal Medicine",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/herbal-medicine.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1920,
+      "name": "Chronos",
+      "title": "Keeper of Time",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/chronos.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/chronos.jpg",
+      "abilities": [
+        {
+          "name": "Time Rift",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/time-rift.jpg"
+        },
+        {
+          "name": "Accelerate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/accelerate.jpg"
+        },
+        {
+          "name": "Stop Time",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stop-time.jpg"
+        },
+        {
+          "name": "Rewind",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rewind.jpg"
+        },
+        {
+          "name": "Time Lord",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/time-lord.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4017,
+      "name": "Cliodhna",
+      "title": "Queen of the Banshees",
+      "pantheon": "Celtic",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cliodhna.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cliodhna.jpg",
+      "abilities": [
+        {
+          "name": "Banshee's Wail",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/banshees-wail.jpg"
+        },
+        {
+          "name": "Flickering Visions",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flickering-visions.jpg"
+        },
+        {
+          "name": "Lurching Claw",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lurching-claw.jpg"
+        },
+        {
+          "name": "Tearing The Veil",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tearing-the-veil.jpg"
+        },
+        {
+          "name": "Phantasmal",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/phantasmal.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3945,
+      "name": "Cthulhu",
+      "title": "The Great Dreamer",
+      "pantheon": "Great Old Ones",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cthulhu.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cthulhu.jpg",
+      "abilities": [
+        {
+          "name": "Sanity Break",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sanity-break.jpg"
+        },
+        {
+          "name": "The Mire",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-mire.jpg"
+        },
+        {
+          "name": "Rushing Terror",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rushing-terror.jpg"
+        },
+        {
+          "name": "Descend into Madness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/descend-into-madness.jpg"
+        },
+        {
+          "name": "Prey on Fear",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/prey-on-fear.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2319,
+      "name": "Cu Chulainn",
+      "title": "Hound of Ulster",
+      "pantheon": "Celtic",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cu-chulainn.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cu-chulainn.jpg",
+      "abilities": [
+        {
+          "name": "Barbed Spear (Ground Slam)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/barbed-spear.jpg"
+        },
+        {
+          "name": "Vent Anger",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vent-anger.jpg"
+        },
+        {
+          "name": "Salmon's Leap (Furious Charge)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/salmons-leap.jpg"
+        },
+        {
+          "name": "Spear of Mortal Pain (War Cry)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spear-of-mortal-pain.jpg"
+        },
+        {
+          "name": "Berserk",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/berserk.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1778,
+      "name": "Cupid",
+      "title": "God of Love",
+      "pantheon": "Roman",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/cupid.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/cupid.jpg",
+      "abilities": [
+        {
+          "name": "Heart Bomb",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heart-bomb.jpg"
+        },
+        {
+          "name": "Share the Love",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/share-the-love.jpg"
+        },
+        {
+          "name": "Flutter",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flutter.jpg"
+        },
+        {
+          "name": "Fields of Love",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fields-of-love.jpg"
+        },
+        {
+          "name": "Lovestruck",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lovestruck.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2270,
+      "name": "Da Ji",
+      "title": "The Nine-Tailed Fox",
+      "pantheon": "Chinese",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/da-ji.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/da-ji.jpg",
+      "abilities": [
+        {
+          "name": "Horrible Burns",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/horrible-burns.jpg"
+        },
+        {
+          "name": "One Thousand Cuts",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/one-thousand-cuts.jpg"
+        },
+        {
+          "name": "Trickster Spirit",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/trickster-spirit.jpg"
+        },
+        {
+          "name": "Paolao",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/paolao.jpg"
+        },
+        {
+          "name": "Torture Blades",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/torture-blades.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3984,
+      "name": "Danzaburou",
+      "title": "The Legendary Tanuki",
+      "pantheon": "Japanese",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/danzaburou.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/danzaburou.jpg",
+      "abilities": [
+        {
+          "name": "Fool's Gold",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fools-gold.jpg"
+        },
+        {
+          "name": "Alluring Spirits",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/alluring-spirits.jpg"
+        },
+        {
+          "name": "Tanuki Trickery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tanuki-trickery.jpg"
+        },
+        {
+          "name": "Uproarious Rocket",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/uproarious-rocket.jpg"
+        },
+        {
+          "name": "Dubious Savings",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dubious-savings.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3377,
+      "name": "Discordia",
+      "title": "Goddess of Strife",
+      "pantheon": "Roman",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/discordia.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/discordia.jpg",
+      "abilities": [
+        {
+          "name": "Unruly Magic",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unruly-magic.jpg"
+        },
+        {
+          "name": "Strife",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/strife.jpg"
+        },
+        {
+          "name": "Erratic Behavior",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/erratic-behavior.jpg"
+        },
+        {
+          "name": "Golden Apple of Discord",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/golden-apple-of-discord.jpg"
+        },
+        {
+          "name": "Contest of Gods",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/contest-of-gods.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2138,
+      "name": "Erlang Shen",
+      "title": "The Illustrious Sage",
+      "pantheon": "Chinese",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/erlang-shen.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/erlang-shen.jpg",
+      "abilities": [
+        {
+          "name": "Spot Weakness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spot-weakness.jpg"
+        },
+        {
+          "name": "Pin",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pin.jpg"
+        },
+        {
+          "name": "72 Transformations",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/72-transformations.jpg"
+        },
+        {
+          "name": "9 Turns Blessing",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/9-turns-blessing.jpg"
+        },
+        {
+          "name": "Howling Celestial Dog",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/howling-celestial-dog.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1918,
+      "name": "Eset",
+      "title": "Goddess of Magic",
+      "pantheon": "Egyptian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/eset.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/eset.jpg",
+      "abilities": [
+        {
+          "name": "Wing Gust",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wing-gust.jpg"
+        },
+        {
+          "name": "Spirit Ball",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-ball.jpg"
+        },
+        {
+          "name": "Dispel Magic",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dispel-magic.jpg"
+        },
+        {
+          "name": "Circle of Protection",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/circle-of-protection.jpg"
+        },
+        {
+          "name": "Funeral Rites",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/funeral-rites.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2136,
+      "name": "Fafnir",
+      "title": "The Lord of Glittering Gold",
+      "pantheon": "Norse",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/fafnir.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/fafnir.jpg",
+      "abilities": [
+        {
+          "name": "Cursed Strength",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cursed-strength.jpg"
+        },
+        {
+          "name": "Coerce",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/coerce.jpg"
+        },
+        {
+          "name": "Underhanded Tactics",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/underhanded-tactics.jpg"
+        },
+        {
+          "name": "Draconic Corruption",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/draconic-corruption.jpg"
+        },
+        {
+          "name": "Endless Greed",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/endless-greed.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1843,
+      "name": "Fenrir",
+      "title": "the Unbound",
+      "pantheon": "Norse",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/fenrir.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/fenrir.jpg",
+      "abilities": [
+        {
+          "name": "Unchained",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unchained.jpg"
+        },
+        {
+          "name": "Seething Howl",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/seething-howl.jpg"
+        },
+        {
+          "name": "Brutalize",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/brutalize.jpg"
+        },
+        {
+          "name": "Ragnarok",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ragnarok.jpg"
+        },
+        {
+          "name": "Unbound Runes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unbound-runes.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1784,
+      "name": "Freya",
+      "title": "Queen of the Valkyries",
+      "pantheon": "Norse",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/freya.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/freya.jpg",
+      "abilities": [
+        {
+          "name": "Irradiate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/irradiate.jpg"
+        },
+        {
+          "name": "Pulse",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pulse.jpg"
+        },
+        {
+          "name": "Banish",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/banish.jpg"
+        },
+        {
+          "name": "Valkyrie's Discretion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/valkyries-discretion.jpg"
+        },
+        {
+          "name": "Brisingamen's Blessing",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/brisingamens-blessing.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2269,
+      "name": "Ganesha",
+      "title": "God of Success",
+      "pantheon": "Hindu",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ganesha.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ganesha.jpg",
+      "abilities": [
+        {
+          "name": "Turn of Fate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/turn-of-fate.jpg"
+        },
+        {
+          "name": "Ohm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ohm.jpg"
+        },
+        {
+          "name": "Remove Obstacles",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/remove-obstacles.jpg"
+        },
+        {
+          "name": "Dharmic Pillars",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dharmic-pillars.jpg"
+        },
+        {
+          "name": "Good Fortune",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/good-fortune.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1978,
+      "name": "Geb",
+      "title": "God of Earth",
+      "pantheon": "Egyptian",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/geb.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/geb.jpg",
+      "abilities": [
+        {
+          "name": "Roll Out",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/roll-out.jpg"
+        },
+        {
+          "name": "Shock Wave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shock-wave.jpg"
+        },
+        {
+          "name": "Stone Shield",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stone-shield.jpg"
+        },
+        {
+          "name": "Cataclysm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cataclysm.jpg"
+        },
+        {
+          "name": "Hard as Rock",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hard-as-rock.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3997,
+      "name": "Gilgamesh",
+      "title": "King Of Uruk",
+      "pantheon": "Babylonian",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/gilgamesh.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/gilgamesh.jpg",
+      "abilities": [
+        {
+          "name": "Sun-forged Scimitar",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sun-forged-scimitar.jpg"
+        },
+        {
+          "name": "Drop Kick",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/drop-kick.jpg"
+        },
+        {
+          "name": "Hero's Advance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heros-advance.jpg"
+        },
+        {
+          "name": "Winds of Shamash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/winds-of-shamash.jpg"
+        },
+        {
+          "name": "Epic of Gilgamesh",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/epic-of-gilgamesh.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1763,
+      "name": "Guan Yu",
+      "title": "Saint of War",
+      "pantheon": "Chinese",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/guan-yu.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/guan-yu.jpg",
+      "abilities": [
+        {
+          "name": "Conviction",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/conviction.jpg"
+        },
+        {
+          "name": "Warrior's Will",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/warriors-will.jpg"
+        },
+        {
+          "name": "Taolu Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/taolu-assault.jpg"
+        },
+        {
+          "name": "Cavalry Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cavalry-charge.jpg"
+        },
+        {
+          "name": "Painless",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/painless.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3344,
+      "name": "Hachiman",
+      "title": "Lord of the Eight Banners",
+      "pantheon": "Japanese",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hachiman.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hachiman.jpg",
+      "abilities": [
+        {
+          "name": "Eagle Eye",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/eagle-eye.jpg"
+        },
+        {
+          "name": "Heavenly Banner",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/heavenly-banner.jpg"
+        },
+        {
+          "name": "Iaijutsu",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/iaijutsu.jpg"
+        },
+        {
+          "name": "Mounted Archery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mounted-archery.jpg"
+        },
+        {
+          "name": "Master of Arms",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/master-of-arms.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1676,
+      "name": "Hades",
+      "title": "King of the Underworld",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hades.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hades.jpg",
+      "abilities": [
+        {
+          "name": "Death From Below",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-from-below.jpg"
+        },
+        {
+          "name": "Shroud of Darkness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shroud-of-darkness.jpg"
+        },
+        {
+          "name": "Devour Souls",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/devour-souls.jpg"
+        },
+        {
+          "name": "Pillar of Agony",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pillar-of-agony.jpg"
+        },
+        {
+          "name": "Blight",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/blight.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1674,
+      "name": "He Bo",
+      "title": "God of the Yellow River",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/he-bo.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/he-bo.jpg",
+      "abilities": [
+        {
+          "name": "Water Cannon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/water-cannon.jpg"
+        },
+        {
+          "name": "Atlas of the Yellow River",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/atlas-of-the-yellow-river.jpg"
+        },
+        {
+          "name": "Waterspout",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/waterspout.jpg"
+        },
+        {
+          "name": "Crushing Wave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crushing-wave.jpg"
+        },
+        {
+          "name": "Steady Flow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/steady-flow.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3812,
+      "name": "Heimdallr",
+      "title": "The Vigilant",
+      "pantheon": "Norse",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/heimdallr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/heimdallr.jpg",
+      "abilities": [
+        {
+          "name": "Piercing Sight",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/piercing-sight.jpg"
+        },
+        {
+          "name": "Gjallarhorn",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gjallarhorn.jpg"
+        },
+        {
+          "name": "The Bifrost",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-bifrost.jpg"
+        },
+        {
+          "name": "Through The Realms",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/through-the-realms.jpg"
+        },
+        {
+          "name": "The Vigilant",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-vigilant.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1718,
+      "name": "Hel",
+      "title": "Goddess of the Underworld",
+      "pantheon": "Norse",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hel.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hel.jpg",
+      "abilities": [
+        {
+          "name": "Decay (Restoration)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/decay.jpg"
+        },
+        {
+          "name": "Hinder (Cleanse)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hinder.jpg"
+        },
+        {
+          "name": "Repulse (Inspire)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/repulse.jpg"
+        },
+        {
+          "name": "Switch Stances (Light)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/switch-stances.jpg"
+        },
+        {
+          "name": "Stance Attunement",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stance-attunement.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3558,
+      "name": "Hera",
+      "title": "Queen of the Gods",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hera.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hera.jpg",
+      "abilities": [
+        {
+          "name": "Royal Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/royal-assault.jpg"
+        },
+        {
+          "name": "Polymorph",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/polymorph.jpg"
+        },
+        {
+          "name": "Divine Shroud",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divine-shroud.jpg"
+        },
+        {
+          "name": "Argus, the Defender",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/argus-the-defender.jpg"
+        },
+        {
+          "name": "Commanding Presence",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/commanding-presence.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1848,
+      "name": "Hercules",
+      "title": "Champion of Rome",
+      "pantheon": "Roman",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hercules.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hercules.jpg",
+      "abilities": [
+        {
+          "name": "Driving Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/driving-strike.jpg"
+        },
+        {
+          "name": "Earthbreaker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/earthbreaker.jpg"
+        },
+        {
+          "name": "Mitigate Wounds",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mitigate-wounds.jpg"
+        },
+        {
+          "name": "Excavate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/excavate.jpg"
+        },
+        {
+          "name": "Strength from Pain",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/strength-from-pain.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3611,
+      "name": "Horus",
+      "title": "The Rightful Heir",
+      "pantheon": "Egyptian",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/horus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/horus.jpg",
+      "abilities": [
+        {
+          "name": "Updraft",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/updraft.jpg"
+        },
+        {
+          "name": "Fracture",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fracture.jpg"
+        },
+        {
+          "name": "Protector's Surge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/protectors-surge.jpg"
+        },
+        {
+          "name": "To The Skies!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/to-the-skies.jpg"
+        },
+        {
+          "name": "Resolute",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/resolute.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2040,
+      "name": "Hou Yi",
+      "title": "Defender of the Earth",
+      "pantheon": "Chinese",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hou-yi.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hou-yi.jpg",
+      "abilities": [
+        {
+          "name": "Ricochet",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ricochet.jpg"
+        },
+        {
+          "name": "Mark of the Golden Crow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mark-of-the-golden-crow.jpg"
+        },
+        {
+          "name": "Divebomb",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divebomb.jpg"
+        },
+        {
+          "name": "Sunbreaker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sunbreaker.jpg"
+        },
+        {
+          "name": "Suntouched",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/suntouched.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1673,
+      "name": "Hun Batz",
+      "title": "the Howler Monkey God",
+      "pantheon": "Maya",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/hun-batz.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/hun-batz.jpg",
+      "abilities": [
+        {
+          "name": "Somersault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/somersault.jpg"
+        },
+        {
+          "name": "Overhand Smash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overhand-smash.jpg"
+        },
+        {
+          "name": "Sacred Monkey",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sacred-monkey.jpg"
+        },
+        {
+          "name": "Fear No Evil",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fear-no-evil.jpg"
+        },
+        {
+          "name": "Infused Strikes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/infused-strikes.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4137,
+      "name": "Ishtar",
+      "title": "Goddess of Love and War",
+      "pantheon": "Babylonian",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ishtar.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ishtar.jpg",
+      "abilities": [
+        {
+          "name": "Imbue Arrows",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/imbue-arrows.jpg"
+        },
+        {
+          "name": "Rolling Thunder",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rolling-thunder.jpg"
+        },
+        {
+          "name": "Jolt",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/jolt.jpg"
+        },
+        {
+          "name": "Blades of Retribution",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/blades-of-retribution.jpg"
+        },
+        {
+          "name": "Mark of Vengeance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mark-of-vengeance.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4242,
+      "name": "Ix Chel",
+      "title": "The Light Weaver",
+      "pantheon": "Maya",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ix-chel.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ix-chel.jpg",
+      "abilities": [
+        {
+          "name": "Gleaming Blast (Threads of Light)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gleaming-blast.jpg"
+        },
+        {
+          "name": "Lunar Invocation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lunar-invocation.jpg"
+        },
+        {
+          "name": "Rainbow Crash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rainbow-crash.jpg"
+        },
+        {
+          "name": "Great End",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/great-end.jpg"
+        },
+        {
+          "name": "Rainbow Weaver",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rainbow-weaver.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2179,
+      "name": "Izanami",
+      "title": "Matron of the Dead",
+      "pantheon": "Japanese",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/izanami.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/izanami.jpg",
+      "abilities": [
+        {
+          "name": "Sickle Storm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sickle-storm.jpg"
+        },
+        {
+          "name": "Spectral Projection",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spectral-projection.jpg"
+        },
+        {
+          "name": "Fade Away",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fade-away.jpg"
+        },
+        {
+          "name": "Dark Portal",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dark-portal.jpg"
+        },
+        {
+          "name": "Death Draws Nigh",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-draws-nigh.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1999,
+      "name": "Janus",
+      "title": "God of Portals and Transitions",
+      "pantheon": "Roman",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/janus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/janus.jpg",
+      "abilities": [
+        {
+          "name": "Portal",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/portal.jpg"
+        },
+        {
+          "name": "Unstable Vortex",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unstable-vortex.jpg"
+        },
+        {
+          "name": "Threshold",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/threshold.jpg"
+        },
+        {
+          "name": "Through Space and Time",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/through-space-and-time.jpg"
+        },
+        {
+          "name": "Passages",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/passages.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2122,
+      "name": "Jing Wei",
+      "title": "The Oathkeeper",
+      "pantheon": "Chinese",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/jing-wei.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/jing-wei.jpg",
+      "abilities": [
+        {
+          "name": "Persistent Gust",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/persistent-gust.jpg"
+        },
+        {
+          "name": "Explosive Bolts",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/explosive-bolts.jpg"
+        },
+        {
+          "name": "Agility",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/agility.jpg"
+        },
+        {
+          "name": "Air Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/air-strike.jpg"
+        },
+        {
+          "name": "Rapid Reincarnation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rapid-reincarnation.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3585,
+      "name": "Jormungandr",
+      "title": "The World Serpent",
+      "pantheon": "Norse",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/jormungandr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/jormungandr.jpg",
+      "abilities": [
+        {
+          "name": "Venomous Haze",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/venomous-haze.jpg"
+        },
+        {
+          "name": "Consuming Bellow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/consuming-bellow.jpg"
+        },
+        {
+          "name": "Submerge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/submerge.jpg"
+        },
+        {
+          "name": "The World Serpent",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-world-serpent.jpg"
+        },
+        {
+          "name": "Immovable",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/immovable.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1649,
+      "name": "Kali",
+      "title": "Goddess of Destruction",
+      "pantheon": "Hindu",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/kali.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/kali.jpg",
+      "abilities": [
+        {
+          "name": "Nimble Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/nimble-strike.jpg"
+        },
+        {
+          "name": "Lash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lash.jpg"
+        },
+        {
+          "name": "Incense",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/incense.jpg"
+        },
+        {
+          "name": "Destruction",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/destruction.jpg"
+        },
+        {
+          "name": "Marked for Death",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/marked-for-death.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2066,
+      "name": "Khepri",
+      "title": "The Dawn Bringer",
+      "pantheon": "Egyptian",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/khepri.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/khepri.jpg",
+      "abilities": [
+        {
+          "name": "Abduct",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/abduct.jpg"
+        },
+        {
+          "name": "Rising Dawn",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rising-dawn.jpg"
+        },
+        {
+          "name": "Solar Flare",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/solar-flare.jpg"
+        },
+        {
+          "name": "Scarab's Blessing",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/scarabs-blessing.jpg"
+        },
+        {
+          "name": "Fortitude",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fortitude.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3565,
+      "name": "King Arthur",
+      "title": "Wielder of Excalibur",
+      "pantheon": "Arthurian",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/king-arthur.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/king-arthur.jpg",
+      "abilities": [
+        {
+          "name": "Overhead Slash (Hamstring)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overhead-slash.jpg"
+        },
+        {
+          "name": "Battle Stomp (Uppercut)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/battle-stomp.jpg"
+        },
+        {
+          "name": "Twin Cleave (Bladestorm)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/twin-cleave.jpg"
+        },
+        {
+          "name": "Sundering Strike (Excalibur's Wrath)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sundering-strike.jpg"
+        },
+        {
+          "name": "Steadfast",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/steadfast.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1677,
+      "name": "Kukulkan",
+      "title": "Serpent of the Nine Winds",
+      "pantheon": "Maya",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/kukulkan.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/kukulkan.jpg",
+      "abilities": [
+        {
+          "name": "Zephyr",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/zephyr.jpg"
+        },
+        {
+          "name": "Slipstream",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/slipstream.jpg"
+        },
+        {
+          "name": "Whirlwind",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/whirlwind.jpg"
+        },
+        {
+          "name": "Spirit Of The Nine Winds",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-of-the-nine-winds.jpg"
+        },
+        {
+          "name": "Power Of The Wind Jewel",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/power-of-the-wind-jewel.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1993,
+      "name": "Kumbhakarna",
+      "title": "The Sleeping Giant",
+      "pantheon": "Hindu",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/kumbhakarna.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/kumbhakarna.jpg",
+      "abilities": [
+        {
+          "name": "Throw Back",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/throw-back.jpg"
+        },
+        {
+          "name": "Groggy Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/groggy-strike.jpg"
+        },
+        {
+          "name": "Mighty Yawn",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mighty-yawn.jpg"
+        },
+        {
+          "name": "Epic Uppercut",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/epic-uppercut.jpg"
+        },
+        {
+          "name": "Sleepy",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sleepy.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2260,
+      "name": "Kuzenbo",
+      "title": "King Kappa",
+      "pantheon": "Japanese",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/kuzenbo.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/kuzenbo.jpg",
+      "abilities": [
+        {
+          "name": "NeNe Kappa",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/nene-kappa.jpg"
+        },
+        {
+          "name": "Shell Spikes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shell-spikes.jpg"
+        },
+        {
+          "name": "Sumo Slam",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sumo-slam.jpg"
+        },
+        {
+          "name": "Watery Grave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/watery-grave.jpg"
+        },
+        {
+          "name": "Water Bowl",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/water-bowl.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4075,
+      "name": "Lancelot",
+      "title": "First Knight of the Round Table",
+      "pantheon": "Arthurian",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/lancelot.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/lancelot.jpg",
+      "abilities": [
+        {
+          "name": "Piercing Thrust",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/piercing-thrust.jpg"
+        },
+        {
+          "name": "Skilled Strikes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/skilled-strikes.jpg"
+        },
+        {
+          "name": "Mount up",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mount-up.jpg"
+        },
+        {
+          "name": "The Grand Joust",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-grand-joust.jpg"
+        },
+        {
+          "name": "Camelot's Quest",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/camelots-quest.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1797,
+      "name": "Loki",
+      "title": "The Trickster God",
+      "pantheon": "Norse",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/loki.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/loki.jpg",
+      "abilities": [
+        {
+          "name": "Vanish",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vanish.jpg"
+        },
+        {
+          "name": "Agonizing Visions",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/agonizing-visions.jpg"
+        },
+        {
+          "name": "Flurry Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flurry-strike.jpg"
+        },
+        {
+          "name": "Assassinate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/assassinate.jpg"
+        },
+        {
+          "name": "Behind You!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/behind-you.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4301,
+      "name": "Maman Brigitte",
+      "title": "Protector of the Dead",
+      "pantheon": "Voodoo",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/maman-brigitte.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/maman-brigitte.jpg",
+      "abilities": [
+        {
+          "name": "Party Trick",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/party-trick.jpg"
+        },
+        {
+          "name": "Madame Fangs",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/madame-fangs.jpg"
+        },
+        {
+          "name": "Spirit Seize",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-seize.jpg"
+        },
+        {
+          "name": "Explosion of Souls",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/explosion-of-souls.jpg"
+        },
+        {
+          "name": "Soul Spikes",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/soul-spikes.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4213,
+      "name": "Martichoras",
+      "title": "The Manticore King",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/martichoras.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/martichoras.jpg",
+      "abilities": [
+        {
+          "name": "Acid Rain",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/acid-rain.jpg"
+        },
+        {
+          "name": "Poisoned Barb",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/poisoned-barb.jpg"
+        },
+        {
+          "name": "Stalk Prey",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stalk-prey.jpg"
+        },
+        {
+          "name": "Death From Above",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-from-above.jpg"
+        },
+        {
+          "name": "Monstrosity",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/monstrosity.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4183,
+      "name": "Maui",
+      "title": "Hero of Hawai‘i",
+      "pantheon": "Polynesian",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/maui.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/maui.jpg",
+      "abilities": [
+        {
+          "name": "Master Fisherman",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/master-fisherman.jpg"
+        },
+        {
+          "name": "Mystical Ulua",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mystical-ulua.jpg"
+        },
+        {
+          "name": "Solar Swing",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/solar-swing.jpg"
+        },
+        {
+          "name": "Landfall",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/landfall.jpg"
+        },
+        {
+          "name": "Manaiakalani",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/manaiakalani.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2051,
+      "name": "Medusa",
+      "title": "The Gorgon",
+      "pantheon": "Greek",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/medusa.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/medusa.jpg",
+      "abilities": [
+        {
+          "name": "Viper Shot",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/viper-shot.jpg"
+        },
+        {
+          "name": "Acid Spray",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/acid-spray.jpg"
+        },
+        {
+          "name": "Lacerate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lacerate.jpg"
+        },
+        {
+          "name": "Petrify",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/petrify.jpg"
+        },
+        {
+          "name": "Sidewinder",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sidewinder.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1941,
+      "name": "Mercury",
+      "title": "Messenger of the Gods",
+      "pantheon": "Roman",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/mercury.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/mercury.jpg",
+      "abilities": [
+        {
+          "name": "Made You Look",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/made-you-look.jpg"
+        },
+        {
+          "name": "Maximum Velocity",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/maximum-velocity.jpg"
+        },
+        {
+          "name": "Special Delivery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/special-delivery.jpg"
+        },
+        {
+          "name": "Sonic Boom",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sonic-boom.jpg"
+        },
+        {
+          "name": "Fastest God Alive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fastest-god-alive.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3566,
+      "name": "Merlin",
+      "title": "The Master Wizard",
+      "pantheon": "Arthurian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/merlin.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/merlin.jpg",
+      "abilities": [
+        {
+          "name": "Eclipse (Radiate/Frostbolt)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/eclipse.jpg"
+        },
+        {
+          "name": "Vortex (Dragonfire/Blizzard)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/vortex.jpg"
+        },
+        {
+          "name": "Flicker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flicker.jpg"
+        },
+        {
+          "name": "Elemental Mastery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/elemental-mastery.jpg"
+        },
+        {
+          "name": "Overload",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overload.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4006,
+      "name": "Morgan Le Fay",
+      "title": "The Dark Enchantress",
+      "pantheon": "Arthurian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/morgan-le-fay.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/morgan-le-fay.jpg",
+      "abilities": [
+        {
+          "name": "Sigil Mastery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sigil-mastery.jpg"
+        },
+        {
+          "name": "Dragonflight",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dragonflight.jpg"
+        },
+        {
+          "name": "Shroud of Wildfire",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shroud-of-wildfire.jpg"
+        },
+        {
+          "name": "Consuming Power",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/consuming-power.jpg"
+        },
+        {
+          "name": "Empowered Blade",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/empowered-blade.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3881,
+      "name": "Mulan",
+      "title": "The Ascendant Warrior",
+      "pantheon": "Chinese",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/mulan.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/mulan.jpg",
+      "abilities": [
+        {
+          "name": "Cross Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cross-strike.jpg"
+        },
+        {
+          "name": "Spear Thrust",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spear-thrust.jpg"
+        },
+        {
+          "name": "Grapple",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/grapple.jpg"
+        },
+        {
+          "name": "Divine Mastery",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divine-mastery.jpg"
+        },
+        {
+          "name": "Training Arc",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/training-arc.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1915,
+      "name": "Ne Zha",
+      "title": "the Third Lotus Prince",
+      "pantheon": "Chinese",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ne-zha.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ne-zha.jpg",
+      "abilities": [
+        {
+          "name": "Universe Ring Toss",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/universe-ring-toss.jpg"
+        },
+        {
+          "name": "Flaming Spear",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flaming-spear.jpg"
+        },
+        {
+          "name": "Armillary Sash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/armillary-sash.jpg"
+        },
+        {
+          "name": "Wind Fire Wheels",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wind-fire-wheels.jpg"
+        },
+        {
+          "name": "Righteous Spirit",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/righteous-spirit.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1872,
+      "name": "Neith",
+      "title": "Weaver of Fate",
+      "pantheon": "Egyptian",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/neith.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/neith.jpg",
+      "abilities": [
+        {
+          "name": "Spirit Arrow",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-arrow.jpg"
+        },
+        {
+          "name": "Unravel",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unravel.jpg"
+        },
+        {
+          "name": "Backflip",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/backflip.jpg"
+        },
+        {
+          "name": "World Weaver",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/world-weaver.jpg"
+        },
+        {
+          "name": "Broken Weave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/broken-weave.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1980,
+      "name": "Nemesis",
+      "title": "Goddess of Vengeance",
+      "pantheon": "Greek",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/nemesis.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/nemesis.jpg",
+      "abilities": [
+        {
+          "name": "Swift Vengeance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/swift-vengeance.jpg"
+        },
+        {
+          "name": "Slice and Dice",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/slice-and-dice.jpg"
+        },
+        {
+          "name": "Retribution",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/retribution.jpg"
+        },
+        {
+          "name": "Divine Judgement",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divine-judgement.jpg"
+        },
+        {
+          "name": "Scales of Fate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/scales-of-fate.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2214,
+      "name": "Nike",
+      "title": "Goddess of Victory",
+      "pantheon": "Greek",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/nike.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/nike.jpg",
+      "abilities": [
+        {
+          "name": "Rend",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rend.jpg"
+        },
+        {
+          "name": "Barrier Formation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/barrier-formation.jpg"
+        },
+        {
+          "name": "Valiant Leap",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/valiant-leap.jpg"
+        },
+        {
+          "name": "Sentinel of Zeus",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sentinel-of-zeus.jpg"
+        },
+        {
+          "name": "To Victory!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/to-victory.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2036,
+      "name": "Nox",
+      "title": "Goddess of Night",
+      "pantheon": "Roman",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/nox.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/nox.jpg",
+      "abilities": [
+        {
+          "name": "Shadow Lock",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shadow-lock.jpg"
+        },
+        {
+          "name": "Siphon Darkness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/siphon-darkness.jpg"
+        },
+        {
+          "name": "Shadow Step",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shadow-step.jpg"
+        },
+        {
+          "name": "Night Terror",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/night-terror.jpg"
+        },
+        {
+          "name": "Flame of the Night",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flame-of-the-night.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1958,
+      "name": "Nu Wa",
+      "title": "Guardian of Heaven",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/nu-wa.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/nu-wa.jpg",
+      "abilities": [
+        {
+          "name": "Mysterious Fog",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mysterious-fog.jpg"
+        },
+        {
+          "name": "Clay Soldiers",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/clay-soldiers.jpg"
+        },
+        {
+          "name": "Shining Metal",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shining-metal.jpg"
+        },
+        {
+          "name": "Fire Shards",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fire-shards.jpg"
+        },
+        {
+          "name": "Strength of Wood",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/strength-of-wood.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4318,
+      "name": "Nut",
+      "title": "Goddess of the Sky",
+      "pantheon": "Egyptian",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/nut.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/nut.jpg",
+      "abilities": [
+        {
+          "name": "Convergence",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/convergence.jpg"
+        },
+        {
+          "name": "Crashing Comet",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crashing-comet.jpg"
+        },
+        {
+          "name": "Warp",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/warp.jpg"
+        },
+        {
+          "name": "Skyfall",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/skyfall.jpg"
+        },
+        {
+          "name": "Flux",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flux.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1669,
+      "name": "Odin",
+      "title": "The Allfather",
+      "pantheon": "Norse",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/odin.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/odin.jpg",
+      "abilities": [
+        {
+          "name": "Lunge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lunge.jpg"
+        },
+        {
+          "name": "Raven Shout",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/raven-shout.jpg"
+        },
+        {
+          "name": "Gungnir's Might",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gungnirs-might.jpg"
+        },
+        {
+          "name": "Ring of Spears",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ring-of-spears.jpg"
+        },
+        {
+          "name": "Path to Valhalla",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/path-to-valhalla.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3664,
+      "name": "Olorun",
+      "title": "Ruler of the Heavens",
+      "pantheon": "Yoruba",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/olorun.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/olorun.jpg",
+      "abilities": [
+        {
+          "name": "Focused Light",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/focused-light.jpg"
+        },
+        {
+          "name": "Overflowing Divinity",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overflowing-divinity.jpg"
+        },
+        {
+          "name": "Consecration",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/consecration.jpg"
+        },
+        {
+          "name": "Sanctified Field",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sanctified-field.jpg"
+        },
+        {
+          "name": "Touch of Fate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/touch-of-fate.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2000,
+      "name": "Osiris",
+      "title": "Broken God of the Afterlife",
+      "pantheon": "Egyptian",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/osiris.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/osiris.jpg",
+      "abilities": [
+        {
+          "name": "Sickle Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sickle-strike.jpg"
+        },
+        {
+          "name": "Spirit Flail",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spirit-flail.jpg"
+        },
+        {
+          "name": "Judgement Tether",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/judgement-tether.jpg"
+        },
+        {
+          "name": "Lord of the Afterlife",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lord-of-the-afterlife.jpg"
+        },
+        {
+          "name": "Fragmented",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fragmented.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3543,
+      "name": "Pele",
+      "title": "Goddess of Volcanoes",
+      "pantheon": "Polynesian",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/pele.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/pele.jpg",
+      "abilities": [
+        {
+          "name": "Pyroclast",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pyroclast.jpg"
+        },
+        {
+          "name": "Eruption",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/eruption.jpg"
+        },
+        {
+          "name": "Magma Rush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/magma-rush.jpg"
+        },
+        {
+          "name": "Volcanic Lightning",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/volcanic-lightning.jpg"
+        },
+        {
+          "name": "Everlasting Flame",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/everlasting-flame.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3705,
+      "name": "Persephone",
+      "title": "Queen of the Underworld",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/persephone.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/persephone.jpg",
+      "abilities": [
+        {
+          "name": "Bone Rush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bone-rush.jpg"
+        },
+        {
+          "name": "Harvest",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/harvest.jpg"
+        },
+        {
+          "name": "Flourish",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flourish.jpg"
+        },
+        {
+          "name": "Grasp of Death",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/grasp-of-death.jpg"
+        },
+        {
+          "name": "Pomegranate Seeds",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pomegranate-seeds.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1881,
+      "name": "Poseidon",
+      "title": "God of the Oceans",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/poseidon.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/poseidon.jpg",
+      "abilities": [
+        {
+          "name": "Tidal Surge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tidal-surge.jpg"
+        },
+        {
+          "name": "Trident",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/trident.jpg"
+        },
+        {
+          "name": "Whirlpool",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/whirlpool.jpg"
+        },
+        {
+          "name": "Release the Kraken!",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/release-the-kraken.jpg"
+        },
+        {
+          "name": "Changing Tides",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/changing-tides.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1698,
+      "name": "Ra",
+      "title": "Sun God",
+      "pantheon": "Egyptian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ra.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ra.jpg",
+      "abilities": [
+        {
+          "name": "Celestial Beam",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/celestial-beam.jpg"
+        },
+        {
+          "name": "Divine Light",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/divine-light.jpg"
+        },
+        {
+          "name": "Solar Blessing",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/solar-blessing.jpg"
+        },
+        {
+          "name": "Searing Pain",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/searing-pain.jpg"
+        },
+        {
+          "name": "Speed of Light",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/speed-of-light.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2113,
+      "name": "Raijin",
+      "title": "Master of Thunder",
+      "pantheon": "Japanese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/raijin.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/raijin.jpg",
+      "abilities": [
+        {
+          "name": "Percussive Storm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/percussive-storm.jpg"
+        },
+        {
+          "name": "Raiju",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/raiju.jpg"
+        },
+        {
+          "name": "Thunder Crash",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/thunder-crash.jpg"
+        },
+        {
+          "name": "Taiko Drums",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/taiko-drums.jpg"
+        },
+        {
+          "name": "Charged Tempo",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/charged-tempo.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2002,
+      "name": "Rama",
+      "title": "Seventh Avatar of Vishnu",
+      "pantheon": "Hindu",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/rama.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/rama.jpg",
+      "abilities": [
+        {
+          "name": "Astral Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/astral-strike.jpg"
+        },
+        {
+          "name": "Infinite Arrows",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/infinite-arrows.jpg"
+        },
+        {
+          "name": "Rolling Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rolling-assault.jpg"
+        },
+        {
+          "name": "Astral Barrage",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/astral-barrage.jpg"
+        },
+        {
+          "name": "Astral Quiver",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/astral-quiver.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2063,
+      "name": "Ratatoskr",
+      "title": "The Sly Messenger",
+      "pantheon": "Norse",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ratatoskr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ratatoskr.jpg",
+      "abilities": [
+        {
+          "name": "Dart",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dart.jpg"
+        },
+        {
+          "name": "Flurry",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flurry.jpg"
+        },
+        {
+          "name": "Acorn Blast",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/acorn-blast.jpg"
+        },
+        {
+          "name": "Through the Cosmos",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/through-the-cosmos.jpg"
+        },
+        {
+          "name": "Acorn of Yggdrasil",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/acorn-of-yggdrasil.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2065,
+      "name": "Ravana",
+      "title": "Demon King of Lanka",
+      "pantheon": "Hindu",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ravana.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ravana.jpg",
+      "abilities": [
+        {
+          "name": "Prana Onslaught",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/prana-onslaught.jpg"
+        },
+        {
+          "name": "Overhead Kick",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overhead-kick.jpg"
+        },
+        {
+          "name": "10-Hand Shadow Fist",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/10-hand-shadow-fist.jpg"
+        },
+        {
+          "name": "Mystic Rush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mystic-rush.jpg"
+        },
+        {
+          "name": "Chain of Blows",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/chain-of-blows.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1988,
+      "name": "Scylla",
+      "title": "Horror of the Sea",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/scylla.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/scylla.jpg",
+      "abilities": [
+        {
+          "name": "Sic 'Em",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sic-em.jpg"
+        },
+        {
+          "name": "Crush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crush.jpg"
+        },
+        {
+          "name": "Sentinel",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sentinel.jpg"
+        },
+        {
+          "name": "I'm a Monster",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/im-a-monster.jpg"
+        },
+        {
+          "name": "Quick Learner",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/quick-learner.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2005,
+      "name": "Serqet",
+      "title": "Goddess of Venom",
+      "pantheon": "Egyptian",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/serqet.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/serqet.jpg",
+      "abilities": [
+        {
+          "name": "Deathbane",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/deathbane.jpg"
+        },
+        {
+          "name": "Cobra's Kiss",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/cobras-kiss.jpg"
+        },
+        {
+          "name": "Ambush",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ambush.jpg"
+        },
+        {
+          "name": "Last Breath",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/last-breath.jpg"
+        },
+        {
+          "name": "Catalyst",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/catalyst.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3612,
+      "name": "Set",
+      "title": "The Usurper",
+      "pantheon": "Egyptian",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/set.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/set.jpg",
+      "abilities": [
+        {
+          "name": "Skewer",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/skewer.jpg"
+        },
+        {
+          "name": "Spawn of Set",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/spawn-of-set.jpg"
+        },
+        {
+          "name": "Sandstorm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sandstorm.jpg"
+        },
+        {
+          "name": "Kingslayer",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/kingslayer.jpg"
+        },
+        {
+          "name": "Relentless",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/relentless.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4039,
+      "name": "Shiva",
+      "title": "The Destroyer",
+      "pantheon": "Hindu",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/shiva.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/shiva.jpg",
+      "abilities": [
+        {
+          "name": "Emblazoned Sweep",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/emblazoned-sweep.jpg"
+        },
+        {
+          "name": "Damaru’s Tempo",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/damaru’s-tempo.jpg"
+        },
+        {
+          "name": "Pillar of Dawn",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/pillar-of-dawn.jpg"
+        },
+        {
+          "name": "Shiva Tandava",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shiva-tandava.jpg"
+        },
+        {
+          "name": "Samsara",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/samsara.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2107,
+      "name": "Skadi",
+      "title": "Goddess of Winter",
+      "pantheon": "Norse",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/skadi.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/skadi.jpg",
+      "abilities": [
+        {
+          "name": "Piercing Cold",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/piercing-cold.jpg"
+        },
+        {
+          "name": "Rune of the Hunt",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rune-of-the-hunt.jpg"
+        },
+        {
+          "name": "Permafrost",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/permafrost.jpg"
+        },
+        {
+          "name": "Winter's Grasp",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/winters-grasp.jpg"
+        },
+        {
+          "name": "Kaldr, The Winter Wolf",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/kaldr-the-winter-wolf.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1747,
+      "name": "Sobek",
+      "title": "God of the Nile",
+      "pantheon": "Egyptian",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/sobek.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/sobek.jpg",
+      "abilities": [
+        {
+          "name": "Charge Prey",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/charge-prey.jpg"
+        },
+        {
+          "name": "Tail Whip",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tail-whip.jpg"
+        },
+        {
+          "name": "Sickening Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sickening-strike.jpg"
+        },
+        {
+          "name": "Lurking in the Waters",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lurking-in-the-waters.jpg"
+        },
+        {
+          "name": "Blessing of the Nile",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/blessing-of-the-nile.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2074,
+      "name": "Sol",
+      "title": "Goddess of the Sun",
+      "pantheon": "Norse",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/sol.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/sol.jpg",
+      "abilities": [
+        {
+          "name": "Radiance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/radiance.jpg"
+        },
+        {
+          "name": "Stellar Burst",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/stellar-burst.jpg"
+        },
+        {
+          "name": "Disapparate",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/disapparate.jpg"
+        },
+        {
+          "name": "Supernova",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/supernova.jpg"
+        },
+        {
+          "name": "Unstable Manifestation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unstable-manifestation.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1944,
+      "name": "Sun Wukong",
+      "title": "the Monkey King",
+      "pantheon": "Chinese",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/sun-wukong.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/sun-wukong.jpg",
+      "abilities": [
+        {
+          "name": "The Magic Cudgel",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/the-magic-cudgel.jpg"
+        },
+        {
+          "name": "Master's Will",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/masters-will.jpg"
+        },
+        {
+          "name": "72 Transformations",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/72-transformations.jpg"
+        },
+        {
+          "name": "Somersault Cloud",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/somersault-cloud.jpg"
+        },
+        {
+          "name": "Undefeated Body",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/undefeated-body.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4191,
+      "name": "Surtr",
+      "title": "The Fire Giant",
+      "pantheon": "Norse",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/surtr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/surtr.jpg",
+      "abilities": [
+        {
+          "name": "Flames of Muspell",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flames-of-muspell.jpg"
+        },
+        {
+          "name": "Giant's Grasp",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/giants-grasp.jpg"
+        },
+        {
+          "name": "Emberwalk",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/emberwalk.jpg"
+        },
+        {
+          "name": "End of Days",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/end-of-days.jpg"
+        },
+        {
+          "name": "Obsidian Flesh",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/obsidian-flesh.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2123,
+      "name": "Susano",
+      "title": "God of the Summer Storm",
+      "pantheon": "Japanese",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/susano.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/susano.jpg",
+      "abilities": [
+        {
+          "name": "Storm Kata",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/storm-kata.jpg"
+        },
+        {
+          "name": "Wind Siphon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wind-siphon.jpg"
+        },
+        {
+          "name": "Jet Stream",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/jet-stream.jpg"
+        },
+        {
+          "name": "Typhoon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/typhoon.jpg"
+        },
+        {
+          "name": "Gathering Storm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/gathering-storm.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2030,
+      "name": "Sylvanus",
+      "title": "Keeper of the Wild",
+      "pantheon": "Roman",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/sylvanus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/sylvanus.jpg",
+      "abilities": [
+        {
+          "name": "Verdant Growth",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/verdant-growth.jpg"
+        },
+        {
+          "name": "Wisps",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wisps.jpg"
+        },
+        {
+          "name": "Nature's Grasp",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/natures-grasp.jpg"
+        },
+        {
+          "name": "Wrath of Terra",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wrath-of-terra.jpg"
+        },
+        {
+          "name": "Nature's Bounty",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/natures-bounty.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2147,
+      "name": "Terra",
+      "title": "The Earth Mother",
+      "pantheon": "Roman",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/terra.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/terra.jpg",
+      "abilities": [
+        {
+          "name": "Force of Nature",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/force-of-nature.jpg"
+        },
+        {
+          "name": "Crushing Earth",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/crushing-earth.jpg"
+        },
+        {
+          "name": "Monolith",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/monolith.jpg"
+        },
+        {
+          "name": "Earthen Fury",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/earthen-fury.jpg"
+        },
+        {
+          "name": "Standing Stones",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/standing-stones.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1943,
+      "name": "Thanatos",
+      "title": "Hand of Death",
+      "pantheon": "Greek",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/thanatos.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/thanatos.jpg",
+      "abilities": [
+        {
+          "name": "Death Scythe",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-scythe.jpg"
+        },
+        {
+          "name": "Scent of Death",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/scent-of-death.jpg"
+        },
+        {
+          "name": "Soul Reap",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/soul-reap.jpg"
+        },
+        {
+          "name": "Hovering Death",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hovering-death.jpg"
+        },
+        {
+          "name": "Harvester of Souls",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/harvester-of-souls.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2226,
+      "name": "The Morrigan",
+      "title": "Phantom Queen",
+      "pantheon": "Celtic",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/the-morrigan.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/the-morrigan.jpg",
+      "abilities": [
+        {
+          "name": "Deadly Aspects",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/deadly-aspects.jpg"
+        },
+        {
+          "name": "Dark Omen",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dark-omen.jpg"
+        },
+        {
+          "name": "Confusion",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/confusion.jpg"
+        },
+        {
+          "name": "Changeling",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/changeling.jpg"
+        },
+        {
+          "name": "Doomsayer",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/doomsayer.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1779,
+      "name": "Thor",
+      "title": "God of Thunder",
+      "pantheon": "Norse",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/thor.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/thor.jpg",
+      "abilities": [
+        {
+          "name": "Mjolnir's Attunement",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mjolnirs-attunement.jpg"
+        },
+        {
+          "name": "Tectonic Rift",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/tectonic-rift.jpg"
+        },
+        {
+          "name": "Berserker Barrage",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/berserker-barrage.jpg"
+        },
+        {
+          "name": "Anvil of Dawn",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/anvil-of-dawn.jpg"
+        },
+        {
+          "name": "Warrior's Madness",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/warriors-madness.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2203,
+      "name": "Thoth",
+      "title": "Arbiter of the Damned",
+      "pantheon": "Egyptian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/thoth.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/thoth.jpg",
+      "abilities": [
+        {
+          "name": "Hieroglyphic Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hieroglyphic-assault.jpg"
+        },
+        {
+          "name": "Evade and Punish",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/evade-and-punish.jpg"
+        },
+        {
+          "name": "Glyph of Pain",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/glyph-of-pain.jpg"
+        },
+        {
+          "name": "Final Judgement",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/final-judgement.jpg"
+        },
+        {
+          "name": "Dead Reckoning",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dead-reckoning.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3990,
+      "name": "Tiamat",
+      "title": "Goddess of the Salt Sea",
+      "pantheon": "Babylonian",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/tiamat.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/tiamat.jpg",
+      "abilities": [
+        {
+          "name": "Primordial Onslaught",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/primordial-onslaught.jpg"
+        },
+        {
+          "name": "Ruination",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ruination.jpg"
+        },
+        {
+          "name": "Grounding Dive",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/grounding-dive.jpg"
+        },
+        {
+          "name": "Children of Creation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/children-of-creation.jpg"
+        },
+        {
+          "name": "Death Begets Life",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/death-begets-life.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3954,
+      "name": "Tsukuyomi",
+      "title": "God of the Moon",
+      "pantheon": "Japanese",
+      "role": "Assassin",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/tsukuyomi.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/tsukuyomi.jpg",
+      "abilities": [
+        {
+          "name": "Dark Moon Shuriken",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dark-moon-shuriken.jpg"
+        },
+        {
+          "name": "Kusarigama",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/kusarigama.jpg"
+        },
+        {
+          "name": "Silver Moon Caltrops",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/silver-moon-caltrops.jpg"
+        },
+        {
+          "name": "Piercing Moonlight",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/piercing-moonlight.jpg"
+        },
+        {
+          "name": "Shingetsu & Mangetsu",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shingetsu-&-mangetsu.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1924,
+      "name": "Tyr",
+      "title": "the Lawgiver",
+      "pantheon": "Norse",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/tyr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/tyr.jpg",
+      "abilities": [
+        {
+          "name": "Fearless",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/fearless.jpg"
+        },
+        {
+          "name": "Power Cleave",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/power-cleave.jpg"
+        },
+        {
+          "name": "Change Stance",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/change-stance.jpg"
+        },
+        {
+          "name": "Lawbringer",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lawbringer.jpg"
+        },
+        {
+          "name": "Unyielding",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/unyielding.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1991,
+      "name": "Ullr",
+      "title": "The Glorious One",
+      "pantheon": "Norse",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ullr.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ullr.jpg",
+      "abilities": [
+        {
+          "name": "Bladed Arrow (Thrown Axe)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bladed-arrow.jpg"
+        },
+        {
+          "name": "Expose Weakness (Invigorate)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/expose-weakness.jpg"
+        },
+        {
+          "name": "Hail of Arrows (Glory Bound)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hail-of-arrows.jpg"
+        },
+        {
+          "name": "Wield Axes (Wield Bow)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/wield-axes.jpg"
+        },
+        {
+          "name": "Weapon Master",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/weapon-master.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1723,
+      "name": "Vamana",
+      "title": "Fifth Avatar of Vishnu",
+      "pantheon": "Hindu",
+      "role": "Warrior",
+      "damage": "Physical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/vamana.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/vamana.jpg",
+      "abilities": [
+        {
+          "name": "Clear the Path",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/clear-the-path.jpg"
+        },
+        {
+          "name": "Armored Umbrella",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/armored-umbrella.jpg"
+        },
+        {
+          "name": "Umbrellarang",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/umbrellarang.jpg"
+        },
+        {
+          "name": "Colossal Fury",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/colossal-fury.jpg"
+        },
+        {
+          "name": "Sleeping Giant",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sleeping-giant.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1869,
+      "name": "Vulcan",
+      "title": "Smith of the Gods",
+      "pantheon": "Roman",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/vulcan.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/vulcan.jpg",
+      "abilities": [
+        {
+          "name": "Backfire",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/backfire.jpg"
+        },
+        {
+          "name": "Inferno Cannon",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/inferno-cannon.jpg"
+        },
+        {
+          "name": "Magma Bomb",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/magma-bomb.jpg"
+        },
+        {
+          "name": "Earthshaker",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/earthshaker.jpg"
+        },
+        {
+          "name": "Master Craftsman",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/master-craftsman.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1864,
+      "name": "Xbalanque",
+      "title": "Hidden Jaguar Sun",
+      "pantheon": "Maya",
+      "role": "Hunter",
+      "damage": "Physical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/xbalanque.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/xbalanque.jpg",
+      "abilities": [
+        {
+          "name": "Branching Bola",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/branching-bola.jpg"
+        },
+        {
+          "name": "Poison Darts",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/poison-darts.jpg"
+        },
+        {
+          "name": "Rising Jaguar",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rising-jaguar.jpg"
+        },
+        {
+          "name": "Darkest of Nights",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/darkest-of-nights.jpg"
+        },
+        {
+          "name": "Dead of Night",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dead-of-night.jpg"
+        }
+      ]
+    },
+    {
+      "id": 2072,
+      "name": "Xing Tian",
+      "title": "The Relentless",
+      "pantheon": "Chinese",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/xing-tian.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/xing-tian.jpg",
+      "abilities": [
+        {
+          "name": "Furious Roar",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/furious-roar.jpg"
+        },
+        {
+          "name": "Hook Slam",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/hook-slam.jpg"
+        },
+        {
+          "name": "Sky-Cutting Axe",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/sky-cutting-axe.jpg"
+        },
+        {
+          "name": "Whirlwind of Rage and Steel",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/whirlwind-of-rage-and-steel.jpg"
+        },
+        {
+          "name": "Smouldering Rage",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/smouldering-rage.jpg"
+        }
+      ]
+    },
+    {
+      "id": 3811,
+      "name": "Yemoja",
+      "title": "Goddess of Rivers",
+      "pantheon": "Yoruba",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/yemoja.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/yemoja.jpg",
+      "abilities": [
+        {
+          "name": "Bouncing Bubble (Moonstrike)",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/bouncing-bubble.jpg"
+        },
+        {
+          "name": "Mending Waters",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/mending-waters.jpg"
+        },
+        {
+          "name": "Riptide",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/riptide.jpg"
+        },
+        {
+          "name": "River's Rebuke",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/rivers-rebuke.jpg"
+        },
+        {
+          "name": "Omi",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/omi.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1670,
+      "name": "Ymir",
+      "title": "Father of the Frost Giants",
+      "pantheon": "Norse",
+      "role": "Guardian",
+      "damage": "Magical",
+      "range": "Melee",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/ymir.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/ymir.jpg",
+      "abilities": [
+        {
+          "name": "Ice Wall",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/ice-wall.jpg"
+        },
+        {
+          "name": "Glacial Strike",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/glacial-strike.jpg"
+        },
+        {
+          "name": "Frost Breath",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/frost-breath.jpg"
+        },
+        {
+          "name": "Shards of Ice",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/shards-of-ice.jpg"
+        },
+        {
+          "name": "Frostbite",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/frostbite.jpg"
+        }
+      ]
+    },
+    {
+      "id": 4060,
+      "name": "Yu Huang",
+      "title": "The Jade Emperor",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/yu-huang.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/yu-huang.jpg",
+      "abilities": [
+        {
+          "name": "Flames of the Phoenix",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/flames-of-the-phoenix.jpg"
+        },
+        {
+          "name": "Dao Cultivation",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dao-cultivation.jpg"
+        },
+        {
+          "name": "Celestial Flight",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/celestial-flight.jpg"
+        },
+        {
+          "name": "Dueling Dragons",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/dueling-dragons.jpg"
+        },
+        {
+          "name": "Master of the Dao",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/master-of-the-dao.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1672,
+      "name": "Zeus",
+      "title": "God of the Sky",
+      "pantheon": "Greek",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/zeus.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/zeus.jpg",
+      "abilities": [
+        {
+          "name": "Chain Lightning",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/chain-lightning.jpg"
+        },
+        {
+          "name": "Aegis Assault",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/aegis-assault.jpg"
+        },
+        {
+          "name": "Detonate Charge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/detonate-charge.jpg"
+        },
+        {
+          "name": "Lightning Storm",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/lightning-storm.jpg"
+        },
+        {
+          "name": "Overcharge",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/overcharge.jpg"
+        }
+      ]
+    },
+    {
+      "id": 1926,
+      "name": "Zhong Kui",
+      "title": "the Demon Queller",
+      "pantheon": "Chinese",
+      "role": "Mage",
+      "damage": "Magical",
+      "range": "Ranged",
+      "card": "https://webcdn.hirezstudios.com/smite/god-cards/zhong-kui.jpg",
+      "icon": "https://webcdn.hirezstudios.com/smite/god-icons/zhong-kui.jpg",
+      "abilities": [
+        {
+          "name": "Expose Evil",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/expose-evil.jpg"
+        },
+        {
+          "name": "Exorcism",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/exorcism.jpg"
+        },
+        {
+          "name": "Book of Demons",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/book-of-demons.jpg"
+        },
+        {
+          "name": "Recall Demons",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/recall-demons.jpg"
+        },
+        {
+          "name": "Demon Bag",
+          "icon": "https://webcdn.hirezstudios.com/smite/god-abilities/demon-bag.jpg"
+        }
+      ]
+    }
+  ]
+}

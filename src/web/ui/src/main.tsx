@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { Router } from './router'
 import App from './App'
 import './styles.css'
+import './smitele.css'
 
 // Real paths rather than hashes: serve.py serves index.html for any unmatched
 // path that isn't /api, so a deep link works on a cold load.
