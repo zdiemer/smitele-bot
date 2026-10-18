@@ -403,6 +403,10 @@ smite2:
     # allowance for bulk reads. A `helm upgrade` must never start crawling it
     # by accident — turning this on is a decision someone makes deliberately.
     enabled: false
+    # Tracker Network explicitly blocks this collector as of 2026-10-18.
+    # Keep the CronJob and its history, but do not repeat unsuccessful crawls.
+    # Resume only after upstream access works; see docs/smite2-collector-status.md.
+    suspend: true
     image:
       repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-s2collector
       # Defaults to image.tag, so the crawl and the bot always agree about the

@@ -24,6 +24,7 @@ metadata:
   labels:
     {{- include "smitele-bot.labels" . | nindent 4 }}
 spec:
+  suspend: {{ .Values.smite2.collector.suspend }}
   schedule: {{ .Values.smite2.collector.schedule | quote }}
   {{- with .Values.smite2.collector.timeZone }}
   timeZone: {{ . | quote }}
