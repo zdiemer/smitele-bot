@@ -217,7 +217,7 @@ class Smite2Provider:
         from ranker_lift import RankerLift  # noqa: PLC0415
 
         directory = paths.game_model_dir(self.game)
-        stats = BuildStats.load(directory)
+        stats = BuildStats.load(directory, previous=self.build_stats)
         if stats is not None:
             self.build_stats = stats
         # Read on the same schedule and for the same reason: it is a few hundred

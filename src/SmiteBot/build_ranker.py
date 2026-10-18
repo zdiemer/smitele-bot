@@ -290,7 +290,7 @@ class BuildStats:
         )
 
     @staticmethod
-    def load(directory: str) -> Optional["BuildStats"]:
+    def load(directory: str, previous: Optional["BuildStats"] = None) -> Optional["BuildStats"]:
         """Load the aggregate, or None if it hasn't been built yet.
 
         Absence is a normal state — the bot can start before the first
@@ -303,11 +303,37 @@ class BuildStats:
         if not all(os.path.isfile(path) for path in paths.values()):
             return None
         starter_path = os.path.join(directory, "starter_stats.parquet")
-        starters = pd.read_parquet(starter_path) if os.path.isfile(starter_path) else None
-        return BuildStats(
-            *(pd.read_parquet(paths[name]) for name in BuildStats.FILES),
-            starters=starters,
+        files = list(paths.values()) + [starter_path]
+        signature = tuple(
+            (path, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+            if (stat := os.stat(path) if os.path.isfile(path) else None) else (path,)
+            for path in files
         )
+        if previous is not None and getattr(previous, "_file_signature", None) == signature:
+            return previous
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        pa.default_memory_pool().release_unused()
+
+        def read(path):
+            # Decode one column at a time, keeping replacement overhead bounded
+            # even while the previous aggregate remains available to readers.
+            columns = {}
+            with pq.ParquetFile(path, memory_map=True) as parquet:
+                for name in parquet.schema_arrow.names:
+                    frame = parquet.read(columns=[name], use_threads=False).to_pandas(
+                        split_blocks=True, self_destruct=True, use_threads=False
+                    )
+                    columns[name] = frame[name]
+            return pd.DataFrame(columns, copy=False)
+
+        starters = read(starter_path) if os.path.isfile(starter_path) else None
+        loaded = BuildStats(*(read(paths[name]) for name in BuildStats.FILES), starters=starters)
+        pa.default_memory_pool().release_unused()
+        loaded._file_signature = signature
+        return loaded
 
     def __filter(
         self,

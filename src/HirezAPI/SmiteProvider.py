@@ -363,14 +363,13 @@ class SmiteProvider(Smite):
     def load_build_stats(self) -> bool:
         """Load the aggregate, if one has been written.
 
-        Cheap enough to re-read on every refresh — it is a few megabytes where
-        the corpus it summarises is hundreds of gigabytes — so a newly written
-        aggregate is picked up without restarting the bot.
+        Reuse unchanged files: the aggregate now has millions of rows, and a
+        second copy plus Parquet decoding buffers can exceed the pod limit.
         """
         import build_ranker
         from ranker_lift import RankerLift
 
-        loaded = build_ranker.BuildStats.load(paths.MODEL_DIR)
+        loaded = build_ranker.BuildStats.load(paths.MODEL_DIR, previous=self.build_stats)
         if loaded is not None:
             self.build_stats = loaded
             if not self._silent:

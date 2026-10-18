@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.12.0"
+  tag: "1.12.1"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -225,7 +225,7 @@ trainer:
     # smitele-bot-trainer:1.8.25; verified present in GHCR before clearing
     # this, since the failure mode is a Sunday-morning ImagePullBackOff that
     # nothing notices until the model is a week stale.
-    tag: ""
+    tag: "1.12.0"
   # 04:40 Sunday UTC — after the daily collector, well away from it.
   schedule: "40 4 * * 0"
   timeZone: "Etc/UTC"
@@ -414,7 +414,7 @@ smite2:
       repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-s2collector
       # Defaults to image.tag, so the crawl and the bot always agree about the
       # corpus format.
-      tag: ""
+      tag: "1.12.0"
     # 02:40 UTC. Nothing depends on the hour — there is no "yesterday" to wait
     # for, because matches are reachable per player rather than per day — so
     # this is simply a quiet time.
@@ -581,7 +581,7 @@ web:
   image:
     repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-web
     # Defaults to image.tag, so the site and the snapshot format agree.
-    tag: ""
+    tag: "1.12.0"
   # Two, unlike the bot's one. Nothing here is stateful — the only input is a
   # file on a ReadWriteMany mount, read-only — so this neither needs the
   # gateway's single-connection rule nor the Recreate strategy that the bot's

@@ -672,3 +672,26 @@ class TestRelativeSupportFloor:
             ]),
         )
         assert stats.best_starter(god_id=1) == 500
+
+
+def test_parquet_reload_reuses_unchanged_and_preserves_data(tmp_path):
+    original = stats_from([build_row(42, 20, 12)])
+    frames = [original.builds, original.items.reset_index(), original.relics, original.gods]
+    for name, frame in zip(build_ranker.BuildStats.FILES, frames):
+        frame.to_parquet(tmp_path / f"{name}.parquet", index=False)
+    loaded = build_ranker.BuildStats.load(str(tmp_path))
+    pd.testing.assert_frame_equal(loaded.builds, original.builds)
+    pd.testing.assert_frame_equal(loaded.items, original.items)
+    assert build_ranker.BuildStats.load(str(tmp_path), previous=loaded) is loaded
+    frames[0].loc[0, "wins"] = 15
+    frames[0].to_parquet(tmp_path / "build_stats.parquet", index=False)
+    refreshed = build_ranker.BuildStats.load(str(tmp_path), previous=loaded)
+    assert refreshed is not loaded
+    assert refreshed.builds.iloc[0]["wins"] == 15
+    assert loaded.builds.iloc[0]["wins"] == 12
+    # A failed replacement must leave the existing data usable.
+    (tmp_path / "build_stats.parquet").write_bytes(b"invalid parquet")
+    import pytest
+    with pytest.raises(Exception):
+        build_ranker.BuildStats.load(str(tmp_path), previous=refreshed)
+    assert refreshed.builds.iloc[0]["wins"] == 15
