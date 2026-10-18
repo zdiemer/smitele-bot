@@ -216,16 +216,9 @@ trainer:
   enabled: false
   image:
     repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-trainer
-    # Empty so this tracks image.tag, keeping the trainer and the bot that
-    # scores its output on the same code.
-    #
-    # Was pinned to 1.6.4 through the 1.7.0 release, whose build was skipped —
-    # an empty tag would have pointed the CronJob at a trainer image that was
-    # never pushed. Unpinned at 1.8.25, whose `./build.sh` did push
-    # smitele-bot-trainer:1.8.25; verified present in GHCR before clearing
-    # this, since the failure mode is a Sunday-morning ImagePullBackOff that
-    # nothing notices until the model is a week stale.
-    tag: "1.12.0"
+    # Pin to a published trainer image. Skipping the trainer build does not
+    # publish a matching tag; missing images wait until the job deadline.
+    tag: "1.12.1"
   # 04:40 Sunday UTC — after the daily collector, well away from it.
   schedule: "40 4 * * 0"
   timeZone: "Etc/UTC"
