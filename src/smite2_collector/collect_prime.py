@@ -118,6 +118,13 @@ async def crawl(args):
                     summary = row.get('match') or {}
                     match_id = str(UUID(summary['match_id']))
                     if summary.get('start_timestamp','')[:10] < cutoff:continue
+                    # A repeat run must be able to cross already-collected
+                    # matches to reach new players. The history page includes
+                    # their site-local identities without another detail call.
+                    for player in row.get('other_players') or []:
+                        linked = (player.get('person') or {}).get('person_id')
+                        if linked and linked not in visited:
+                            pending.append(str(UUID(linked)))
                     if match_id in attempted or match_id in seen:continue
                     attempted.add(match_id)
                     match = await client.get(f'matches-data/matches/{match_id}/')

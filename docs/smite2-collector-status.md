@@ -61,3 +61,10 @@ Each checkpoint records source, requests, rows, accepted/rejected matches in
 page-one collection, not proof of complete coverage or a twelve-day backfill.
 The scheduled Tracker job remains suspended pending a separate operational
 switch to the replacement source.
+
+**Validated in production on October 19:** Job
+`smitele-prime-collect-20261019` completed successfully in 200 seconds: **10 new
+matches, 68 player rows, 15 requests**, with two ambiguous-aspect matches
+rejected. Readback confirmed durable records; the existing aggregation
+preparation accepted a 46-row intermediate sample and identified 22 usable full
+builds. This verifies corpus compatibility, not full population coverage.

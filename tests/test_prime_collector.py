@@ -77,3 +77,37 @@ def test_explicit_aspect_names_use_existing_slug_ids(report):
             return None if name.startswith('Aspect of ') else super().item_by_name(name)
     _,rows=normalize(report,Partial())
     assert rows[-1]['Aspect']==item_id('aspect-of-the-thickbark')
+
+
+@pytest.mark.asyncio
+async def test_repeat_run_can_expand_through_seen_history(tmp_path,report,monkeypatch):
+    import collect_prime as collector
+    first='a8b158a1-5872-4b2c-aa39-7c9064728c0a'
+    other='e39ec748-a719-45da-81c8-b36659287146'
+    old='3fec05f5-ae61-4b54-bade-a8acb87e1914'
+    state=str(tmp_path/'state');corpus=str(tmp_path/'corpus')
+    seen=SeenMatches(state);seen.add(old,'2026-10-18');seen.save()
+    class Provider(Catalogue):
+        gods={1:True};items={1:True}
+        async def create(self):pass
+    class Client:
+        def __init__(self,*args):self.requests=0
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        async def resolve(self,*args):return {'person_id':first}
+        async def get(self,path):
+            self.requests+=1
+            if first in path:
+                return {'results':[{'match':{'match_id':old,'start_timestamp':'2026-10-18T21:17:42Z'},'other_players':[{'person':{'person_id':other}}]}]}
+            if other in path:
+                return {'results':[{'match':{'match_id':report['match_id'],'start_timestamp':report['start_timestamp']}}]}
+            assert report['match_id'] in path
+            return report
+    monkeypatch.setattr(collector,'Smite2Provider',lambda **kw:Provider())
+    monkeypatch.setattr(collector,'PacedClient',Client)
+    monkeypatch.setattr(collector.paths,'game_model_dir',lambda game:state)
+    monkeypatch.setattr(collector.paths,'game_match_data_dir',lambda game:corpus)
+    args=SimpleNamespace(seed=['xbl:example'],since_days=9999,budget=10,interval=12,minutes=10,max_matches=1)
+    assert await collector.crawl(args)==0
+    assert report['match_id'] in SeenMatches(state)
+    assert not (Path(state)/'prime-collector.lock').exists()
