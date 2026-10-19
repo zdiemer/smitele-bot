@@ -87,8 +87,21 @@ async def workers(client, seeds, provider, seen, corpus, cutoff, report, checkpo
                 elif value not in seen:
                     body=await client.match(name,value)
                     if not body:continue
-                    for ref in references(name,body):offer('history',ref)
+                    linked=list(references(name,body))
+                    for ref in linked:offer('history',ref)
+                    # A match discovered by Prime can reach the Source worker
+                    # before its first history. Source details carry item UUIDs
+                    # but no names, so obtain its asset map before normalizing.
+                    if name=='SmiteSource' and not client.assets and linked:
+                        matches,refs=await discover(client,name,linked[0])
+                        for ref in refs:offer('history',ref)
+                        for raw in matches:
+                            try:mid=str(UUID(raw))
+                            except ValueError:continue
+                            if mid not in seen:offer('match',mid)
                     try:
+                        if name=='SmiteSource' and not client.assets:
+                            raise InvalidMatch('Source item catalogue unavailable')
                         date,rows=(normalize(body,provider) if name=='SmitePrime' else
                                    normalize_source(body,client.assets,provider) if name=='SmiteSource' else
                                    normalize_tracker(body,provider))
