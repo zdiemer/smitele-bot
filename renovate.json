@@ -4,5 +4,17 @@
     "github>zdiemer/selfhosted//renovate/default"
   ],
   "description": "Pipfile ~= ranges + Pipfile.lock (enforced by pipenv install --deploy) already give reproducible builds; pinning ranges on top is churn. The fleet preset's rangeStrategy: pin is overridden here.",
-  "rangeStrategy": "preserve"
+  "rangeStrategy": "preserve",
+  "packageRules": [
+    {
+      "description": "Python image follows Pipfile requires and the ML dependency lock; runtime migrations must update all derived images together",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "allowedVersions": "<3.12"
+    }
+  ]
 }
