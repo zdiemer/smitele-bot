@@ -1,6 +1,8 @@
 """Three public sources with independent durable refusal handling, no solves."""
 import asyncio
 import json
+import random
+from email.utils import parsedate_to_datetime
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +17,18 @@ from collect_prime import BudgetSpent
 from prime_rows import PORTALS
 
 NAMES = ('SmitePrime', 'SmiteSource', 'tracker.gg')
+
+def retry_after(value):
+    """Seconds or HTTP date; malformed headers fall back to local backoff."""
+    try:
+        delay = float(value)
+    except (TypeError, ValueError):
+        try:
+            delay = parsedate_to_datetime(value).timestamp()-time.time()
+        except (TypeError, ValueError, OverflowError):
+            return 0
+    return max(0, delay) if delay < float('inf') else 0
+
 
 class Sources:
     def __init__(self, state, budget, interval, deadline):
@@ -41,49 +55,110 @@ class Sources:
         await self.public.__aexit__(*args)
         await self.tracker.__aexit__(*args)
 
+    async def wait(self, delay):
+        # Never sleep beyond the run's deadline or issue an over-budget retry.
+        if self.requests >= self.budget or time.monotonic()+delay >= self.deadline:
+            raise BudgetSpent()
+        await asyncio.sleep(delay)
+        if time.monotonic() >= self.deadline:
+            raise BudgetSpent()
+
+    def pause(self, name, delay):
+        self.pauses[name] = time.time()+delay
+        temp = self.path.with_suffix('.partial')
+        temp.write_text(json.dumps(self.pauses))
+        temp.replace(self.path)
+
     async def get(self, name, path, payload=None):
         stat = self.stats[name]
-        if self.pauses.get(name,0)>time.time():
-            stat['status']='paused'
+        if self.pauses.get(name, 0) > time.time():
+            stat['status'] = 'paused'
             return None
-        if stat['status']=='unavailable':return None
-        if self.requests>=self.budget:raise BudgetSpent()
-        await asyncio.sleep(max(0,self.previous+self.interval-time.monotonic()))
-        if time.monotonic()>=self.deadline:raise BudgetSpent()
-        self.requests+=1; stat['requests']+=1; self.previous=time.monotonic()
-        headers={'Accept':'application/json'}
-        params=None
-        if name=='SmitePrime':url='https://smiteprime.com/api/'+path
-        elif name=='SmiteSource':
-            url='https://smitesource.com/rpc/matches/'+path
-            headers['x-smitesource-client']='1'
-            params={'data':json.dumps({'json':payload})}
+        if stat.get('resume_at', 0) > time.time():
+            stat['status'] = 'cooling_down'
+            return None
+        # Log the operation, never account identifiers, cookies or proxy URLs.
+        operation = (path if name == 'SmiteSource' else
+                     'search' if '/search/' in path else
+                     'history' if '/players/' in path or path.count('/') == 2 else 'match')
+        headers = {'Accept': 'application/json'}
+        params = None
+        if name == 'SmitePrime':
+            url = 'https://smiteprime.com/api/'+path
+        elif name == 'SmiteSource':
+            url = 'https://smitesource.com/rpc/matches/'+path
+            headers['x-smitesource-client'] = '1'
+            params = {'data': json.dumps({'json': payload})}
         else:
-            url='https://api.tracker.gg/api/v2/smite2/standard/'+path
-            if self.clearance:headers=self.clearance.headers()
-        try:
-            response=await (self.tracker if name=='tracker.gg' else self.public).get(url,params=params,headers=headers,timeout=25)
-            if response.status_code in (403,429):
-                try:delay=max(86400,float(response.headers.get('Retry-After',0)))
-                except ValueError:delay=86400
-                self.pauses[name]=time.time()+delay
-                temp=self.path.with_suffix('.partial'); temp.write_text(json.dumps(self.pauses)); temp.replace(self.path)
-                stat['status']='paused'; stat['http_status']=response.status_code
+            url = 'https://api.tracker.gg/api/v2/smite2/standard/'+path
+            if self.clearance:
+                headers = self.clearance.headers()
+        for attempt in range(4):
+            await self.wait(max(0, self.previous+self.interval-time.monotonic()))
+            self.requests += 1
+            stat['requests'] += 1
+            self.previous = time.monotonic()
+            stat['operation'] = operation
+            stat['attempt'] = attempt+1
+            response = None
+            try:
+                response = await (self.tracker if name == 'tracker.gg' else self.public).get(
+                    url, params=params, headers=headers, timeout=min(25, self.deadline-time.monotonic()))
+            except (requests.RequestsError, TimeoutError, OSError) as error:
+                failure = type(error).__name__
+            else:
+                code = response.status_code
+                stat['http_status'] = code
+                if code in (403, 429):
+                    # Blocks are not transient. Rate limits honor either form of
+                    # Retry-After, then add jitter without retrying early.
+                    delay = max(86400 if code == 403 else 60,
+                                retry_after(response.headers.get('Retry-After')))
+                    delay += random.uniform(0, min(30, delay/10))
+                    self.pause(name, delay)
+                    stat.update(status='paused', resume_at=self.pauses[name])
+                    print(f'{name} {operation}: HTTP {code}; paused {delay:.1f}s', flush=True)
+                    return None
+                if code == 404:
+                    stat['status'] = 'active'
+                    return None
+                if code not in (408, 425) and not 500 <= code <= 599:
+                    if code != 200:
+                        stat.update(status='request_failed', error=f'HTTP {code}')
+                        return None
+                    try:
+                        body = response.json()
+                        body = body['json'] if name == 'SmiteSource' else body.get('data') if name == 'tracker.gg' else body
+                        if body is not None:
+                            if not isinstance(body, dict):
+                                raise ValueError('unexpected envelope')
+                            expected = ('results' if name == 'SmitePrime' and path.startswith('player-data/') else
+                                        'matches' if path == 'getPlayerMatches' or (name == 'tracker.gg' and path.count('/') == 2) else None)
+                            if expected and not isinstance(body.get(expected), list):
+                                raise ValueError('unexpected history')
+                    except (ValueError, KeyError, TypeError, AttributeError) as error:
+                        # A schema problem is not repaired by repeating a request.
+                        stat.update(status='invalid_response', error=type(error).__name__)
+                        return None
+                    stat.update(status='active', resume_at=0)
+                    stat.pop('error', None)
+                    return body
+                failure = f'HTTP {code}'
+            stat['error'] = failure
+            if attempt == 3:
+                delay = random.uniform(300, 600)
+                stat.update(status='cooling_down', resume_at=time.time()+delay)
+                stat['exhausted'] = stat.get('exhausted', 0)+1
+                print(f'{name} {operation}: {failure}; attempts exhausted, cooling down {delay:.1f}s', flush=True)
                 return None
-            if response.status_code==404:return None
-            if response.status_code!=200:raise ValueError('HTTP failure')
-            body=response.json()
-            body=body['json'] if name=='SmiteSource' else body.get('data') if name=='tracker.gg' else body
-            if body is None:return None
-            if not isinstance(body,dict):raise ValueError('unexpected envelope')
-            expected=('results' if name=='SmitePrime' and path.startswith('player-data/') else
-                      'matches' if path=='getPlayerMatches' or (name=='tracker.gg' and path.count('/')==2) else None)
-            if expected and not isinstance(body.get(expected),list):raise ValueError('unexpected history')
-            stat['status']='active'
-            return body
-        except Exception as error:
-            stat['status']='unavailable'; stat['error']=type(error).__name__
-            return None
+            ceiling = min(120, 24 * 2**attempt)
+            delay = random.uniform(ceiling/2, ceiling)
+            if response is not None:
+                delay = max(delay, retry_after(response.headers.get('Retry-After')))
+            stat.update(status='retrying', retry_delay=delay)
+            stat['retries'] = stat.get('retries', 0)+1
+            print(f'{name} {operation}: {failure}; retry {attempt+1}/3 in {delay:.1f}s', flush=True)
+            await self.wait(delay)
 
     async def histories(self, ref):
         """Query every source before detail collection; bridge only verified accounts."""

@@ -80,8 +80,16 @@ to the other sources when its first scoreboard is missing or invalid. Scoreboard
 are never blended; a validated complete roster is written once with provenance.
 
 Use the same CLI limits as `collect_prime.py`. All three adapters are enabled;
-403/429 responses pause only that provider, durably, for at least 24 hours (or
-longer Retry-After). Other transport failures stop that provider for the run.
+403 responses pause only that provider, durably, for at least 24 hours.
+429 responses honor Retry-After (seconds or HTTP date), with a 60-second minimum
+and added jitter. Timeouts, connection failures, HTTP 408/425 and 5xx responses
+get three retries with exponential jittered delays (12–24, 24–48, 48–96 seconds).
+Retry-After on a server error is also a minimum. Every attempt consumes the
+request budget and respects the run deadline and global request spacing.
+Exhaustion cools only that provider for 5–10 minutes; later requests can recover.
+Cancellation and permanent request/schema errors are not retried. Logs and
+source counters record the operation, attempt, retry delay and failure type,
+without account identifiers or credentials.
 Tracker uses the existing configured egress and any cached clearance, without
 minting, resetting, or rotating routes. Its known October 19 refusal must remain
 paused during the replacement run; enabled does not imply upstream access.
