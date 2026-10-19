@@ -110,3 +110,20 @@ multiple providers discovering the same match cannot write it twice. The request
 budget is a run-wide ceiling, not a shared rate limiter. The website displays
 per-source run status and retry counts. Profile, stats, history and live lookups
 use the same transport policy through the application provider.
+
+**Production validation, release 1.12.4:** Job
+`smitele-multisource-verified-20261019` completed successfully in 152 seconds:
+5 new matches / 30 rows from 18 requests. SmiteSource contributed four matches;
+Prime contributed one. Independent corpus/index readback confirmed all five
+matches, 30 rows, both provenance labels, and no duplicate index entries.
+Tracker's existing pause was respected with zero requests. The production
+player check passed overview, god stats, combined history, ranked stats, live
+negative responses, and the website adapter. The website refresh completed with
+9 of 10 roster profiles found; the remaining profile had no usable response.
+
+Helm revision 112 runs bot/web/collector version 1.12.4. The multi-source nightly
+schedule is enabled at 02:40 UTC. A separate four-hour, 500-match / 1,000-request
+catch-up job resumes collection before the next scheduled run. Its limit does
+not claim exhaustive backfill coverage. 193 focused tests, the UI build and CI
+passed, including stalled-source isolation, retry timing, queue prioritization,
+and item-map bootstrap on cross-provider discoveries.
