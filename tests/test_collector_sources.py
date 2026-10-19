@@ -302,3 +302,27 @@ async def test_new_matches_are_written_before_expanding_player_roster(monkeypatc
     await asyncio.wait_for(module.workers(Client(),[('xbl','seed')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,1),2)
     assert calls==[('xbl','seed')]
     assert report['new_matches']==1
+
+@pytest.mark.asyncio
+async def test_source_bootstraps_item_map_for_cross_provider_match(monkeypatch):
+    import collect_sources as module
+    body=json.loads((FIXTURES/'smitesource_full.json').read_text())
+    assets=json.loads((FIXTURES/'smitesource_assets.json').read_text())
+    mid=body['hirezMatchId'];seen=set();calls=[]
+    async def discover(client,name,ref):
+        calls.append(ref)
+        if len(calls)>1:client.assets=assets
+        return [mid],set()
+    monkeypatch.setattr(module,'discover',discover)
+    def persist(corpus,index,date,rows):
+        assert not any(r['UnknownItems'] for r in rows)
+        index.add(mid);return len(rows)
+    monkeypatch.setattr(module,'persist',persist)
+    class Client:
+        stats={n:dict(requests=0,rejected=0,persisted=0) for n in NAMES}
+        pauses={'tracker.gg':time.time()+86400,'SmitePrime':time.time()+86400}
+        deadline=time.monotonic()+100;assets={}
+        async def match(self,name,match_id):return body
+    report=dict(new_matches=0,rows_written=0,exit_reason='running')
+    await asyncio.wait_for(module.workers(Client(),[('xbl','seed')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,1),2)
+    assert len(calls)==2 and report['new_matches']==1
