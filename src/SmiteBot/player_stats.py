@@ -62,7 +62,8 @@ class PlayerStats(commands.Cog):
 
         await ctx.defer()
         try:
-            segments = await provider.players.segments(platform, handle, kind)
+            segments = (await provider.players.ranked_segments(platform, handle) if kind=='rank'
+                        else await provider.players.segments(platform, handle, kind))
         except ClearanceUnavailable as error:
             await ctx.respond(
                 embed=smite2_embeds.unavailable(
@@ -808,7 +809,7 @@ class PlayerStats(commands.Cog):
         provider, handle = found
 
         if provider.game is Game.SMITE_2:
-            s2 = await self.__smite2_lookup(ctx, "", handle, "gamemode")
+            s2 = await self.__smite2_lookup(ctx, "", handle, "rank")
             if s2 is not None:
                 _, platform, name, modes = s2
                 await ctx.respond(embed=smite2_embeds.rank(platform, name, modes))
@@ -838,7 +839,7 @@ class PlayerStats(commands.Cog):
     async def rank(
         self, ctx: discord.ApplicationContext, player_name: str, game: str
     ) -> None:
-        found = await self.__smite2_lookup(ctx, game, player_name, "gamemode")
+        found = await self.__smite2_lookup(ctx, game, player_name, "rank")
         if found is not None:
             _, platform, handle, modes = found
             await ctx.respond(

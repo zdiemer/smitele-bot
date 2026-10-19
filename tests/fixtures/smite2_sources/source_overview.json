@@ -1,0 +1,41 @@
+{
+  "split": "s0-4",
+  "splitLabel": "Season 0 Split 4",
+  "totals": {
+    "totalMatches": 1478,
+    "wins": 859,
+    "losses": 619,
+    "winRate": 0.581190798376184,
+    "totalKills": 8886,
+    "totalDeaths": 5819,
+    "totalAssists": 12857,
+    "totalDamage": 39329985,
+    "totalGold": 24261758,
+    "totalXp": 25032641,
+    "totalDurationSeconds": 2133478,
+    "avgDurationSeconds": 1443.4898511502029,
+    "totalWardsPlaced": 5985,
+    "kdRatio": 1.5270665062725555,
+    "kdaRatio": 2.631809589276508,
+    "xpPerMin": 703.9952884445023,
+    "goldPerMin": 682.3156742183421,
+    "damagePerMin": 1106.0808220192569,
+    "wardsPerMatch": 4.049391069012179,
+    "damageTakenPerMin": 1164.1073402209913,
+    "mitigationPerMin": 1033.9360049646634,
+    "structureDamagePerMin": 84.19620919456399,
+    "allyHealingPerMin": 43.04815892172312,
+    "selfHealingPerMin": 237.7858126495797,
+    "surrenderedLosses": 189,
+    "surrenderedWins": 274
+  },
+  "availableModes": [
+    "all",
+    "casual_joust",
+    "casual_conquest",
+    "casual_arena",
+    "ranked_conquest",
+    "casual_assault",
+    "ranked_duel"
+  ]
+}

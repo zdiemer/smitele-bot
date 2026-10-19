@@ -28,11 +28,9 @@ from god import God
 from item import Item
 from smite2 import gods as gods_module
 from smite2 import items as items_module
-from smite2.clearance import ClearanceManager, ClearanceStore
 from smite2.ids import NameIndex
-from smite2.history import MultiSourcePlayerLookups
+from smite2.multi_source import MultiSourceLookups
 from smite2 import voicelines
-from smite2.tracker_client import RateLimiter, TrackerClient
 from smite2.wiki_client import WikiClient
 
 VERSION_FILE = "version"
@@ -70,12 +68,10 @@ class Smite2Provider:
         self.__item_index = NameIndex()
         self.__skins: Dict[int, list] = {}
         self.__refresh_running = False
-        self.__clearance = None
-        self.__limiter: Optional[RateLimiter] = None
 
         # Per-player reads never use the sampled build corpus. Match history
         # combines public sources; aggregates retain their original scope.
-        self.players = MultiSourcePlayerLookups(self.__tracker_client, silent=silent)
+        self.players = MultiSourceLookups(silent=silent)
 
     def __log(self, message: str) -> None:
         if not self.__silent:
@@ -94,35 +90,6 @@ class Smite2Provider:
         if self.__user_agent:
             kwargs["user_agent"] = self.__user_agent
         return WikiClient(**kwargs)
-
-    def __tracker_client(self) -> TrackerClient:
-        """A tracker.gg client sharing the deployment's one clearance cookie.
-
-        The store lives on the corpus volume so the nightly collector and the
-        bot see each other's cookie: a measured 6.7-hour lifetime means a crawl
-        usually leaves a valid one behind, and the bot then never has to mint.
-
-        The *limiter* is shared for a related reason. A client is built per
-        command, and a fresh limiter has never issued a request, so its first
-        `wait()` returns immediately — which meant the bot had no effective
-        pacing at all and a command reading many pages could spend a hundred
-        requests as fast as the network allowed. Holding it here makes the gap
-        a property of the address rather than of the command.
-        """
-        if self.__limiter is None:
-            self.__limiter = RateLimiter()
-        if self.__clearance is None:
-            self.__clearance = ClearanceManager(
-                ClearanceStore(
-                    os.path.join(
-                        paths.game_model_dir(self.game), CLEARANCE_FILE
-                    )
-                ),
-                silent=self.__silent,
-            )
-        return TrackerClient(
-            self.__clearance, silent=self.__silent, limiter=self.__limiter
-        )
 
     async def create(self) -> None:
         """Load the catalogue, from cache when the wiki has not moved."""

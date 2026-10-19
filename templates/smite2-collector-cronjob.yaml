@@ -2,21 +2,6 @@
 {{- if not .Values.matchData.enabled }}
 {{- fail "smite2.collector.enabled requires matchData.enabled — the crawl has nowhere durable to write" }}
 {{- end }}
-{{/*
-The nightly Smite 2 crawl.
-
-Its own image, not the bot's: it needs Camoufox to solve a Cloudflare challenge,
-which drags in a patched Firefox and the X and GTK libraries around it. None of
-that belongs in a bot pod held under a 2Gi limit, and the browser runs for about
-ten seconds of a multi-hour job.
-
-Disabled by default, deliberately. This reads an undocumented endpoint behind a
-WAF with no published rate limit and no allowance for bulk pulls, so a
-`helm upgrade` must never start one by accident.
-
-Manual run:
-  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "smitele-bot.fullname" . }}-s2collector smite2-crawl-manual
-*/}}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -36,8 +21,8 @@ spec:
   jobTemplate:
     spec:
       {{/*
-        No retries. A failed crawl is usually a WAF refusal, and the correct
-        response to that is to stop for the night, not to come straight back.
+        Retries belong to each source worker; Kubernetes must not restart
+        the whole job and discard its source-specific backoff.
       */}}
       backoffLimit: 0
       activeDeadlineSeconds: {{ .Values.smite2.collector.activeDeadlineSeconds }}
@@ -64,53 +49,33 @@ spec:
             - name: s2collector
               image: "{{ .Values.smite2.collector.image.repository }}:{{ .Values.smite2.collector.image.tag | default .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command: ["python", "./src/smite2_collector/collect.py"]
+              command: ["python", "-u", "./src/smite2_collector/collect_sources.py"]
               args:
+                {{- range .Values.smite2.collector.seeds }}
+                - --seed
+                - {{ . | quote }}
+                {{- end }}
                 - --budget
                 - {{ .Values.smite2.collector.requestBudget | quote }}
-                - --hours
-                - {{ .Values.smite2.collector.wallClockHours | quote }}
+                - --minutes
+                - {{ mulf .Values.smite2.collector.wallClockHours 60 | int | quote }}
+                - --max-matches
+                - {{ .Values.smite2.collector.maxMatches | quote }}
                 - --interval
                 - {{ .Values.smite2.collector.requestIntervalSeconds | quote }}
                 - --jitter
                 - {{ .Values.smite2.collector.requestIntervalJitter | quote }}
-                - --max-wait-minutes
-                - {{ .Values.smite2.collector.maxWaitMinutes | quote }}
-                - --checkpoint-minutes
-                - {{ .Values.smite2.collector.checkpointMinutes | quote }}
-                {{- with .Values.smite2.collector.pages }}
-                - --pages
-                - {{ . | quote }}
-                {{- end }}
-                {{- with .Values.smite2.collector.sinceDays }}
                 - --since-days
-                - {{ . | quote }}
-                {{- end }}
-                {{- with .Values.smite2.collector.coverageTarget }}
-                - --coverage-target
-                - {{ . | quote }}
-                {{- end }}
+                - {{ .Values.smite2.collector.sinceDays | quote }}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
               env:
-                {{- include "smitele-bot.credentialEnv" . | nindent 16 }}
                 {{- with .Values.credentials.egressProxy }}
                 {{- include "smitele-bot.egressEnv" $ | nindent 16 }}
                 {{- end }}
-                {{/*
-                  Camoufox needs somewhere writable for its profile, which the
-                  emptyDir provides.
-
-                  XDG_CACHE_HOME is deliberately NOT set here. That is where
-                  camoufox looks for the browser itself, which is baked into
-                  the image at build time; pointing it at the emptyDir sends it
-                  looking in an empty directory and the first mint fails with
-                  "official/stable is not installed". The image sets it, and
-                  the browser is only ever read, so a read-only root is fine.
-                */}}
                 - name: HOME
                   value: /tmp
                 - name: XDG_CONFIG_HOME
@@ -128,30 +93,6 @@ spec:
                   mountPath: /data
                 - name: tmp
                   mountPath: /tmp
-                {{/*
-                  The one directory under XDG_CACHE_HOME that camoufox writes
-                  rather than reads. `utils._generate_fontconfig` builds a
-                  fonts.conf at browser startup and puts it in
-                  `platformdirs.user_cache_dir("camoufox")/fontconfig`, which
-                  resolves through the XDG_CACHE_HOME the image sets so the
-                  browser can be found at all — so the browser bundle and a
-                  runtime scratch directory are the same directory, on a
-                  read-only root.
-
-                  Two nights of crawling were lost to this and it was invisible
-                  until then, because the mint only runs when there is no usable
-                  cookie: the runs before it reused one and never launched the
-                  browser. `STOPPED — no clearance: mint failed: [Errno 30]
-                  Read-only file system`.
-
-                  Mounted over that path alone rather than making the cache
-                  writable. The browser bundle is several hundred megabytes the
-                  pod has no business being able to modify, and camoufox derives
-                  both paths from the same variable, so this is the only seam
-                  between them.
-                */}}
-                - name: fontconfig
-                  mountPath: /home/smitele/.cache/camoufox/fontconfig
               resources:
                 {{- toYaml .Values.smite2.collector.resources | nindent 16 }}
           volumes:
@@ -169,10 +110,6 @@ spec:
               emptyDir:
                 {{/* A browser needs considerably more scratch than a script. */}}
                 sizeLimit: 2Gi
-            {{/* A generated fonts.conf and the font caches beside it. */}}
-            - name: fontconfig
-              emptyDir:
-                sizeLimit: 64Mi
           {{- with .Values.nodeSelector }}
           nodeSelector:
             {{- toYaml . | nindent 12 }}

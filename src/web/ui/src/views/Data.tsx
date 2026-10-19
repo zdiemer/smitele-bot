@@ -234,6 +234,9 @@ function CrawlReport({ run }: { run: LastRun }) {
             )}
           </Rows>
         </Pair>
+        {run.sources && <Rows>{Object.entries(run.sources).map(([name, source]) => (
+          <Row key={name} label={name} value={`${source.status} · ${count(source.persisted)} matches · ${count(source.requests)} requests · ${count(source.retries ?? 0)} retries`} />
+        ))}</Rows>}
         {run.egress_changed && (
           <p className="section-error">
             <b>!</b> the outbound address changed mid-run. A clearance cookie is bound to

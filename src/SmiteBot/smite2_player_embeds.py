@@ -56,6 +56,15 @@ def not_found(platform: str, handle: str) -> discord.Embed:
     )
 
 
+def provenance(embed, rows):
+    labels = list(dict.fromkeys(
+        f"{r.metadata.get('source', 'tracker.gg')} · {r.metadata.get('scope', 'Tracker profile totals')}"
+        + (f" · {r.metadata['ratingScope']}" if r.metadata.get('ratingScope') else '')
+        for r in rows))
+    if labels:embed.set_footer(text=' | '.join(labels))
+    return embed
+
+
 def queue_stats(platform: str, handle: str, modes: List[Segment]) -> discord.Embed:
     embed = discord.Embed(
         color=discord.Color.blue(),
@@ -63,7 +72,7 @@ def queue_stats(platform: str, handle: str, modes: List[Segment]) -> discord.Emb
     )
     if not modes:
         embed.description = "No matches recorded in any mode."
-        return embed
+        return provenance(embed, modes)
 
     for mode in sorted(modes, key=lambda s: -s.matches)[:10]:
         lines = [
@@ -82,7 +91,7 @@ def queue_stats(platform: str, handle: str, modes: List[Segment]) -> discord.Emb
                 + (f" (peak {peak:,.0f})" if peak else "")
             )
         embed.add_field(name=mode.name, value="\n".join(lines), inline=False)
-    return embed
+    return provenance(embed, modes)
 
 
 def rank(platform: str, handle: str, modes: List[Segment]) -> discord.Embed:
@@ -104,7 +113,7 @@ def rank(platform: str, handle: str, modes: List[Segment]) -> discord.Embed:
     if not ranked:
         embed.color = discord.Color.gold()
         embed.description = "No ranked matches recorded."
-        return embed
+        return provenance(embed, modes)
 
     for mode in sorted(ranked, key=lambda s: -(s.stats.get("skillRating") or 0)):
         rating = mode.stats.get("skillRating")
@@ -118,7 +127,7 @@ def rank(platform: str, handle: str, modes: List[Segment]) -> discord.Embed:
             ),
             inline=True,
         )
-    return embed
+    return provenance(embed, modes)
 
 
 def worshippers(
@@ -149,12 +158,12 @@ def worshippers(
             f"{god.display.get('assists', '?')} assists\n"
             f"Time played: {god.display.get('timePlayed', '?')}"
         )
-        return embed
+        return provenance(embed, gods)
 
     embed.title = f"{_handle(platform, handle)} — Smite 2 Gods"
     if not gods:
         embed.description = "No matches recorded on any god."
-        return embed
+        return provenance(embed, gods)
 
     played = sorted(gods, key=lambda s: -s.matches)
     total = sum(g.matches for g in gods)
@@ -184,7 +193,7 @@ def worshippers(
         )
     if played[0].image_url:
         embed.set_thumbnail(url=played[0].image_url)
-    return embed
+    return provenance(embed, gods)
 
 
 def match_history(

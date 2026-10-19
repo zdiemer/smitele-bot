@@ -139,3 +139,44 @@ Recheck a single player without invoking tracker or its clearance machinery:
 .venv/bin/python scripts/probe_smite_sources.py xbl juicytot6298
 .venv/bin/python -m pytest tests/test_multi_source_history.py tests/test_smitesource.py -q
 ```
+
+## Application-wide migration (October 19)
+
+`smite2.multi_source.MultiSourceLookups` is now the provider's player interface:
+profiles/overview, mode/god/role aggregates, ranked stats, history and live lobbies.
+The website uses this same interface and no longer skips all Smite 2 players
+because Tracker is paused. No app path needs a clearance mint to read public
+Prime or SmiteSource data. The legacy Tracker parser/client remains available
+for compatibility and tests, but is not the provider's request path.
+
+`smite2.transport.SourceTransport` owns one lock, request clock, jitter, retry
+state and cooldown per provider. A timeout in one source cannot hold another
+source's lock. The collector has separate source workers, shared match discovery,
+and serial atomic deduplicated writes. Its budget and deadline are run limits,
+not cross-provider backoff. Bot aggregate lookups race complete provider replies;
+live lookups allow another source to override a lagging negative. History reads
+all three and deduplicates game UUIDs. The deployment's nightly CronJob now uses
+`collect_sources.py` in the normal bot image; the browser image is unnecessary.
+
+Public contracts verified with the sites' own frontend calls:
+- Prime `matches-data/career/?person_uuid=...&group_by=mode|god&limit=500`
+  returns a list of recorded-career aggregates. Default god results truncate at
+  50, so the adapter explicitly requests 500. Prime does not support role grouping.
+- Prime `players/person/{person_id}/` supplies linked platform accounts;
+  `players/{person_id}/ranked-sr/?days=30` mixes modes, so a rating is joined to
+  a mode only after checking the full referenced match and requested player.
+- Prime `players/{person_id}/active-match/` returns HTTP 204 when not live.
+  Unknown positive envelopes are rejected, allowing the other live sources.
+- SmiteSource `getPlayerOverview` returns `split`/`splitLabel`, totals, available
+  modes and rank data. Per-mode requests pin that returned split. `getPlayerGodStats`
+  and `getPlayerRoleStats` use the same split. Aspect buckets are disjoint; god
+  sums must reconcile to the same-split overview before being published.
+- Prime search does not reliably resolve numeric portal IDs. The fallback obtains
+  a name from the verified Source account, then checks the original platform ID
+  in Prime's search results. Site-local UUIDs never cross providers.
+
+Scopes and provenance are rendered in Discord and website player panels.
+Provider totals are never added together or represented as complete lifetime
+statistics. Missing metrics remain unavailable; a historical ranked rating is
+labelled with its match date. Prime's lack of role aggregates does not prevent
+SmiteSource/Tracker from answering that capability.

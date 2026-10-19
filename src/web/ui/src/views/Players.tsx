@@ -273,7 +273,7 @@ function Smite2Table({ rows }: { rows: Smite2Player[] }) {
   return (
     <Band
       label="Smite 2"
-      qualifier="from tracker.gg · skill rating, no tier"
+      qualifier="SmiteSource · SmitePrime · Tracker"
       game="smite2"
       health="ok"
     >
@@ -306,6 +306,7 @@ function Smite2Table({ rows }: { rows: Smite2Player[] }) {
                       (entry.name ?? entry.handle ?? entry.id)
                     )}
                   </span>
+                  {entry.found && entry.scope && <small className="muted">{entry.source} · {entry.scope}</small>}
                   {!entry.found && <span className="muted"> · not found</span>}
                 </td>
                 <td data-label="matches">{count(entry.matches)}</td>
@@ -546,7 +547,7 @@ export function Smite2Detail({ doc, handle }: { doc: PlayersDoc; handle: string 
         </div>
       </div>
 
-      <Band label="Lifetime totals" qualifier="every mode" game="smite2" health="ok">
+      <Band label="Recorded totals" qualifier={[player.source, player.scope].filter(Boolean).join(" · ")} game="smite2" health="ok">
         <Pair>
           <Rows>
             <Row label="matches" value={count(player.matches)} />
@@ -659,7 +660,7 @@ export function Smite2Detail({ doc, handle }: { doc: PlayersDoc; handle: string 
       {player.top_gods && player.top_gods.length > 0 && (
         <Band
           label="Most played"
-          qualifier="top ten by matches"
+          qualifier={[player.god_source, player.god_scope].filter(Boolean).join(" · ") || "top ten by matches"}
           game="smite2"
           health="ok"
         >

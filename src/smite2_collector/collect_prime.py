@@ -29,8 +29,7 @@ from prime_rows import normalize, InvalidMatch
 from store import SeenMatches, merge_day, output_path
 
 
-class BudgetSpent(Exception):
-    pass
+from smite2.transport import BudgetSpent
 
 
 class PacedClient(SmitePrimeClient):

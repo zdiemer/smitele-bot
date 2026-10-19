@@ -51,11 +51,13 @@ export type CoverageRow = {
 }
 
 export type LastRun = {
+  sources?: Record<string, {status: string; requests: number; persisted: number; retries?: number; error?: string}>
+
   version?: number
   started?: number
   finished?: number
   elapsed_seconds?: number
-  exit_reason?: 'ok' | 'blocked' | 'standdown' | 'no_gods'
+  exit_reason?: 'ok' | 'blocked' | 'standdown' | 'no_gods' | 'running' | 'budget' | 'terminated' | 'no_new_matches'
   egress?: string
   egress_changed?: boolean
   requests?: number
@@ -258,6 +260,10 @@ export type Smite2God = {
 }
 
 export type Smite2Player = {
+  source?: string
+  scope?: string
+  god_source?: string
+  god_scope?: string
   id: string
   platform?: string
   handle?: string

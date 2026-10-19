@@ -47,6 +47,9 @@ async def test_bad_scoreboard_falls_back_without_mixing_rows():
 @pytest.mark.asyncio
 async def test_history_queries_all_three_and_unions_duplicates():
     client=Sources.__new__(Sources)
+    client.locks={n:asyncio.Lock() for n in NAMES}
+    client.path=Path('/nonexistent/access.json')
+    client.previous_by_source={n:0 for n in NAMES};client.jitter=0
     client.stats={n:{'discovered':0} for n in NAMES};client.assets={}
     calls=[]
     async def get(name,path,payload=None):
@@ -67,6 +70,9 @@ async def test_history_queries_all_three_and_unions_duplicates():
 @pytest.mark.asyncio
 async def test_persisted_pause_makes_no_network_request(tmp_path):
     client=Sources.__new__(Sources)
+    client.locks={n:asyncio.Lock() for n in NAMES}
+    client.path=Path('/nonexistent/access.json')
+    client.previous_by_source={n:0 for n in NAMES};client.jitter=0
     client.pauses={'tracker.gg':time.time()+3600}
     client.stats={'tracker.gg':{'status':'ready'}}
     assert await client.get('tracker.gg','matches/test') is None
@@ -75,6 +81,9 @@ async def test_persisted_pause_makes_no_network_request(tmp_path):
 @pytest.mark.asyncio
 async def test_one_history_outage_does_not_stop_other_sources():
     client=Sources.__new__(Sources)
+    client.locks={n:asyncio.Lock() for n in NAMES}
+    client.path=Path('/nonexistent/access.json')
+    client.previous_by_source={n:0 for n in NAMES};client.jitter=0
     client.stats={n:{'discovered':0} for n in NAMES};client.assets={}
     calls=[]
     async def get(name,path,payload=None):
@@ -88,6 +97,9 @@ async def test_one_history_outage_does_not_stop_other_sources():
 @pytest.mark.asyncio
 async def test_refusal_is_durable_and_never_retried(tmp_path):
     client=Sources.__new__(Sources)
+    client.locks={n:asyncio.Lock() for n in NAMES}
+    client.path=Path('/nonexistent/access.json')
+    client.previous_by_source={n:0 for n in NAMES};client.jitter=0
     client.path=tmp_path/'access.json';client.pauses={};client.clearance=None
     client.stats={n:{'status':'ready','requests':0} for n in NAMES}
     client.requests=client.previous=0;client.interval=0;client.budget=10;client.deadline=time.monotonic()+100
@@ -119,7 +131,7 @@ def test_tracker_complete_roster_and_missing_identity():
 
 @pytest.fixture
 def retry_client(tmp_path, monkeypatch):
-    import collector_sources as module
+    import smite2.transport as module
     clock = SimpleNamespace(now=1000., sleeps=[])
     async def sleep(delay):
         clock.sleeps.append(delay)
@@ -129,6 +141,8 @@ def retry_client(tmp_path, monkeypatch):
     monkeypatch.setattr(module.time, 'time', lambda: clock.now)
     monkeypatch.setattr(module.random, 'uniform', lambda low, high: (low+high)/2)
     client = Sources.__new__(Sources)
+    client.locks={n:asyncio.Lock() for n in NAMES}
+    client.previous_by_source={n:0 for n in NAMES};client.jitter=0
     client.path = tmp_path/'access.json'
     client.pauses = {}; client.clearance = None
     client.stats = {n:dict(status='ready', requests=0) for n in NAMES}
@@ -213,3 +227,57 @@ async def test_server_retry_after_is_a_minimum(retry_client):
     client.public.outcomes = [response(503, {'Retry-After': '90'}), response()]
     await client.get('SmiteSource', 'getMatch')
     assert 90 in clock.sleeps
+
+@pytest.mark.asyncio
+async def test_backoff_sleep_never_holds_another_sources_lock(tmp_path):
+    from smite2.transport import SourceTransport
+    client=SourceTransport(str(tmp_path),20,0,time.monotonic()+100)
+    sleeping=asyncio.Event();release=asyncio.Event()
+    async def wait(delay):
+        if delay>0:
+            sleeping.set()
+            await release.wait()
+    client.wait=wait
+    class Transport:
+        async def get(self,url,**kwargs):
+            if 'smitesource' in url:raise TimeoutError()
+            return response(body={'match_id':'prime'})
+    client.public=Transport()
+    source=asyncio.create_task(client.get('SmiteSource','getMatch'))
+    try:
+        await asyncio.wait_for(sleeping.wait(),1)
+        result=await asyncio.wait_for(client.get('SmitePrime','matches-data/matches/id/'),1)
+        assert result=={'match_id':'prime'}
+        assert not source.done()
+    finally:
+        source.cancel()
+        await asyncio.gather(source,return_exceptions=True)
+
+@pytest.mark.asyncio
+async def test_collector_prime_writes_while_source_worker_is_stalled(monkeypatch):
+    import collect_sources as module
+    persisted=asyncio.Event();stalled=asyncio.Event()
+    body=json.loads((FIXTURES/'smiteprime_match.json').read_text())
+    mid=body['match_id'];seen=set()
+    async def discover(client,name,ref):return [mid],set()
+    monkeypatch.setattr(module,'discover',discover)
+    def persist(corpus,index,date,rows):
+        index.add(rows[0]['Match']);persisted.set();return len(rows)
+    monkeypatch.setattr(module,'persist',persist)
+    class Client:
+        stats={n:dict(requests=0,rejected=0,persisted=0) for n in NAMES}
+        pauses={'tracker.gg':time.time()+86400}
+        deadline=time.monotonic()+100;assets={}
+        async def match(self,name,match_id):
+            if name=='SmiteSource':
+                stalled.set();await asyncio.Event().wait()
+            await stalled.wait()
+            return body
+    report=dict(new_matches=0,rows_written=0,exit_reason='running')
+    task=asyncio.create_task(module.workers(Client(),[('xbl','123')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,10))
+    try:
+        await asyncio.wait_for(persisted.wait(),2)
+        assert report['rows_written']==6 and mid in seen
+        assert not task.done()
+    finally:
+        task.cancel();await asyncio.gather(task,return_exceptions=True)

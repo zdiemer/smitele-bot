@@ -251,8 +251,8 @@ export default function Overview({ status }: { status: Status }) {
         <p className="prose">
           Liveness for the two data pipelines behind{' '}
           <a href="https://github.com/zdiemer/smitele-bot">Smite-le</a>. Smite 1 comes
-          from the Hi-Rez API; Smite 2 is crawled from tracker.gg, which is undocumented,
-          sits behind a WAF, and can refuse us in two independent ways. Everything here is
+          from the Hi-Rez API; Smite 2 combines SmiteSource, SmitePrime and Tracker,
+          with independent retries and cooldowns for each source. Everything here is
           read from a snapshot written on a schedule — this page never calls either
           upstream, which is why it can be public.
         </p>

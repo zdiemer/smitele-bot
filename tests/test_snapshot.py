@@ -562,29 +562,24 @@ class TestSmite2PlayersRespectTheStandDown:
     requests, and the players job runs every six hours regardless.
     """
 
-    def test_an_active_standdown_skips_the_whole_half(self, tmp_path, monkeypatch):
+    def test_tracker_standdown_does_not_skip_other_providers(self, tmp_path, monkeypatch):
         import asyncio
-
-        cooldown_module = pytest.importorskip("smite2.cooldown")
-        monkeypatch.setattr(
-            snapshot.paths, "game_model_dir", lambda game: str(tmp_path)
-        )
-        cooldown_module.Cooldown(
-            str(tmp_path / cooldown_module.FILE_NAME), egress=egress.DIRECT
-        ).arm(3600, "429 on /matches asking for 3600s")
-
-        # If the guard fails, this is what it would reach for.
-        def forbidden(*args, **kwargs):
-            raise AssertionError("asked tracker.gg while standing down")
-
-        monkeypatch.setattr(clearance_module.ClearanceManager, "__init__", forbidden)
-
-        result = asyncio.run(snapshot.build_smite2_players())
-
-        assert result["players"] == []
-        assert "stand-down" in result["skipped"]
-        # The reason verbatim, so the page can say which ban and for how long.
-        assert "3600s" in result["reason"]
+        from smite2 import provider as provider_module
+        from smite2 import cooldown
+        from types import SimpleNamespace
+        monkeypatch.setattr(snapshot.paths,"game_model_dir",lambda game:str(tmp_path))
+        cooldown.Cooldown(str(tmp_path/cooldown.FILE_NAME)).arm(3600,"429")
+        async def noop(*args):pass
+        class Provider:
+            def __init__(self,**kwargs):self.players=SimpleNamespace(close=noop)
+            async def create(self):pass
+        monkeypatch.setattr(provider_module,"Smite2Provider",Provider)
+        monkeypatch.setattr(roster,"SMITE2_PLAYERS",['xbl:example'])
+        async def read(*args):return {"found":True,"source":"SmiteSource"}
+        monkeypatch.setattr(snapshot,"smite2_player",read)
+        result=asyncio.run(snapshot.build_smite2_players())
+        assert result['skipped'] is None
+        assert result['players'][0]['source']=='SmiteSource'
 
     def test_an_empty_roster_is_skipped_without_touching_the_network(
         self, tmp_path, monkeypatch

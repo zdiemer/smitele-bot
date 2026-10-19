@@ -919,15 +919,7 @@ def _god_name(provider, god_id: int) -> Optional[str]:
 
 
 async def smite2_player(provider, entry: str) -> Dict[str, Any]:
-    """One roster member's Smite 2 profile, at the same depth as Smite 1's.
-
-    Two requests: the profile — which carries the display handle, the Steam
-    avatar *and* every gamemode segment — and the per-god segments. Deliberately
-    two and not three: the profile's segments are the same rows
-    `segments(kind="gamemode")` would fetch again, and tracker.gg refused this
-    address after ~300 requests in a single run, so every request spent here is
-    one the nightly crawl does not get.
-    """
+    """Read scoped player aggregates through the shared multi-source facade."""
     from smite2.players import parse_player  # noqa: PLC0415
 
     platform, handle = parse_player(entry)
@@ -972,6 +964,10 @@ async def smite2_player(provider, entry: str) -> Dict[str, Any]:
         "platform": platform,
         "handle": handle,
         "found": True,
+        "source": info.get("source"),
+        "scope": info.get("scope"),
+        "god_source": gods[0].metadata.get("source") if gods else None,
+        "god_scope": gods[0].metadata.get("scope") if gods else None,
         # The only place a Smite 2 player has a readable name or a picture.
         "name": info.get("platformUserHandle") or handle,
         "avatar_url": info.get("avatarUrl") or None,
@@ -1033,38 +1029,9 @@ async def smite2_player(provider, entry: str) -> Dict[str, Any]:
 
 
 async def build_smite2_players() -> Dict[str, Any]:
-    """The roster's Smite 2 stats, or the reason there aren't any.
-
-    THE GUARD BELOW IS THE IMPORTANT PART. This job and the nightly crawl leave
-    from the same address and draw on the same reputation, and the crawl already
-    refuses to start inside a recorded stand-down for good reason: firing into a
-    live ban collects nothing and can extend it. A player refresh that ignored
-    the same deadline would do exactly that, and the damage would land on the
-    crawl rather than here — the site would lose ten player cards and the corpus
-    would lose a night.
-
-    So it reads the stand-down first, and skips rather than asks.
-    """
+    """Refresh all providers; a Tracker pause must not suppress other sites."""
     if not roster.DISCORD_TO_SMITE2:
         return {"skipped": "no Smite 2 roster configured", "players": []}
-
-    state_dir = paths.game_model_dir(Game.SMITE_2)
-    cooldown = cooldown_module.Cooldown(
-        os.path.join(state_dir, cooldown_module.FILE_NAME)
-    )
-    standdown = cooldown.read()
-    if standdown.active:
-        message = (
-            f"tracker.gg stand-down, "
-            f"{cooldown_module.describe(standdown.remaining)} left"
-        )
-        print(f"snapshot: skipping Smite 2 players — {message}", flush=True)
-        return {
-            "skipped": message,
-            "reason": standdown.reason,
-            "until": standdown.until,
-            "players": [],
-        }
 
     from smite2.provider import Smite2Provider  # noqa: PLC0415
 
@@ -1087,6 +1054,7 @@ async def build_smite2_players() -> Dict[str, Any]:
                 {"id": entry, "found": False, "error": f"{type(error).__name__}: {error}"}
             )
 
+    await provider.players.close()
     return {"skipped": None, "players": players}
 
 

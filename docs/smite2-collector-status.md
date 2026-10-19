@@ -100,3 +100,13 @@ the standalone Prime writer lock, handles SIGTERM, and preserves atomic writes
 and readback. Stop the old job before starting this one. The scheduled legacy
 Tracker CronJob remains suspended. This bounded page-one crawl still does not
 claim exhaustive twelve-day backfill coverage.
+
+## Application migration and independent workers
+
+Release 1.12.3 moves the scheduled CronJob to the normal bot image and
+`collect_sources.py`. Each provider has its own asynchronous worker, pacing
+clock, lock, retries and cooldown. Shared corpus appends are serial and atomic;
+multiple providers discovering the same match cannot write it twice. The request
+budget is a run-wide ceiling, not a shared rate limiter. The website displays
+per-source run status and retry counts. Profile, stats, history and live lookups
+use the same transport policy through the application provider.

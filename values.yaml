@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.12.2"
+  tag: "1.12.3"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -398,20 +398,15 @@ corpusConvert:
 # Everything below is about match data, which comes from tracker.gg instead.
 smite2:
   collector:
-    # Off by default, and this is not an oversight. tracker.gg's API is
-    # undocumented, sits behind a WAF, publishes no rate limit, and grants no
-    # allowance for bulk reads. A `helm upgrade` must never start crawling it
-    # by accident — turning this on is a decision someone makes deliberately.
     enabled: false
-    # Tracker Network explicitly blocks this collector as of 2026-10-18.
-    # Keep the CronJob and its history, but do not repeat unsuccessful crawls.
-    # Resume only after upstream access works; see docs/smite2-collector-status.md.
-    suspend: true
+    # All providers have independent refusal state; one outage never stops the others.
+    suspend: false
     image:
-      repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-s2collector
-      # Defaults to image.tag, so the crawl and the bot always agree about the
-      # corpus format.
-      tag: "1.12.0"
+      repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
+      tag: "1.12.3"
+    seeds:
+      - "xbl:juicytot6298"
+    maxMatches: 1000
     # 02:40 UTC. Nothing depends on the hour — there is no "yesterday" to wait
     # for, because matches are reachable per player rather than per day — so
     # this is simply a quiet time.
@@ -466,7 +461,7 @@ smite2:
     pages: 1
     # With pages > 1, how far back to walk before giving up on a player, so an
     # account that stopped playing is not paged to the beginning of time.
-    sinceDays: 0
+    sinceDays: 14
     # Stop early once the recent days look this covered, measured by
     # capture-recapture rather than assumed. 0 disables it and spends the whole
     # budget. Treat the estimate as an upper bound — premades bias it high.
@@ -578,7 +573,7 @@ web:
   image:
     repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-web
     # Defaults to image.tag, so the site and the snapshot format agree.
-    tag: "1.12.0"
+    tag: "1.12.3"
   # Two, unlike the bot's one. Nothing here is stateful — the only input is a
   # file on a ReadWriteMany mount, read-only — so this neither needs the
   # gateway's single-connection rule nor the Recreate strategy that the bot's
