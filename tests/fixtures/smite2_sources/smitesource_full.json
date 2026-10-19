@@ -1,0 +1,520 @@
+{
+  "hirezMatchId": "3fec05f5-ae61-4b54-bade-a8acb87e1914",
+  "gameMode": "BP_GameMode_Joust_C",
+  "isComplete": true,
+  "isMatchmade": true,
+  "winningTeam": 2,
+  "startTimestamp": "2026-10-18T21:17:42.847Z",
+  "players": [
+    {
+      "hirezPlayerUuid": "134bad98-553f-5d47-bf35-3420ce80e06f",
+      "teamId": 1,
+      "partySessionId": "4f08da34-86ce-41ed-87f9-f0e14368975f",
+      "godRawName": "Gods.Gilgamesh",
+      "godMaster": {
+        "id": "e91db86d-4ffe-4708-98e5-33068edb1072",
+        "slug": "gilgamesh",
+        "canonicalName": "Gilgamesh",
+        "displayName": "Gilgamesh"
+      },
+      "assignedRole": "Jungle",
+      "playedRole": "Jungle",
+      "kills": 1,
+      "deaths": 6,
+      "assists": 3,
+      "totalDamage": 16171,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "787",
+          "m": "f071ba56-c472-46ca-95aa-5b20811fecf4",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "c6",
+          "m": "7f1c1c3d-e2fc-41cc-a61b-4de6770f8c12",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "e0",
+          "m": "290bde82-b9c7-4d14-a708-6acceadca50e",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "783",
+          "m": "e7f500d0-9291-4b60-9159-b750a482f972",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "21bc",
+          "m": "681d3305-6a07-4a08-a82c-a4827ef529a6",
+          "s": 5
+        },
+        {
+          "c": "R",
+          "h": "b8",
+          "m": "f80c701c-173b-4a84-926d-e569028d3ed4",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "793",
+          "m": "a5e64924-0157-4bdd-aad8-ca7a0b64141d",
+          "s": 1
+        }
+      ],
+      "isAspect": false,
+      "aspectName": null,
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1000"
+          }
+        ]
+      }
+    },
+    {
+      "hirezPlayerUuid": "196eda0a-85bd-59c0-b9f8-4f0372015b78",
+      "teamId": 2,
+      "partySessionId": "b2864307-bb95-4783-bdef-a68e980302b2",
+      "godRawName": "Gods.Chronos",
+      "godMaster": {
+        "id": "401019c9-fa4e-4a00-a54b-a4cf7af4b949",
+        "slug": "chronos",
+        "canonicalName": "Chronos",
+        "displayName": "Chronos"
+      },
+      "assignedRole": "Jungle",
+      "playedRole": "Jungle",
+      "kills": 9,
+      "deaths": 0,
+      "assists": 9,
+      "totalDamage": 20109,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "77e",
+          "m": "62ba192f-0ee5-4d6e-8492-3c101f447cf5",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "768",
+          "m": "28704ed9-dcdb-4b42-b2dd-e47dc666af02",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "785",
+          "m": "5ec345ff-8df6-423f-80f9-ffc9f4e9896d",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "77d",
+          "m": "9e5ad0d4-cb38-4b43-b123-7bac5f1d2a74",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "163c",
+          "m": "51f9f3c3-f2f4-4799-b65f-8ed284d026bf",
+          "s": 5
+        },
+        {
+          "c": "I",
+          "h": "778",
+          "m": "4a43902a-0590-4831-b68d-b88aa86164dc",
+          "s": 6
+        },
+        {
+          "c": "R",
+          "h": "b8",
+          "m": "f80c701c-173b-4a84-926d-e569028d3ed4",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "799",
+          "m": "795a38ef-ff41-4301-a312-003350439c96",
+          "s": 1
+        },
+        {
+          "c": "T",
+          "h": "2bd4",
+          "m": null,
+          "s": 1
+        }
+      ],
+      "isAspect": true,
+      "aspectName": "Aspect of Relativity",
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1001"
+          }
+        ]
+      }
+    },
+    {
+      "hirezPlayerUuid": "839e2339-4b05-5604-8433-819b69300490",
+      "teamId": 1,
+      "partySessionId": "4f08da34-86ce-41ed-87f9-f0e14368975f",
+      "godRawName": "Gods.Rama",
+      "godMaster": {
+        "id": "0c5867f8-8ea9-4898-958f-68c3a3ff7bc0",
+        "slug": "rama",
+        "canonicalName": "Rama",
+        "displayName": "Rama"
+      },
+      "assignedRole": "Mid",
+      "playedRole": "Mid",
+      "kills": 0,
+      "deaths": 7,
+      "assists": 5,
+      "totalDamage": 25312,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "763",
+          "m": "cbb35661-156d-474f-bb13-1b79d061e943",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "14a9",
+          "m": "08552593-bf2e-49c3-b599-58333034ae23",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "e56",
+          "m": "3bb0fd78-b4c0-473d-8b2f-368c10d9146d",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "2d9e",
+          "m": "36257850-5524-4f98-bf0a-3c854747185b",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "b9",
+          "m": "6513f2b6-34e8-48d5-b6f9-17e3e8dfa80b",
+          "s": 5
+        },
+        {
+          "c": "R",
+          "h": "b8",
+          "m": "f80c701c-173b-4a84-926d-e569028d3ed4",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "794",
+          "m": "f2c53c52-b6c7-4a6f-9463-182e71b23f9c",
+          "s": 1
+        }
+      ],
+      "isAspect": false,
+      "aspectName": null,
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1002"
+          }
+        ]
+      }
+    },
+    {
+      "hirezPlayerUuid": "aae501d6-18b8-56e7-a5e9-b00a36f2814c",
+      "teamId": 1,
+      "partySessionId": "4f08da34-86ce-41ed-87f9-f0e14368975f",
+      "godRawName": "Gods.Merlin",
+      "godMaster": {
+        "id": "b378fdcb-ad06-4bbd-b53c-dd9dd06ad714",
+        "slug": "merlin",
+        "canonicalName": "Merlin",
+        "displayName": "Merlin"
+      },
+      "assignedRole": "Solo",
+      "playedRole": "Solo",
+      "kills": 4,
+      "deaths": 5,
+      "assists": 0,
+      "totalDamage": 38032,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "c9",
+          "m": "41558b6e-2d62-4095-b2e0-23f83bb85a1a",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "76a",
+          "m": "1e576d90-6564-4e0e-9b6c-365ab41bfe7b",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "77c",
+          "m": "8e65b7c9-7a8c-4c79-a825-0901c59dbe3d",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "781",
+          "m": "95ebe998-e703-4117-8032-53d6687d1b7e",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "163b",
+          "m": "8bc1efdc-210b-436d-966c-42b18ff72f83",
+          "s": 5
+        },
+        {
+          "c": "R",
+          "h": "7a1",
+          "m": "6a515e3a-2a53-4709-8a53-6d48c79732bd",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "795",
+          "m": "ca28a847-5d4f-4d1a-8a5a-f24d56ded500",
+          "s": 1
+        }
+      ],
+      "isAspect": false,
+      "aspectName": null,
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1003"
+          }
+        ]
+      }
+    },
+    {
+      "hirezPlayerUuid": "c9409236-aa96-58be-9a91-d3edce13f8b6",
+      "teamId": 2,
+      "partySessionId": "e32634ef-53cf-4b22-bac5-9917a9f58986",
+      "godRawName": "Gods.XingTian",
+      "godMaster": {
+        "id": "f4d8da45-c38f-4e36-a62c-e4dcf1f1f1e8",
+        "slug": "xing-tian",
+        "canonicalName": "Xing Tian",
+        "displayName": "Xing Tian"
+      },
+      "assignedRole": "Carry",
+      "playedRole": "Carry",
+      "kills": 1,
+      "deaths": 3,
+      "assists": 14,
+      "totalDamage": 12385,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "d0",
+          "m": "456e958e-0fef-4280-b7b3-49dd2a2dde93",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "768",
+          "m": "28704ed9-dcdb-4b42-b2dd-e47dc666af02",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "785",
+          "m": "5ec345ff-8df6-423f-80f9-ffc9f4e9896d",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "2d15",
+          "m": "763cb864-2ea2-4b6a-a97a-1346bc99fb13",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "2bcb",
+          "m": "cc0a9f8f-c9c7-41a4-9aa3-1dc7d05c5d31",
+          "s": 5
+        },
+        {
+          "c": "I",
+          "h": "1d97",
+          "m": "2446e2ad-6d74-4bca-9ebb-d95725dec899",
+          "s": 6
+        },
+        {
+          "c": "R",
+          "h": "7a0",
+          "m": "c22c32ea-5ed4-45f9-8628-73fa9b4557f2",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "78d",
+          "m": "815e1592-daea-4243-bddc-6ce14083d3c8",
+          "s": 1
+        }
+      ],
+      "isAspect": false,
+      "aspectName": null,
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1004"
+          }
+        ]
+      }
+    },
+    {
+      "hirezPlayerUuid": "dfe74d38-8c32-5019-890e-fb68d5adf779",
+      "teamId": 2,
+      "partySessionId": "b2864307-bb95-4783-bdef-a68e980302b2",
+      "godRawName": "Gods.Ratatoskr",
+      "godMaster": {
+        "id": "1445a46a-e389-432a-a57d-98bc58aecedb",
+        "slug": "ratatoskr",
+        "canonicalName": "Ratatoskr",
+        "displayName": "Ratatoskr"
+      },
+      "assignedRole": "Solo",
+      "playedRole": "Solo",
+      "kills": 8,
+      "deaths": 2,
+      "assists": 10,
+      "totalDamage": 33548,
+      "finishingSr": null,
+      "isBot": false,
+      "items": [
+        {
+          "c": "C",
+          "h": "1b10",
+          "m": "9af1717e-93bf-4f40-a9bb-51125a1942fd",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "aa",
+          "m": "29f5d64e-1365-4102-b0a7-ffff6a9f53f4",
+          "s": 1
+        },
+        {
+          "c": "I",
+          "h": "2a90",
+          "m": "e4a7040c-67ba-4931-afc0-eccc892ade3c",
+          "s": 2
+        },
+        {
+          "c": "I",
+          "h": "2a8f",
+          "m": "0f38d546-a0ab-48e7-982d-b433e5f0bf68",
+          "s": 3
+        },
+        {
+          "c": "I",
+          "h": "785",
+          "m": "5ec345ff-8df6-423f-80f9-ffc9f4e9896d",
+          "s": 4
+        },
+        {
+          "c": "I",
+          "h": "768",
+          "m": "28704ed9-dcdb-4b42-b2dd-e47dc666af02",
+          "s": 5
+        },
+        {
+          "c": "I",
+          "h": "d3",
+          "m": "e61f21ba-af75-4c12-90b1-204ebd5f28ab",
+          "s": 6
+        },
+        {
+          "c": "R",
+          "h": "3f9",
+          "m": "bb237315-1f88-4e72-810f-e99f86fdfe23",
+          "s": 1
+        },
+        {
+          "c": "S",
+          "h": "79e",
+          "m": "b9a54d2e-230d-419a-8e62-bcbca503b286",
+          "s": 1
+        },
+        {
+          "c": "T",
+          "h": "213b",
+          "m": null,
+          "s": 1
+        }
+      ],
+      "isAspect": true,
+      "aspectName": "Aspect of the Thickbark",
+      "smitePlayer": {
+        "platforms": [
+          {
+            "portalId": 10,
+            "portalUserId": "1005"
+          }
+        ]
+      }
+    }
+  ]
+}

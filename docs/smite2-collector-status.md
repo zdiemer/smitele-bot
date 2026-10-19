@@ -68,3 +68,27 @@ matches, 68 player rows, 15 requests**, with two ambiguous-aspect matches
 rejected. Readback confirmed durable records; the existing aggregation
 preparation accepted a 46-row intermediate sample and identified 22 usable full
 builds. This verifies corpus compatibility, not full population coverage.
+
+## Three-source collection
+
+`src/smite2_collector/collect_sources.py` is the combined entrypoint. It queries
+SmitePrime, SmiteSource and tracker.gg histories, unions match UUIDs, and shares
+one corpus/index. Verified platform accounts bridge site-local identities.
+SmiteSource teammate routes and full scoreboards expand the player frontier,
+including through previously collected histories. Each candidate can fall back
+to the other sources when its first scoreboard is missing or invalid. Scoreboards
+are never blended; a validated complete roster is written once with provenance.
+
+Use the same CLI limits as `collect_prime.py`. All three adapters are enabled;
+403/429 responses pause only that provider, durably, for at least 24 hours (or
+longer Retry-After). Other transport failures stop that provider for the run.
+Tracker uses the existing configured egress and any cached clearance, without
+minting, resetting, or rotating routes. Its known October 19 refusal must remain
+paused during the replacement run; enabled does not imply upstream access.
+
+`last_sources_run.json` records each provider's requests, discoveries, rejected
+scoreboards, persisted matches and availability. The combined collector shares
+the standalone Prime writer lock, handles SIGTERM, and preserves atomic writes
+and readback. Stop the old job before starting this one. The scheduled legacy
+Tracker CronJob remains suspended. This bounded page-one crawl still does not
+claim exhaustive twelve-day backfill coverage.
