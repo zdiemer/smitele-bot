@@ -1,0 +1,629 @@
+{
+  "match_id": "37e7026c-4e13-4a1f-a12b-26d4975276d6",
+  "type": "MatchReport",
+  "state": "closed",
+  "start_timestamp": "2026-10-18T21:39:29.110000Z",
+  "matchmade": true,
+  "current_mode": "BP_GameMode_Joust_C",
+  "winning_team": "1",
+  "players": [
+    {
+      "player_uuid": "e9b9339a-1558-59b2-b3f7-09c12c2f0a8f",
+      "player": {
+        "player_uuid": "e9b9339a-1558-59b2-b3f7-09c12c2f0a8f",
+        "platform": "PSN",
+        "portal_id": 9,
+        "portal_user_id": "7129596762724422727",
+        "display_name": "ohLafo",
+        "player_id": 982632,
+        "updated_at": "2026-10-18T22:57:14.110262Z"
+      },
+      "team_id": "1",
+      "party_session_id": "1f27715f-4767-44b1-bb60-1dcfca017466",
+      "finishing_rank": null,
+      "character_choice": "Gods.Nike",
+      "god": {
+        "god_id": "gods.nike",
+        "god_display_name": "Nike",
+        "pantheon": "Greek",
+        "roles": []
+      },
+      "assigned_role": "EMiddle",
+      "played_role": "EMiddle",
+      "kills": 13,
+      "deaths": 3,
+      "assists": 7,
+      "total_damage": 33085,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-00000000079a",
+          "item_id": 1946,
+          "item_display_name": "Archmage's Gem",
+          "slot_type": "STARTER TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Aspect_Arcanist.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Aspect_Arcanist.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a1",
+          "item_id": 1953,
+          "item_display_name": "Aegis of Acceleration ",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png"
+        },
+        "talent": {
+          "item_uuid": "00000000-0000-0000-0000-000000002ebd",
+          "item_id": 11965,
+          "item_display_name": "Nike",
+          "slot_type": "ASPECT",
+          "icon_image_path": null,
+          "icon_image_url": null
+        },
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000aa",
+          "item_id": 170,
+          "item_display_name": "Jotunn's Revenge",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_JotunnsRevenge.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_JotunnsRevenge.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-00000000078b",
+          "item_id": 1931,
+          "item_display_name": "Barbed Carver",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_BarbedCarver.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_BarbedCarver.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-00000000078a",
+          "item_id": 1930,
+          "item_display_name": "The Crusher",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Crusher.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Crusher.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a2",
+          "item_id": 1954,
+          "item_display_name": "Heartseeker",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Heartseeker.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Heartseeker.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000dd",
+          "item_id": 221,
+          "item_display_name": "Avatar's Parashu",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Parashu.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Parashu.png"
+        },
+        "item_6": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000af",
+          "item_id": 175,
+          "item_display_name": "Lucerne Hammer",
+          "slot_type": "TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_LucerneHammer.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_LucerneHammer.png"
+        }
+      }
+    },
+    {
+      "player_uuid": "2d44978a-ffea-5e00-9422-27daaa6f1522",
+      "player": {
+        "player_uuid": "2d44978a-ffea-5e00-9422-27daaa6f1522",
+        "platform": "Steam",
+        "portal_id": 5,
+        "portal_user_id": "76561198199557922",
+        "display_name": "BLAZ",
+        "player_id": 15080643,
+        "updated_at": "2026-10-18T22:44:58.599392Z"
+      },
+      "team_id": "2",
+      "party_session_id": "c43bbc56-3a8e-420e-9807-9d835c4442a3",
+      "finishing_rank": null,
+      "character_choice": "Gods.Xbalanque",
+      "god": {
+        "god_id": "gods.xbalanque",
+        "god_display_name": "Xbalanque",
+        "pantheon": "Maya",
+        "roles": []
+      },
+      "assigned_role": "ECarry",
+      "played_role": "ECarry",
+      "kills": 6,
+      "deaths": 8,
+      "assists": 7,
+      "total_damage": 26711,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-000000000793",
+          "item_id": 1939,
+          "item_display_name": "Death's Toll",
+          "slot_type": "STARTER TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_DeathsToll.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_DeathsToll.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a1",
+          "item_id": 1953,
+          "item_display_name": "Aegis of Acceleration ",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png"
+        },
+        "talent": null,
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-000000000e56",
+          "item_id": 3670,
+          "item_display_name": "Odysseus' Bow",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_OdysseusBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_OdysseusBow.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b13",
+          "item_id": 6931,
+          "item_display_name": "Riptalon",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_T3_Riptalon.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_T3_Riptalon.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-0000000014a9",
+          "item_id": 5289,
+          "item_display_name": "Tyrfing",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Tyrfing.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Tyrfing.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000b9",
+          "item_id": 185,
+          "item_display_name": "Qin's Blade",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_QinsBlade.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_QinsBlade.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000cf",
+          "item_id": 207,
+          "item_display_name": "The Executioner",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_TheExecutioner.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_TheExecutioner.png"
+        },
+        "item_6": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000b0",
+          "item_id": 176,
+          "item_display_name": "Manchu Bow",
+          "slot_type": "TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_ManchuBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_ManchuBow.png"
+        }
+      }
+    },
+    {
+      "player_uuid": "592733f8-1c88-5054-b1d2-4ec5e33c42eb",
+      "player": {
+        "player_uuid": "592733f8-1c88-5054-b1d2-4ec5e33c42eb",
+        "platform": "Steam",
+        "portal_id": 5,
+        "portal_user_id": "76561198081323937",
+        "display_name": "Toxxicguy",
+        "player_id": 12596710,
+        "updated_at": "2026-10-18T22:57:14.224318Z"
+      },
+      "team_id": "1",
+      "party_session_id": "1f27715f-4767-44b1-bb60-1dcfca017466",
+      "finishing_rank": null,
+      "character_choice": "Gods.Charon",
+      "god": {
+        "god_id": "gods.charon",
+        "god_display_name": "Charon",
+        "pantheon": "Greek",
+        "roles": []
+      },
+      "assigned_role": "ESolo",
+      "played_role": "ESolo",
+      "kills": 3,
+      "deaths": 3,
+      "assists": 13,
+      "total_damage": 15951,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-000000000797",
+          "item_id": 1943,
+          "item_display_name": "War Banner",
+          "slot_type": "STARTER TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_WarBanner.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_WarBanner.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a0",
+          "item_id": 1952,
+          "item_display_name": "Phantom Shell",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_PhantomShell.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_PhantomShell.png"
+        },
+        "talent": null,
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-00000000077e",
+          "item_id": 1918,
+          "item_display_name": "Prophetic Cloak",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Prophetic_Cloak.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Prophetic_Cloak.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-00000000163c",
+          "item_id": 5692,
+          "item_display_name": "Freya's Tears",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_FreyasTears.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_FreyasTears.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-00000000077c",
+          "item_id": 1916,
+          "item_display_name": "Gladiator's Shield",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_LorgMor.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_LorgMor.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a3",
+          "item_id": 1955,
+          "item_display_name": "Hide of the Nemean Lion",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_HideoftheNemeanLion.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_HideoftheNemeanLion.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-000000000772",
+          "item_id": 1906,
+          "item_display_name": "Hunter's Bow",
+          "slot_type": "TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_HuntersBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_HuntersBow.png"
+        },
+        "item_6": {
+          "item_uuid": "00000000-0000-0000-0000-000000000779",
+          "item_id": 1913,
+          "item_display_name": "Medal of Disruption",
+          "slot_type": "TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_MedalOfDisruption.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T2/Icon_T2_MedalOfDisruption.png"
+        }
+      }
+    },
+    {
+      "player_uuid": "196eda0a-85bd-59c0-b9f8-4f0372015b78",
+      "player": {
+        "player_uuid": "196eda0a-85bd-59c0-b9f8-4f0372015b78",
+        "platform": "XboxLive",
+        "portal_id": 10,
+        "portal_user_id": "2535468618322967",
+        "display_name": "VOLTRIXXX",
+        "player_id": 161517,
+        "updated_at": "2026-10-18T23:04:27.600543Z"
+      },
+      "team_id": "2",
+      "party_session_id": "b2864307-bb95-4783-bdef-a68e980302b2",
+      "finishing_rank": null,
+      "character_choice": "Gods.Ra",
+      "god": {
+        "god_id": "gods.ra",
+        "god_display_name": "Ra",
+        "pantheon": "Egyptian",
+        "roles": []
+      },
+      "assigned_role": "EJungle",
+      "played_role": "EJungle",
+      "kills": 2,
+      "deaths": 8,
+      "assists": 7,
+      "total_damage": 16205,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-00000000079b",
+          "item_id": 1947,
+          "item_display_name": "Pendulum of The Ages",
+          "slot_type": "STARTER TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_SandsOfTimeUpgrade.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_SandsOfTimeUpgrade.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000b8",
+          "item_id": 184,
+          "item_display_name": "Purification Beads",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Utility/T_Icon_Utility_PurificationBeads.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Utility/T_Icon_Utility_PurificationBeads.png"
+        },
+        "talent": null,
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-000000000788",
+          "item_id": 1928,
+          "item_display_name": "Spear of Desolation",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_SpearofDesolation.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_SpearofDesolation.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-000000000099",
+          "item_id": 153,
+          "item_display_name": "Chronos' Pendant",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_ChronosPendant.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_ChronosPendant.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-00000000078c",
+          "item_id": 1932,
+          "item_display_name": "Doom Orb",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_DoomOrb.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_DoomOrb.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-000000000098",
+          "item_id": 152,
+          "item_display_name": "Brawler's Beat Stick",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_BrawlersRuin.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_BrawlersRuin.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-000000000fd2",
+          "item_id": 4050,
+          "item_display_name": "Nimble Ring",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_NimbleRing.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_NimbleRing.png"
+        },
+        "item_6": null
+      }
+    },
+    {
+      "player_uuid": "c9409236-aa96-58be-9a91-d3edce13f8b6",
+      "player": {
+        "player_uuid": "c9409236-aa96-58be-9a91-d3edce13f8b6",
+        "platform": "Steam",
+        "portal_id": 5,
+        "portal_user_id": "76561199087282921",
+        "display_name": "Quin",
+        "player_id": 5211786,
+        "updated_at": "2026-10-18T23:10:38.854566Z"
+      },
+      "team_id": "1",
+      "party_session_id": "e32634ef-53cf-4b22-bac5-9917a9f58986",
+      "finishing_rank": null,
+      "character_choice": "Gods.Artemis",
+      "god": {
+        "god_id": "gods.artemis",
+        "god_display_name": "Artemis",
+        "pantheon": "Greek",
+        "roles": []
+      },
+      "assigned_role": "ECarry",
+      "played_role": "ECarry",
+      "kills": 6,
+      "deaths": 7,
+      "assists": 7,
+      "total_damage": 29305,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-00000000079d",
+          "item_id": 1949,
+          "item_display_name": "Hunter's Cowl",
+          "slot_type": "STARTER TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_HuntersCowl.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_HuntersCowl.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000007a1",
+          "item_id": 1953,
+          "item_display_name": "Aegis of Acceleration ",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_Relic_AegisOfAcceleration.png"
+        },
+        "talent": null,
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-0000000014a9",
+          "item_id": 5289,
+          "item_display_name": "Tyrfing",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Tyrfing.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_Tyrfing.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-000000000e56",
+          "item_id": 3670,
+          "item_display_name": "Odysseus' Bow",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_OdysseusBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_OdysseusBow.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000cf",
+          "item_id": 207,
+          "item_display_name": "The Executioner",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_TheExecutioner.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_TheExecutioner.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000cc",
+          "item_id": 204,
+          "item_display_name": "Sun Beam Bow",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_DesignTemp_T3_NewSunBeamBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_DesignTemp_T3_NewSunBeamBow.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-000000002d9e",
+          "item_id": 11678,
+          "item_display_name": "Silverbranch Bow",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_SilverbranchBow.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_SilverbranchBow.png"
+        },
+        "item_6": null
+      }
+    },
+    {
+      "player_uuid": "dfe74d38-8c32-5019-890e-fb68d5adf779",
+      "player": {
+        "player_uuid": "dfe74d38-8c32-5019-890e-fb68d5adf779",
+        "platform": "XboxLive",
+        "portal_id": 10,
+        "portal_user_id": "2535431543554562",
+        "display_name": "juicytot6298",
+        "player_id": 13378250,
+        "updated_at": "2026-10-19T07:10:50.483381Z"
+      },
+      "team_id": "2",
+      "party_session_id": "b2864307-bb95-4783-bdef-a68e980302b2",
+      "finishing_rank": null,
+      "character_choice": "Gods.Ratatoskr",
+      "god": {
+        "god_id": "gods.ratatoskr",
+        "god_display_name": "Ratatoskr",
+        "pantheon": "Norse",
+        "roles": []
+      },
+      "assigned_role": "ESolo",
+      "played_role": "ESolo",
+      "kills": 5,
+      "deaths": 6,
+      "assists": 8,
+      "total_damage": 21570,
+      "items": {
+        "starter": {
+          "item_uuid": "00000000-0000-0000-0000-00000000079b",
+          "item_id": 1947,
+          "item_display_name": "Pendulum of The Ages",
+          "slot_type": "STARTER TIER 2",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_SandsOfTimeUpgrade.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/AspectsInfluences/Icon_Starter_SandsOfTimeUpgrade.png"
+        },
+        "relic": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000b8",
+          "item_id": 184,
+          "item_display_name": "Purification Beads",
+          "slot_type": "RELIC TIER 1",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Utility/T_Icon_Utility_PurificationBeads.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Utility/T_Icon_Utility_PurificationBeads.png"
+        },
+        "talent": {
+          "item_uuid": "00000000-0000-0000-0000-00000000213b",
+          "item_id": 8507,
+          "item_display_name": "Aspect of the Thickbark",
+          "slot_type": "ASPECT",
+          "icon_image_path": "/UI/Textures/ArtAssets/GlobalComponents/Talents/t_talent_Wave.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/GlobalComponents/Talents/t_talent_Wave.png"
+        },
+        "curio": {
+          "item_uuid": "00000000-0000-0000-0000-000000001b10",
+          "item_id": 6928,
+          "item_display_name": "Gjallarflare",
+          "slot_type": "CURIO",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icons_Curios_Gjallarflare.png"
+        },
+        "item_1": {
+          "item_uuid": "00000000-0000-0000-0000-0000000000aa",
+          "item_id": 170,
+          "item_display_name": "Jotunn's Revenge",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_JotunnsRevenge.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_JotunnsRevenge.png"
+        },
+        "item_2": {
+          "item_uuid": "00000000-0000-0000-0000-000000002a90",
+          "item_id": 10896,
+          "item_display_name": "Ashwhorl Acorn",
+          "slot_type": "RATATOSKR ACORNS",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Ratatoskrs_Acorns/Acorn_T3_Thickbark.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Ratatoskrs_Acorns/Acorn_T3_Thickbark.png"
+        },
+        "item_3": {
+          "item_uuid": "00000000-0000-0000-0000-000000002a8f",
+          "item_id": 10895,
+          "item_display_name": "Briskberry Acorn",
+          "slot_type": "RATATOSKR ACORNS",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Ratatoskrs_Acorns/Acorn_T3_Bristlebush.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/Ratatoskrs_Acorns/Acorn_T3_Bristlebush.png"
+        },
+        "item_4": {
+          "item_uuid": "00000000-0000-0000-0000-000000000768",
+          "item_id": 1896,
+          "item_display_name": "Breastplate of Valor",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/SMITE1ItemIcons/Icon_BreastplateOfValor.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/SMITE1ItemIcons/Icon_BreastplateOfValor.png"
+        },
+        "item_5": {
+          "item_uuid": "00000000-0000-0000-0000-000000000785",
+          "item_id": 1925,
+          "item_display_name": "Genji's Guard",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_GenjisGuard.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_GenjisGuard.png"
+        },
+        "item_6": {
+          "item_uuid": "00000000-0000-0000-0000-00000000077c",
+          "item_id": 1916,
+          "item_display_name": "Gladiator's Shield",
+          "slot_type": "TIER 3",
+          "icon_image_path": "/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_LorgMor.png",
+          "icon_image_url": "https://smiteapiv3.nyc3.cdn.digitaloceanspaces.com/UI/Textures/ArtAssets/InGameAssets/HUD/ItemStore/Items/T3/Icon_T3_LorgMor.png"
+        }
+      }
+    }
+  ]
+}

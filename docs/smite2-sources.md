@@ -119,8 +119,9 @@ caller-supplied Source UUID is not sent to Prime as a person UUID.
 
 ## Aggregate stats and corpus work still separate
 
-Player overview/god/role aggregates and the nightly build corpus **still use
-tracker.gg**. Source's default aggregate is a split, its god rows include
+Player overview/god/role aggregates and the scheduled collector **still use
+tracker.gg**. A bounded manual SmitePrime corpus collector is now available;
+see [collector status](smite2-collector-status.md). Source's default aggregate is a split, its god rows include
 role/aspect subdivisions, and Prime's sampled KDA used full assists whereas
 Source used half assists. Adding either site's totals to tracker would double
 count overlapping games and potentially mix scopes and definitions.
@@ -129,7 +130,8 @@ Before extending the corpus: normalize engine god names and item master UUIDs
 against the catalogue, map slot categories (including acorns/curios), require
 completed match status, and deduplicate shared match/player IDs in storage.
 Retain source, scope and observation time. The recorded raw histories provide
-starting fixtures; they are not yet valid build-corpus rows.
+starting fixtures; the manual collector uses full match reports and validates
+complete rosters before writing corpus rows.
 
 Recheck a single player without invoking tracker or its clearance machinery:
 
