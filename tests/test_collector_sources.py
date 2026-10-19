@@ -281,3 +281,24 @@ async def test_collector_prime_writes_while_source_worker_is_stalled(monkeypatch
         assert not task.done()
     finally:
         task.cancel();await asyncio.gather(task,return_exceptions=True)
+
+@pytest.mark.asyncio
+async def test_new_matches_are_written_before_expanding_player_roster(monkeypatch):
+    import collect_sources as module
+    body=json.loads((FIXTURES/'smiteprime_match.json').read_text())
+    mid=body['match_id'];seen=set();calls=[]
+    async def discover(client,name,ref):
+        calls.append(ref)
+        return [mid],{('xbl',str(i)) for i in range(100)}
+    monkeypatch.setattr(module,'discover',discover)
+    def persist(corpus,index,date,rows):index.add(mid);return len(rows)
+    monkeypatch.setattr(module,'persist',persist)
+    class Client:
+        stats={n:dict(requests=0,rejected=0,persisted=0) for n in NAMES}
+        pauses={'tracker.gg':time.time()+86400,'SmiteSource':time.time()+86400}
+        deadline=time.monotonic()+100;assets={}
+        async def match(self,name,match_id):return body
+    report=dict(new_matches=0,rows_written=0,exit_reason='running')
+    await asyncio.wait_for(module.workers(Client(),[('xbl','seed')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,1),2)
+    assert calls==[('xbl','seed')]
+    assert report['new_matches']==1

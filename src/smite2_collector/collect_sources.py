@@ -47,20 +47,23 @@ async def collect_match(client, mid, preferred, provider):
 
 async def workers(client, seeds, provider, seen, corpus, cutoff, report, checkpoint, max_matches):
     """Independent network workers; durable appends remain serial and atomic."""
-    queues={name:asyncio.Queue() for name in NAMES}
+    queues={name:asyncio.PriorityQueue() for name in NAMES}
     offered={name:set() for name in NAMES}
     active=set()
     enabled=set(NAMES)
+    serial=0
     def offer(kind,value):
+        nonlocal serial
+        serial+=1
         for name in list(enabled):
             key=(kind,value)
             if key not in offered[name]:
                 offered[name].add(key)
-                queues[name].put_nowait(key)
+                queues[name].put_nowait((0 if kind=="match" else 1,serial,kind,value))
     for ref in seeds:offer('history',ref)
     async def worker(name):
         while report['new_matches']<max_matches:
-            try:kind,value=await asyncio.wait_for(queues[name].get(),timeout=1)
+            try:_,_,kind,value=await asyncio.wait_for(queues[name].get(),timeout=1)
             except asyncio.TimeoutError:
                 if not active and all(queues[n].empty() for n in enabled):return
                 continue

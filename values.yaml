@@ -1,6 +1,6 @@
 image:
   repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-  tag: "1.12.3"
+  tag: "1.12.4"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -403,7 +403,7 @@ smite2:
     suspend: false
     image:
       repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-      tag: "1.12.3"
+      tag: "1.12.4"
     seeds:
       - "xbl:juicytot6298"
     maxMatches: 1000
@@ -573,7 +573,7 @@ web:
   image:
     repository: registry.zachd.duckdns.org/zdiemer/smitele-bot-web
     # Defaults to image.tag, so the site and the snapshot format agree.
-    tag: "1.12.3"
+    tag: "1.12.4"
   # Two, unlike the bot's one. Nothing here is stateful — the only input is a
   # file on a ReadWriteMany mount, read-only — so this neither needs the
   # gateway's single-connection rule nor the Recreate strategy that the bot's

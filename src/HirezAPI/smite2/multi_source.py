@@ -212,7 +212,7 @@ class MultiSourceLookups:
         try:
             identity=await self.identity(platform,handle)
             body=await self.get('SmitePrime',f'player-data/players/person/{identity["person_id"]}/')
-            account=next((p for p in body['players'] if p['portal_id']==smiteprime.PORTALS[platform]),{})
+            account=next((p for p in body['players'] if p['portal_id']==smiteprime.PORTALS[platform] and str(p['portal_user_id'])==str(identity['platform_id'])),{})
             info['platformUserHandle']=account.get('display_name') or handle
         except Exception:pass
         info.update(source=modes[0].metadata['source'],scope=modes[0].metadata['scope'])
