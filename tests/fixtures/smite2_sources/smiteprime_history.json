@@ -1,0 +1,81 @@
+{
+  "count": 1404,
+  "next": "https://smiteprime.com/api/player-data/players/a8b158a1-5872-4b2c-aa39-7c9064728c0a/matches/?page=2",
+  "previous": null,
+  "results": [
+    {
+      "match": {
+        "match_id": "37e7026c-4e13-4a1f-a12b-26d4975276d6",
+        "type": "MatchReport",
+        "state": "closed",
+        "start_timestamp": "2026-10-18T21:39:29.110000Z",
+        "end_timestamp": "2026-10-18T22:03:13.510000Z",
+        "duration_seconds": 1424,
+        "current_map": "L_JS_S1_P",
+        "current_mode": "BP_GameMode_Joust_C",
+        "lobby_type": "Casual",
+        "game_version": {
+          "version_number": "1639864",
+          "version_name": "OB45",
+          "release_date": "2026-10-16T12:15:13.923000Z"
+        },
+        "winning_team": "1",
+        "extra_data": {},
+        "bans": []
+      },
+      "person": {
+        "person_id": "a8b158a1-5872-4b2c-aa39-7c9064728c0a"
+      },
+      "god": {
+        "god_id": "gods.ratatoskr",
+        "god_display_name": "Ratatoskr",
+        "pantheon": "Norse",
+        "roles": []
+      },
+      "team_id": "2",
+      "played_role": "ESolo",
+      "kills": 5,
+      "deaths": 6,
+      "assists": 8,
+      "finishing_rank": null,
+      "starting_rank": null
+    },
+    {
+      "match": {
+        "match_id": "3fec05f5-ae61-4b54-bade-a8acb87e1914",
+        "type": "MatchReport",
+        "state": "closed",
+        "start_timestamp": "2026-10-18T21:17:42.847000Z",
+        "end_timestamp": "2026-10-18T21:41:11.670000Z",
+        "duration_seconds": 1408,
+        "current_map": "L_JS_S1_P",
+        "current_mode": "BP_GameMode_Joust_C",
+        "lobby_type": "Casual",
+        "game_version": {
+          "version_number": "1639864",
+          "version_name": "OB45",
+          "release_date": "2026-10-16T12:15:13.923000Z"
+        },
+        "winning_team": "2",
+        "extra_data": {},
+        "bans": []
+      },
+      "person": {
+        "person_id": "a8b158a1-5872-4b2c-aa39-7c9064728c0a"
+      },
+      "god": {
+        "god_id": "gods.ratatoskr",
+        "god_display_name": "Ratatoskr",
+        "pantheon": "Norse",
+        "roles": []
+      },
+      "team_id": "2",
+      "played_role": "ESolo",
+      "kills": 8,
+      "deaths": 2,
+      "assists": 10,
+      "finishing_rank": null,
+      "starting_rank": null
+    }
+  ]
+}

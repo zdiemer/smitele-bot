@@ -30,7 +30,7 @@ from smite2 import gods as gods_module
 from smite2 import items as items_module
 from smite2.clearance import ClearanceManager, ClearanceStore
 from smite2.ids import NameIndex
-from smite2.players import PlayerLookups
+from smite2.history import MultiSourcePlayerLookups
 from smite2 import voicelines
 from smite2.tracker_client import RateLimiter, TrackerClient
 from smite2.wiki_client import WikiClient
@@ -73,10 +73,9 @@ class Smite2Provider:
         self.__clearance = None
         self.__limiter: Optional[RateLimiter] = None
 
-        # Per-player reads go to tracker.gg rather than to the corpus. The
-        # corpus is a snowball sample and cannot answer "how has this player
-        # done on Anubis"; asked per player, the same source answers exactly.
-        self.players = PlayerLookups(self.__tracker_client, silent=silent)
+        # Per-player reads never use the sampled build corpus. Match history
+        # combines public sources; aggregates retain their original scope.
+        self.players = MultiSourcePlayerLookups(self.__tracker_client, silent=silent)
 
     def __log(self, message: str) -> None:
         if not self.__silent:

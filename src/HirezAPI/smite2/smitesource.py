@@ -1,86 +1,13 @@
-"""The lobby, mid-match, from smitesource.com.
+"""SmiteSource public RPC reads; observed contracts in docs/smite2-sources.md.
 
-`docs/smite2-live-data.md` concluded that the one hop a lobby lookup needs —
-an arbitrary player to the session they are in right now — was gated behind a
-RallyHere permission no player token carries, and that every tracker site was
-downstream of the same slow ingest. The first half still holds. The second was
-wrong about this site: SmiteSource answers that hop directly, and answers it
-with the match in progress rather than a roster.
+The October 2026 web client requires x-smitesource-client: 1. Without it,
+otherwise valid unauthenticated requests return HTTP 403. No cookie is needed.
+Use getPlayerByPlatform for identity (not the queue-scoped overlay session).
+Public person UUIDs are local to this site, not RallyHere or SmitePrime IDs.
 
-Measured against a live match on 2026-08-31, not inferred:
-
-    tracker.gg  ~10 min snapshot cadence, roster only
-    SmiteSource  ~4.5 min refresh (267s and 272s between consecutive
-                 `liveUpdatedAt` moves), served within ~10s of the refresh,
-                 carrying every player's live K/D/A, damage and gold
-
-So this is a second backend for `/livematch`, chosen by `SMITELE_LIVE_MATCH_SOURCE`
-and falling back to tracker.gg whenever it cannot answer. It is deliberately not
-the default: it is one site's undocumented API, and the fallback is what makes
-turning it on cheap to reverse.
-
-## The API
-
-`GET /rpc/<router>/<procedure>?data={"json":{…}}`, answering `{"json": …}`.
-No account, no token, no Cloudflare clearance — which is the whole reason this
-module is a hundred lines and `tracker_client` is seven hundred.
-
-**It still cannot be aiohttp, and that is measured.** The HTML pages sit behind
-a Cloudflare managed challenge; the `/rpc` routes do not. But the same
-fingerprinting applies to both, and on 2026-08-31 the RPC surface answered
-plain `curl`, `curl_cffi` with and without impersonation, and refused `aiohttp`
-outright:
-
-    curl_cffi impersonate firefox  200      aiohttp  403 (challenge interstitial)
-    curl_cffi no impersonation     200
-    curl (system)                  200
-
-Which is the same conclusion `tracker_client` reached by a different route, so
-this uses curl_cffi too. It does *not* need the clearance machinery, and no
-cookie is carried: there is nothing bound to an address here, so unlike
-tracker.gg there is no identity to keep two halves of in agreement.
-
-**No proxy, on purpose.** The egress discipline in `egress.py` exists because a
-clearance cookie is bound to the address that solved for it. Nothing here is,
-so routing these through a metered proxy would buy nothing and spend bandwidth
-on a per-command probe — the same reasoning that leaves `steam.py` direct.
-
-**No rate limiter, on purpose.** tracker.gg's pacing machinery answers to a
-measured 300-requests-an-hour quota. Nothing comparable turned up here across
-~150 requests, and the honest bound on what this module can spend is the
-caller's own cache: `PlayerLookups` holds a lobby for 60s, so a channel full of
-people asking about one player costs three requests a minute, not three a
-command. Adding a limiter would be machinery with nothing to answer to.
-
-Cloudflare caches two of the three at the edge — `getLiveMatch` for 240s,
-`getPlayerOverlaySession` for 55s, `getMatch` not at all (`no-store`) — so a
-popular player's lobby is largely served without touching the origin. The 240s
-on the live route sits just under the site's own ~4.5 min refresh, so it costs
-nothing in freshness.
-
-**No connection pooling, and that was measured rather than assumed.** A session
-per lookup looked like the obvious thing to fix: three requests, three
-handshakes, once a command. It is not worth fixing. A fresh session's first
-request costs ~45ms against ~25ms on a warm one, so pooling across lookups
-would save something like 20ms on a path already bounded at four seconds, in
-exchange for a process-lifetime session whose lifecycle has to survive the
-event loop. The tail this module actually has — a 3s origin miss — is not a
-connection cost and pooling does not touch it.
-
-## Two details that are load-bearing
-
-**The uuid is `smitePlayer.person.publicUuid`, not `hirezPlayerUuid`.** Both are
-uuids, both sit on the same match row, and only the first is what `/player/<id>`
-and every `playerUuid` argument mean. Matching on the other one finds nobody,
-and finding nobody is indistinguishable from "not in this lobby" — which would
-silently cost the player their own side of the match.
-
-**`getPlayerOverlaySession` is used to resolve an identity and for nothing
-else.** It carries a `liveMatch` of its own, and that field is scoped to the
-session's queue: asked about a player who was at that moment nine minutes into
-a *casual* Conquest match, it answered `liveMatch: null` while `getLiveMatch`
-answered with the match. Trusting it would have made this backend blind to
-every queue but the one the overlay happened to be tracking.
+Live reads distinguish an explicit no-match answer from an unavailable source.
+Only the latter falls back to tracker.gg. The August live refresh measurements
+in docs/smite2-live-data.md are historical, not a current freshness guarantee.
 """
 
 from __future__ import annotations
@@ -177,7 +104,7 @@ def _epoch(stamp: Optional[str]) -> float:
 
 
 class SmiteSourceClient:
-    """The three procedures a lobby lookup needs, and nothing else."""
+    """Context-managed public RPC transport and player/match reads."""
 
     def __init__(self):
         self.__session: Optional[curl_requests.AsyncSession] = None
@@ -200,8 +127,8 @@ class SmiteSourceClient:
     async def rpc(self, procedure: str, payload: Dict[str, Any]) -> Any:
         """One `matches.getX`-style call, unwrapped from its envelope.
 
-        Every failure raises `SmiteSourceUnavailable`, because every failure
-        means the same thing to the only caller there is: ask tracker.gg.
+        Every failure raises `SmiteSourceUnavailable`, allowing callers to
+        keep another source's answer without treating this failure as no data.
         """
         if self.__session is None:
             raise RuntimeError("SmiteSourceClient used outside its context manager")
@@ -210,7 +137,8 @@ class SmiteSourceClient:
         params = {"data": json.dumps({"json": payload}, separators=(",", ":"))}
         try:
             response = await self.__session.get(
-                f"{HOST}/rpc/{path}", params=params, timeout=TIMEOUT_SECONDS
+                f"{HOST}/rpc/{path}", params=params, timeout=TIMEOUT_SECONDS,
+                headers={"x-smitesource-client": "1"},
             )
         except Exception as error:  # noqa: BLE001 — every transport failure is one case
             raise SmiteSourceUnavailable(f"{procedure}: {error}") from error
@@ -229,16 +157,15 @@ class SmiteSourceClient:
         """A platform account id to the uuid the rest of the API is keyed by.
 
         `handle` has to be the *platform* id — a Steam 64, not a display name.
-        This site's search box is a Next.js server action rather than an RPC
-        procedure, so there is no name lookup on this surface to fall back to;
-        a display name resolves to nothing and the caller goes to tracker.gg,
-        which is exactly what should happen.
+        This procedure does not resolve display names. The multi-source history
+        coordinator can obtain a verified platform ID from SmitePrime search;
+        live lookups fall back to tracker.gg when no ID can be resolved.
         """
         slug = PLATFORM_SLUGS.get((platform or "").lower())
         if not slug or not handle:
             return None
         body = await self.rpc(
-            "matches.getPlayerOverlaySession", {"platform": slug, "platformId": handle}
+            "matches.getPlayerByPlatform", {"platform": slug, "platformId": handle}
         )
         if not isinstance(body, dict):
             return None
@@ -248,10 +175,16 @@ class SmiteSourceClient:
     async def live_match_id(self, player_uuid: str) -> Optional[str]:
         """The match this player is in right now, by id, or None."""
         body = await self.rpc("matches.getLiveMatch", {"playerUuid": player_uuid})
-        if not isinstance(body, dict) or body.get("isComplete"):
+        if body is None:
+            return None
+        if not isinstance(body, dict):
+            raise SmiteSourceUnavailable("getLiveMatch: not an object")
+        if body.get("isComplete"):
             return None
         match_id = body.get("hirezMatchId")
-        return str(match_id) if match_id else None
+        if not match_id:
+            raise SmiteSourceUnavailable("getLiveMatch: missing match id")
+        return str(match_id)
 
     async def match(self, match_id: str) -> Dict[str, Any]:
         body = await self.rpc("matches.getMatch", {"matchId": match_id})

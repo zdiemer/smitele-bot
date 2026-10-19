@@ -48,7 +48,7 @@ def not_found(platform: str, handle: str) -> discord.Embed:
     return discord.Embed(
         color=discord.Color.red(),
         description=(
-            f"Couldn't find **{_handle(platform, handle)}** on tracker.gg.\n"
+            f"Couldn't find stats for **{_handle(platform, handle)}**.\n"
             "Smite 2 players are identified per platform — try "
             "`steam:76561198000000000`, `xbl:GamerTag`, `psn:Handle` or "
             "`epic:Name`."
@@ -198,6 +198,9 @@ def match_history(
         embed.description = "No recent matches."
         return embed
 
+    embed.set_footer(text="Sources: " + ", ".join(dict.fromkeys(
+        source for match in matches for source in match.sources
+    )))
     if matches[0].god_image:
         embed.set_thumbnail(url=matches[0].god_image)
 

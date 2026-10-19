@@ -1,5 +1,11 @@
 # Smite 2 live-match data: what is reachable, and why the lobby lags
 
+> Update 2026-10-19: this is a historical live-match investigation. The current
+> SmiteSource RPC client requires `x-smitesource-client: 1` and resolves platform
+> identities with `getPlayerByPlatform`. Match history now combines SmiteSource,
+> SmitePrime and tracker.gg; see [current source research](smite2-sources.md).
+
+
 `/livematch` for Smite 2 reads tracker.gg by default, whose live snapshots
 refresh only about every ten minutes. This document records the investigation
 into whether anything fresher exists, so the question does not have to be

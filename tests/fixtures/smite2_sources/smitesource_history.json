@@ -1,0 +1,42 @@
+{
+  "matches": [
+    {
+      "hirezMatchId": "3fec05f5-ae61-4b54-bade-a8acb87e1914",
+      "queueType": "casual_joust",
+      "startTimestamp": "2026-10-18T21:17:42.847Z",
+      "durationSeconds": 1204,
+      "won": true,
+      "godSlug": "ratatoskr",
+      "godName": "Ratatoskr",
+      "playedRole": "Solo",
+      "kills": 8,
+      "deaths": 2,
+      "assists": 10,
+      "finishingSr": null,
+      "startingSr": null
+    },
+    {
+      "hirezMatchId": "f54d6cb5-4f6c-4a4d-b8e2-82fb16a82c00",
+      "queueType": "casual_joust",
+      "startTimestamp": "2026-10-18T20:58:27.357Z",
+      "durationSeconds": 1029,
+      "won": true,
+      "godSlug": "ratatoskr",
+      "godName": "Ratatoskr",
+      "playedRole": "Solo",
+      "kills": 6,
+      "deaths": 2,
+      "assists": 5,
+      "finishingSr": null,
+      "startingSr": null
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "total": -1,
+  "hasMore": true,
+  "nextCursor": "v1:1792292683340:175843637",
+  "deityCutoffSr": 6581,
+  "split": "s0-4",
+  "splitLabel": "Season 0 Split 4"
+}

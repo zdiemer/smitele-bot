@@ -16,6 +16,7 @@ import roster
 from slash_guilds import SLASH_COMMAND_GUILD_IDS
 from smite2.clearance import ClearanceUnavailable
 from smite2.players import parse_player
+from smite2.smitesource import SmiteSourceUnavailable
 from smite2.tracker_client import TrackerBlocked
 from SmiteProvider import SmiteProvider
 from HirezAPI import PortalId, QueueId, TierId
@@ -1177,17 +1178,12 @@ class PlayerStats(commands.Cog):
         await self.__match_history_lookup(ctx, player)
 
     async def __smite2_match_history(self, ctx, provider, player_name: str):
-        """Page one only, streamed and abandoned once we have enough.
-
-        A page carries 25 matches in ~2.9MB; taking ten and stopping means the
-        rest is never transferred, which is the difference between a command
-        that answers instantly and one that moves three megabytes.
-        """
+        """Recent matches combined across sources, bounded to their first pages."""
         platform, handle = parse_player(player_name)
         await ctx.defer()
         try:
             matches = await provider.players.recent_matches(platform, handle, limit=10)
-        except (ClearanceUnavailable, TrackerBlocked) as error:
+        except (ClearanceUnavailable, TrackerBlocked, SmiteSourceUnavailable) as error:
             await ctx.respond(
                 embed=smite2_embeds.unavailable(
                     f"Smite 2 lookups are temporarily unavailable ({error})."

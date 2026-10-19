@@ -123,6 +123,7 @@ class MatchSummary:
     assists: int
     skill_rating: Optional[float]
     skill_rating_delta: Optional[float]
+    sources: Tuple[str, ...] = ("tracker.gg",)
 
 
 @dataclass
