@@ -106,8 +106,10 @@ class WikiClient:
             )
         return self
 
-    async def __aexit__(self, *_) -> None:
-        self.flush_cache()
+    async def __aexit__(self, exc_type, *_args) -> None:
+        # A failed catalogue load must never persist a cleared or partial cache.
+        if exc_type is None:
+            self.flush_cache()
         if self.__owns_session and self.__session is not None:
             await self.__session.close()
             self.__session = None

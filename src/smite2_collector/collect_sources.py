@@ -149,7 +149,7 @@ async def crawl(args):
         target=Path(state)/'last_sources_run.json'
         temp=target.with_suffix('.partial'); temp.write_text(json.dumps(report)); temp.replace(target)
     try:
-        provider=Smite2Provider(silent=True); await provider.create()
+        provider=Smite2Provider(silent=False); await provider.create()
         if not provider.gods or not provider.items:raise RuntimeError('catalogue unavailable')
         seen=SeenMatches(state)
         cutoff=(datetime.now(timezone.utc)-timedelta(days=args.since_days)).date().isoformat()

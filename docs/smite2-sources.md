@@ -180,3 +180,12 @@ Provider totals are never added together or represented as complete lifetime
 statistics. Missing metrics remain unavailable; a historical ranked rating is
 labelled with its match date. Prime's lack of role aggregates does not prevent
 SmiteSource/Tracker from answering that capability.
+
+### Catalogue cache
+
+The collector stores its wiki catalogue under
+`/matchdata/collector-cache/smite2/`, on the persistent match-data volume.
+A refresh replaces the cache and published catalogue only after both gods and
+items load successfully and are nonempty. Failed or cancelled loads leave the
+previous cache intact; failed refreshes reload that cache without advancing its
+revision marker. A cold installation still needs one successful wiki load.

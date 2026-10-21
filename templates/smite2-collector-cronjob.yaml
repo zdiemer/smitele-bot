@@ -76,6 +76,9 @@ spec:
                 {{- with .Values.credentials.egressProxy }}
                 {{- include "smitele-bot.egressEnv" $ | nindent 16 }}
                 {{- end }}
+                # Keep the last valid wiki catalogue across collector pods.
+                - name: SMITELE_DATA_DIR
+                  value: /matchdata/collector-cache
                 - name: HOME
                   value: /tmp
                 - name: XDG_CONFIG_HOME
@@ -102,7 +105,7 @@ spec:
             {{/*
               Same reasoning as the Smite 1 collector: the bot's PVC is
               ReadWriteOnce and sharing it would pin this to the bot's node.
-              The wiki cache is rebuilt in about ten seconds.
+              Catalogue state lives on matchdata; /data remains scratch space.
             */}}
             - name: data
               emptyDir: {}

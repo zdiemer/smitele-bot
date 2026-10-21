@@ -101,20 +101,32 @@ class Smite2Provider:
             self.__log(f"could not load static data: {error}")
 
     async def __load(self) -> None:
-        async with self.__client() as client:
-            revision = await self.__revision_hash(client)
-            if revision and revision != self.__stored_revision():
-                self.__log("wiki has changed since the last load; refetching")
-                client.clear_cache()
+        async def catalogue(client):
+            gods, god_index, skins = await gods_module.load(client, silent=self.__silent)
+            items, item_index = await items_module.load(client, silent=self.__silent)
+            if not gods or not items:
+                raise RuntimeError("empty wiki catalogue")
+            return gods, god_index, skins, items, item_index
 
-            self.gods, self.__god_index, self.__skins = await gods_module.load(
-                client, silent=self.__silent
-            )
-            self.items, self.__item_index = await items_module.load(
-                client, silent=self.__silent
-            )
-            client.flush_cache()
+        revision = ""
+        try:
+            async with self.__client() as client:
+                revision = await self.__revision_hash(client)
+                if revision and revision != self.__stored_revision():
+                    self.__log("wiki has changed since the last load; refetching")
+                    client.clear_cache()
+                loaded = await catalogue(client)
+        except Exception:
+            # Reopen the untouched last-good cache. Do not advance its revision
+            # marker or publish half of a new catalogue after a failed refresh.
+            if not os.path.isfile(self.cache_path):
+                raise
+            self.__log("wiki refresh failed; loading last valid catalogue cache")
+            async with self.__client() as client:
+                loaded = await catalogue(client)
+            revision = ""
 
+        self.gods, self.__god_index, self.__skins, self.items, self.__item_index = loaded
         if revision:
             self.__store_revision(revision)
         self.__log(f"loaded {len(self.gods)} gods and {len(self.items)} items")
