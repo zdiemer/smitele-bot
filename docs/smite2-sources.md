@@ -181,11 +181,23 @@ statistics. Missing metrics remain unavailable; a historical ranked rating is
 labelled with its match date. Prime's lack of role aggregates does not prevent
 SmiteSource/Tracker from answering that capability.
 
-### Catalogue cache
+### Collector catalogue
 
-The collector stores its wiki catalogue under
-`/matchdata/collector-cache/smite2/`, on the persistent match-data volume.
-A refresh replaces the cache and published catalogue only after both gods and
-items load successfully and are nonempty. Failed or cancelled loads leave the
-previous cache intact; failed refreshes reload that cache without advancing its
-revision marker. A cold installation still needs one successful wiki load.
+Collection uses SmiteSource's public `/gods` and `/items` page data as its
+primary identity catalogue. It reads serialized JSON, never executes page
+scripts, and preserves the existing corpus ID derivation (including `mulan`
+and `bari`). The collector does not need the bot's full abilities, images, or
+stat curves. Those richer bot features continue to use the wiki provider.
+
+The validated name/slug snapshot is stored at
+`/matchdata/collector-cache/smite2/source_catalogue.json`. HTTP errors, malformed
+pages, duplicate identities, empty/undersized lists, and unexpected catalogue
+shrinkage cannot replace the last valid snapshot. If refresh fails, collection
+uses that snapshot; only a cold start without one falls back to the wiki.
+The run report records `catalogue_source` as `SmiteSource`, `SmiteSource-cache`,
+or `wiki`. Page-format changes may require updating the parser.
+
+The wiki fallback also keeps its last valid catalogue in this persistent
+directory. Both gods and items must load successfully before it replaces the
+cache or published catalogue; failed or cancelled loads preserve the previous
+cache and revision marker.

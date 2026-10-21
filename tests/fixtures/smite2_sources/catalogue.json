@@ -1,0 +1,1398 @@
+{
+  "gods": [
+    {
+      "name": "Achilles",
+      "slug": "achilles"
+    },
+    {
+      "name": "Agni",
+      "slug": "agni"
+    },
+    {
+      "name": "Ah Puch",
+      "slug": "ah-puch"
+    },
+    {
+      "name": "Aladdin",
+      "slug": "aladdin"
+    },
+    {
+      "name": "Amaterasu",
+      "slug": "amaterasu"
+    },
+    {
+      "name": "Anhur",
+      "slug": "anhur"
+    },
+    {
+      "name": "Anubis",
+      "slug": "anubis"
+    },
+    {
+      "name": "Aphrodite",
+      "slug": "aphrodite"
+    },
+    {
+      "name": "Apollo",
+      "slug": "apollo"
+    },
+    {
+      "name": "Ares",
+      "slug": "ares"
+    },
+    {
+      "name": "Artemis",
+      "slug": "artemis"
+    },
+    {
+      "name": "Artio",
+      "slug": "artio"
+    },
+    {
+      "name": "Athena",
+      "slug": "athena"
+    },
+    {
+      "name": "Atlas",
+      "slug": "atlas"
+    },
+    {
+      "name": "Awilix",
+      "slug": "awilix"
+    },
+    {
+      "name": "Bacchus",
+      "slug": "bacchus"
+    },
+    {
+      "name": "Baron Samedi",
+      "slug": "baron-samedi"
+    },
+    {
+      "name": "Bastet",
+      "slug": "bastet"
+    },
+    {
+      "name": "Bellona",
+      "slug": "bellona"
+    },
+    {
+      "name": "Cabrakan",
+      "slug": "cabrakan"
+    },
+    {
+      "name": "Cerberus",
+      "slug": "cerberus"
+    },
+    {
+      "name": "Cernunnos",
+      "slug": "cernunnos"
+    },
+    {
+      "name": "Chaac",
+      "slug": "chaac"
+    },
+    {
+      "name": "Charon",
+      "slug": "charon"
+    },
+    {
+      "name": "Chiron",
+      "slug": "chiron"
+    },
+    {
+      "name": "Chronos",
+      "slug": "chronos"
+    },
+    {
+      "name": "Cu Chulainn",
+      "slug": "cu-chulainn"
+    },
+    {
+      "name": "Cupid",
+      "slug": "cupid"
+    },
+    {
+      "name": "Da Ji",
+      "slug": "da-ji"
+    },
+    {
+      "name": "Danzaburou",
+      "slug": "danzaburou"
+    },
+    {
+      "name": "Discordia",
+      "slug": "discordia"
+    },
+    {
+      "name": "Eset",
+      "slug": "eset"
+    },
+    {
+      "name": "Fenrir",
+      "slug": "fenrir"
+    },
+    {
+      "name": "Ganesha",
+      "slug": "ganesha"
+    },
+    {
+      "name": "Geb",
+      "slug": "geb"
+    },
+    {
+      "name": "Gilgamesh",
+      "slug": "gilgamesh"
+    },
+    {
+      "name": "Guan Yu",
+      "slug": "guan-yu"
+    },
+    {
+      "name": "Hachiman",
+      "slug": "hachiman"
+    },
+    {
+      "name": "Hades",
+      "slug": "hades"
+    },
+    {
+      "name": "Hecate",
+      "slug": "hecate"
+    },
+    {
+      "name": "Hel",
+      "slug": "hel"
+    },
+    {
+      "name": "Hercules",
+      "slug": "hercules"
+    },
+    {
+      "name": "Horus",
+      "slug": "horus"
+    },
+    {
+      "name": "Hou Yi",
+      "slug": "hou-yi"
+    },
+    {
+      "name": "Hua Mulan",
+      "slug": "mulan"
+    },
+    {
+      "name": "Hun Batz",
+      "slug": "hun-batz"
+    },
+    {
+      "name": "Ishtar",
+      "slug": "ishtar"
+    },
+    {
+      "name": "Ix Chel",
+      "slug": "ix-chel"
+    },
+    {
+      "name": "Izanami",
+      "slug": "izanami"
+    },
+    {
+      "name": "Janus",
+      "slug": "janus"
+    },
+    {
+      "name": "Jing Wei",
+      "slug": "jing-wei"
+    },
+    {
+      "name": "Jormungandr",
+      "slug": "jormungandr"
+    },
+    {
+      "name": "Kali",
+      "slug": "kali"
+    },
+    {
+      "name": "Khepri",
+      "slug": "khepri"
+    },
+    {
+      "name": "Kukulkan",
+      "slug": "kukulkan"
+    },
+    {
+      "name": "Kuzenbo",
+      "slug": "kuzenbo"
+    },
+    {
+      "name": "Loki",
+      "slug": "loki"
+    },
+    {
+      "name": "Medusa",
+      "slug": "medusa"
+    },
+    {
+      "name": "Mercury",
+      "slug": "mercury"
+    },
+    {
+      "name": "Merlin",
+      "slug": "merlin"
+    },
+    {
+      "name": "Mordred",
+      "slug": "mordred"
+    },
+    {
+      "name": "Morgan Le Fay",
+      "slug": "morgan-le-fay"
+    },
+    {
+      "name": "Ne Zha",
+      "slug": "ne-zha"
+    },
+    {
+      "name": "Neith",
+      "slug": "neith"
+    },
+    {
+      "name": "Nemesis",
+      "slug": "nemesis"
+    },
+    {
+      "name": "Nike",
+      "slug": "nike"
+    },
+    {
+      "name": "Nu Wa",
+      "slug": "nu-wa"
+    },
+    {
+      "name": "Nut",
+      "slug": "nut"
+    },
+    {
+      "name": "Odin",
+      "slug": "odin"
+    },
+    {
+      "name": "Osiris",
+      "slug": "osiris"
+    },
+    {
+      "name": "Pele",
+      "slug": "pele"
+    },
+    {
+      "name": "Poseidon",
+      "slug": "poseidon"
+    },
+    {
+      "name": "Princess Bari",
+      "slug": "bari"
+    },
+    {
+      "name": "Ra",
+      "slug": "ra"
+    },
+    {
+      "name": "Rama",
+      "slug": "rama"
+    },
+    {
+      "name": "Ratatoskr",
+      "slug": "ratatoskr"
+    },
+    {
+      "name": "Ravana",
+      "slug": "ravana"
+    },
+    {
+      "name": "Scylla",
+      "slug": "scylla"
+    },
+    {
+      "name": "Sobek",
+      "slug": "sobek"
+    },
+    {
+      "name": "Sol",
+      "slug": "sol"
+    },
+    {
+      "name": "Sun Wukong",
+      "slug": "sun-wukong"
+    },
+    {
+      "name": "Susano",
+      "slug": "susano"
+    },
+    {
+      "name": "Sylvanus",
+      "slug": "sylvanus"
+    },
+    {
+      "name": "Thanatos",
+      "slug": "thanatos"
+    },
+    {
+      "name": "The Morrigan",
+      "slug": "the-morrigan"
+    },
+    {
+      "name": "Thor",
+      "slug": "thor"
+    },
+    {
+      "name": "Tsukuyomi",
+      "slug": "tsukuyomi"
+    },
+    {
+      "name": "Ullr",
+      "slug": "ullr"
+    },
+    {
+      "name": "Vulcan",
+      "slug": "vulcan"
+    },
+    {
+      "name": "Xbalanque",
+      "slug": "xbalanque"
+    },
+    {
+      "name": "Xing Tian",
+      "slug": "xing-tian"
+    },
+    {
+      "name": "Yemoja",
+      "slug": "yemoja"
+    },
+    {
+      "name": "Ymir",
+      "slug": "ymir"
+    },
+    {
+      "name": "Zeus",
+      "slug": "zeus"
+    }
+  ],
+  "items": [
+    {
+      "name": "Adamantine Sickle",
+      "slug": "adamantine-sickle"
+    },
+    {
+      "name": "Adroit Ring",
+      "slug": "adroit-ring"
+    },
+    {
+      "name": "Aegis of Acceleration",
+      "slug": "aegis-of-acceleration"
+    },
+    {
+      "name": "Agility Greaves",
+      "slug": "agility-greaves"
+    },
+    {
+      "name": "Agility Relic",
+      "slug": "agility-relic"
+    },
+    {
+      "name": "Alchemist Coat",
+      "slug": "alchemist-coat"
+    },
+    {
+      "name": "Alternator Mod",
+      "slug": "alternator-mod"
+    },
+    {
+      "name": "Amanita Charm",
+      "slug": "amanita-charm"
+    },
+    {
+      "name": "Ancient Signet",
+      "slug": "ancient-signet"
+    },
+    {
+      "name": "Ancile",
+      "slug": "ancile"
+    },
+    {
+      "name": "Archmage's Gem",
+      "slug": "archmages-gem"
+    },
+    {
+      "name": "Arondight",
+      "slug": "arondight"
+    },
+    {
+      "name": "Ashwhorl Acorn",
+      "slug": "ashwhorl-acorn"
+    },
+    {
+      "name": "Avatar's Parashu",
+      "slug": "avatars-parashu"
+    },
+    {
+      "name": "Avenging Blade",
+      "slug": "avenging-blade"
+    },
+    {
+      "name": "Axe",
+      "slug": "axe"
+    },
+    {
+      "name": "Bancroft's Talon",
+      "slug": "bancrofts-talon"
+    },
+    {
+      "name": "Barbed Carver",
+      "slug": "barbed-carver"
+    },
+    {
+      "name": "Baron's Brew",
+      "slug": "barons-brew"
+    },
+    {
+      "name": "Battle Axe",
+      "slug": "battle-axe"
+    },
+    {
+      "name": "Battle Cry",
+      "slug": "battle-cry"
+    },
+    {
+      "name": "Berserker's Shield",
+      "slug": "berserkers-shield"
+    },
+    {
+      "name": "Bifrost Shard",
+      "slug": "bifrost-shard"
+    },
+    {
+      "name": "Blink Rune",
+      "slug": "blink-rune"
+    },
+    {
+      "name": "Blinking Abyss",
+      "slug": "blinking-abyss"
+    },
+    {
+      "name": "Blood-Bound Book",
+      "slug": "blood-bound-book"
+    },
+    {
+      "name": "Blood-soaked Shroud",
+      "slug": "blood-soaked-shroud"
+    },
+    {
+      "name": "Bloodforge",
+      "slug": "bloodforge"
+    },
+    {
+      "name": "Bluestone Brooch",
+      "slug": "bluestone-brooch"
+    },
+    {
+      "name": "Bluestone Pendant",
+      "slug": "bluestone-pendant"
+    },
+    {
+      "name": "Book of Thoth",
+      "slug": "book-of-thoth"
+    },
+    {
+      "name": "Bow",
+      "slug": "bow"
+    },
+    {
+      "name": "Bowl Drum",
+      "slug": "bowl-drum"
+    },
+    {
+      "name": "Bracer of The Abyss",
+      "slug": "bracer-of-the-abyss"
+    },
+    {
+      "name": "Bragi's Harp",
+      "slug": "bragis-harp"
+    },
+    {
+      "name": "Brawler's Beat Stick",
+      "slug": "brawlers-beat-stick"
+    },
+    {
+      "name": "Breastplate of Valor",
+      "slug": "breastplate-of-valor"
+    },
+    {
+      "name": "Briskberry Acorn",
+      "slug": "briskberry-acorn"
+    },
+    {
+      "name": "Bumba's Cudgel",
+      "slug": "bumbas-cudgel"
+    },
+    {
+      "name": "Bumba's Golden Dagger",
+      "slug": "bumbas-golden-dagger"
+    },
+    {
+      "name": "Bumba's Hammer",
+      "slug": "bumbas-hammer"
+    },
+    {
+      "name": "Bumba's Spear",
+      "slug": "bumbas-spear"
+    },
+    {
+      "name": "Caestus",
+      "slug": "caestus"
+    },
+    {
+      "name": "Captain's Ring",
+      "slug": "captains-ring"
+    },
+    {
+      "name": "Chandra's Grace",
+      "slug": "chandras-grace"
+    },
+    {
+      "name": "Chronos' Pendant",
+      "slug": "chronos-pendant"
+    },
+    {
+      "name": "Circe's Hexstone",
+      "slug": "circes-hexstone"
+    },
+    {
+      "name": "Circle of Protection",
+      "slug": "circle-of-protection"
+    },
+    {
+      "name": "Circlet",
+      "slug": "circlet"
+    },
+    {
+      "name": "Cleric's Cloak",
+      "slug": "clerics-cloak"
+    },
+    {
+      "name": "Combat Boots",
+      "slug": "combat-boots"
+    },
+    {
+      "name": "Conduit Gem",
+      "slug": "conduit-gem"
+    },
+    {
+      "name": "Contagion",
+      "slug": "contagion"
+    },
+    {
+      "name": "Cursed Sickle",
+      "slug": "cursed-sickle"
+    },
+    {
+      "name": "Dagger of Frenzy",
+      "slug": "dagger-of-frenzy"
+    },
+    {
+      "name": "Damaru",
+      "slug": "damaru"
+    },
+    {
+      "name": "Daybreak Gavel",
+      "slug": "daybreak-gavel"
+    },
+    {
+      "name": "Death Metal",
+      "slug": "death-metal"
+    },
+    {
+      "name": "Death's Embrace",
+      "slug": "deaths-embrace"
+    },
+    {
+      "name": "Death's Toll",
+      "slug": "deaths-toll"
+    },
+    {
+      "name": "Deathbringer",
+      "slug": "deathbringer"
+    },
+    {
+      "name": "Demon Blade",
+      "slug": "demon-blade"
+    },
+    {
+      "name": "Devourer's Gauntlet",
+      "slug": "devourers-gauntlet"
+    },
+    {
+      "name": "Divine Ruin",
+      "slug": "divine-ruin"
+    },
+    {
+      "name": "Dominance",
+      "slug": "dominance"
+    },
+    {
+      "name": "Doom Orb",
+      "slug": "doom-orb"
+    },
+    {
+      "name": "Doublet of Binding",
+      "slug": "doublet-of-binding"
+    },
+    {
+      "name": "Draconic Scale",
+      "slug": "draconic-scale"
+    },
+    {
+      "name": "Dreamer's Idol",
+      "slug": "dreamers-idol"
+    },
+    {
+      "name": "Dual Mod",
+      "slug": "dual-mod"
+    },
+    {
+      "name": "Dwarven Plate",
+      "slug": "dwarven-plate"
+    },
+    {
+      "name": "Efficiency Mod",
+      "slug": "efficiency-mod"
+    },
+    {
+      "name": "Elixir of Intelligence",
+      "slug": "elixir-of-intelligence"
+    },
+    {
+      "name": "Elixir of Strength",
+      "slug": "elixir-of-strength"
+    },
+    {
+      "name": "Enchanted Bracelet",
+      "slug": "enchanted-bracelet"
+    },
+    {
+      "name": "Engraved Guard",
+      "slug": "engraved-guard"
+    },
+    {
+      "name": "Eros' Bow",
+      "slug": "eros-bow"
+    },
+    {
+      "name": "Erosion",
+      "slug": "erosion"
+    },
+    {
+      "name": "Ethereal Staff",
+      "slug": "ethereal-staff"
+    },
+    {
+      "name": "Evil Eye",
+      "slug": "evil-eye"
+    },
+    {
+      "name": "Eye of Erebus",
+      "slug": "eye-of-erebus"
+    },
+    {
+      "name": "Eye of Providence",
+      "slug": "eye-of-providence"
+    },
+    {
+      "name": "Eye of the Storm",
+      "slug": "eye-of-the-storm"
+    },
+    {
+      "name": "Flaming Pearl",
+      "slug": "flaming-pearl"
+    },
+    {
+      "name": "Freya's Tears",
+      "slug": "freyas-tears"
+    },
+    {
+      "name": "Gauntlet of Thebes",
+      "slug": "gauntlet-of-thebes"
+    },
+    {
+      "name": "Gem",
+      "slug": "gem"
+    },
+    {
+      "name": "Gem of Focus",
+      "slug": "gem-of-focus"
+    },
+    {
+      "name": "Gem of Isolation",
+      "slug": "gem-of-isolation"
+    },
+    {
+      "name": "Genie's Lamp",
+      "slug": "genies-lamp"
+    },
+    {
+      "name": "Genji's Guard",
+      "slug": "genjis-guard"
+    },
+    {
+      "name": "Gilded Arrow",
+      "slug": "gilded-arrow"
+    },
+    {
+      "name": "Gjallarflare",
+      "slug": "gjallarflare"
+    },
+    {
+      "name": "Gladiator's Shield",
+      "slug": "gladiators-shield"
+    },
+    {
+      "name": "Glorious Pridwen",
+      "slug": "glorious-pridwen"
+    },
+    {
+      "name": "Gluttonous Grimoire",
+      "slug": "gluttonous-grimoire"
+    },
+    {
+      "name": "Golden Blade",
+      "slug": "golden-blade"
+    },
+    {
+      "name": "Hastened Fatalis",
+      "slug": "hastened-fatalis"
+    },
+    {
+      "name": "Health Chalice",
+      "slug": "health-chalice"
+    },
+    {
+      "name": "Health Potion",
+      "slug": "health-potion"
+    },
+    {
+      "name": "Heartseeker",
+      "slug": "heartseeker"
+    },
+    {
+      "name": "Heartwood Charm",
+      "slug": "heartwood-charm"
+    },
+    {
+      "name": "Heimdallr's Sight",
+      "slug": "heimdallrs-sight"
+    },
+    {
+      "name": "Helm of Darkness",
+      "slug": "helm-of-darkness"
+    },
+    {
+      "name": "Helm of Radiance",
+      "slug": "helm-of-radiance"
+    },
+    {
+      "name": "Heroism",
+      "slug": "heroism"
+    },
+    {
+      "name": "Hide of the Nemean Lion",
+      "slug": "hide-of-the-nemean-lion"
+    },
+    {
+      "name": "Hooked Sword",
+      "slug": "hooked-sword"
+    },
+    {
+      "name": "Hunter's Bow",
+      "slug": "hunters-bow"
+    },
+    {
+      "name": "Hunter's Cowl",
+      "slug": "hunters-cowl"
+    },
+    {
+      "name": "Hussar's Wings",
+      "slug": "hussars-wings"
+    },
+    {
+      "name": "Hydra's Lament",
+      "slug": "hydras-lament"
+    },
+    {
+      "name": "Infused Axe",
+      "slug": "infused-axe"
+    },
+    {
+      "name": "Jade Scepter",
+      "slug": "jade-scepter"
+    },
+    {
+      "name": "Jotunn's Revenge",
+      "slug": "jotunns-revenge"
+    },
+    {
+      "name": "Killing Stone",
+      "slug": "killing-stone"
+    },
+    {
+      "name": "Kinetic Cuirass",
+      "slug": "kinetic-cuirass"
+    },
+    {
+      "name": "Kopesh",
+      "slug": "kopesh"
+    },
+    {
+      "name": "Leather Cowl",
+      "slug": "leather-cowl"
+    },
+    {
+      "name": "Legionnaire Armor",
+      "slug": "legionnaire-armor"
+    },
+    {
+      "name": "Lernaean Bow",
+      "slug": "lernaean-bow"
+    },
+    {
+      "name": "Leviathan's Hide",
+      "slug": "leviathans-hide"
+    },
+    {
+      "name": "Lifebinder",
+      "slug": "lifebinder"
+    },
+    {
+      "name": "Lively Acorn",
+      "slug": "lively-acorn"
+    },
+    {
+      "name": "Lotus Sickle",
+      "slug": "lotus-sickle"
+    },
+    {
+      "name": "Lucerne Hammer",
+      "slug": "lucerne-hammer"
+    },
+    {
+      "name": "Magi's Cloak",
+      "slug": "magis-cloak"
+    },
+    {
+      "name": "Magic Acorn",
+      "slug": "magic-acorn"
+    },
+    {
+      "name": "Mana Potion",
+      "slug": "mana-potion"
+    },
+    {
+      "name": "Mana Tome",
+      "slug": "mana-tome"
+    },
+    {
+      "name": "Manchu Bow",
+      "slug": "manchu-bow"
+    },
+    {
+      "name": "Mantle of Discord",
+      "slug": "mantle-of-discord"
+    },
+    {
+      "name": "Masterwork Mod",
+      "slug": "masterwork-mod"
+    },
+    {
+      "name": "Medal of Defense",
+      "slug": "medal-of-defense"
+    },
+    {
+      "name": "Medal of Disruption",
+      "slug": "medal-of-disruption"
+    },
+    {
+      "name": "Medallion",
+      "slug": "medallion"
+    },
+    {
+      "name": "Meditation",
+      "slug": "meditation"
+    },
+    {
+      "name": "Mercury's Talaria",
+      "slug": "mercurys-talaria"
+    },
+    {
+      "name": "Midgardian Mail",
+      "slug": "midgardian-mail"
+    },
+    {
+      "name": "Mote of Chaos",
+      "slug": "mote-of-chaos"
+    },
+    {
+      "name": "Multi Potion",
+      "slug": "multi-potion"
+    },
+    {
+      "name": "Musashi's Dual Swords",
+      "slug": "musashis-dual-swords"
+    },
+    {
+      "name": "Mystical Mail",
+      "slug": "mystical-mail"
+    },
+    {
+      "name": "Necronomicon",
+      "slug": "necronomicon"
+    },
+    {
+      "name": "Nimble Ring",
+      "slug": "nimble-ring"
+    },
+    {
+      "name": "Oath-Sworn Spear",
+      "slug": "oath-sworn-spear"
+    },
+    {
+      "name": "Obsidian Shard",
+      "slug": "obsidian-shard"
+    },
+    {
+      "name": "Odigba",
+      "slug": "odigba"
+    },
+    {
+      "name": "Odysseus' Bow",
+      "slug": "odysseus-bow"
+    },
+    {
+      "name": "Olmec Blue",
+      "slug": "olmec-blue"
+    },
+    {
+      "name": "Omen Drum",
+      "slug": "omen-drum"
+    },
+    {
+      "name": "Oni Hunter's Garb",
+      "slug": "oni-hunters-garb"
+    },
+    {
+      "name": "Oracle Staff",
+      "slug": "oracle-staff"
+    },
+    {
+      "name": "Pendulum Blade",
+      "slug": "pendulum-blade"
+    },
+    {
+      "name": "Pendulum of The Ages",
+      "slug": "pendulum-of-the-ages"
+    },
+    {
+      "name": "Phantom Shell",
+      "slug": "phantom-shell"
+    },
+    {
+      "name": "Pharaoh's Curse",
+      "slug": "pharaohs-curse"
+    },
+    {
+      "name": "Phoenix Feather",
+      "slug": "phoenix-feather"
+    },
+    {
+      "name": "Plated Metal",
+      "slug": "plated-metal"
+    },
+    {
+      "name": "Polynomicon",
+      "slug": "polynomicon"
+    },
+    {
+      "name": "Prophetic Cloak",
+      "slug": "prophetic-cloak"
+    },
+    {
+      "name": "Purification Beads",
+      "slug": "purification-beads"
+    },
+    {
+      "name": "Qin's Blade",
+      "slug": "qins-blade"
+    },
+    {
+      "name": "Radiant Bulwark",
+      "slug": "radiant-bulwark"
+    },
+    {
+      "name": "Rage",
+      "slug": "rage"
+    },
+    {
+      "name": "Ragnarok's Wake",
+      "slug": "ragnaroks-wake"
+    },
+    {
+      "name": "Regrowth Striders",
+      "slug": "regrowth-striders"
+    },
+    {
+      "name": "Reliquary",
+      "slug": "reliquary"
+    },
+    {
+      "name": "Resolute Mantle",
+      "slug": "resolute-mantle"
+    },
+    {
+      "name": "Resonator Mod",
+      "slug": "resonator-mod"
+    },
+    {
+      "name": "Ring",
+      "slug": "ring"
+    },
+    {
+      "name": "Ring of Dispel",
+      "slug": "ring-of-dispel"
+    },
+    {
+      "name": "Riptalon",
+      "slug": "riptalon"
+    },
+    {
+      "name": "Rod of Asclepius",
+      "slug": "rod-of-asclepius"
+    },
+    {
+      "name": "Rod of Tahuti",
+      "slug": "rod-of-tahuti"
+    },
+    {
+      "name": "Rune",
+      "slug": "rune"
+    },
+    {
+      "name": "Runeforged Hammer",
+      "slug": "runeforged-hammer"
+    },
+    {
+      "name": "Runic Hide",
+      "slug": "runic-hide"
+    },
+    {
+      "name": "Sabre",
+      "slug": "sabre"
+    },
+    {
+      "name": "Sage's Ring",
+      "slug": "sages-ring"
+    },
+    {
+      "name": "Sands of Time",
+      "slug": "sands-of-time"
+    },
+    {
+      "name": "Sanguine Lash",
+      "slug": "sanguine-lash"
+    },
+    {
+      "name": "Sash",
+      "slug": "sash"
+    },
+    {
+      "name": "Scepter of Dominion",
+      "slug": "scepter-of-dominion"
+    },
+    {
+      "name": "Screeching Gargoyle",
+      "slug": "screeching-gargoyle"
+    },
+    {
+      "name": "Scythe",
+      "slug": "scythe"
+    },
+    {
+      "name": "Seismic Mod",
+      "slug": "seismic-mod"
+    },
+    {
+      "name": "Selflessness",
+      "slug": "selflessness"
+    },
+    {
+      "name": "Sentry Ward",
+      "slug": "sentry-ward"
+    },
+    {
+      "name": "Sharpshooter's Arrow",
+      "slug": "sharpshooters-arrow"
+    },
+    {
+      "name": "Shell of Rebuke",
+      "slug": "shell-of-rebuke"
+    },
+    {
+      "name": "Shield",
+      "slug": "shield"
+    },
+    {
+      "name": "Shield of the Phoenix",
+      "slug": "shield-of-the-phoenix"
+    },
+    {
+      "name": "Shield Splitter",
+      "slug": "shield-splitter"
+    },
+    {
+      "name": "Shifter's Shield",
+      "slug": "shifters-shield"
+    },
+    {
+      "name": "Shogun's Ofuda",
+      "slug": "shoguns-ofuda"
+    },
+    {
+      "name": "Shrapnel Mod",
+      "slug": "shrapnel-mod"
+    },
+    {
+      "name": "Shroud Of Vengeance",
+      "slug": "shroud-of-vengeance"
+    },
+    {
+      "name": "Silverbranch Bow",
+      "slug": "silverbranch-bow"
+    },
+    {
+      "name": "Skeggox",
+      "slug": "skeggox"
+    },
+    {
+      "name": "Soul Gem",
+      "slug": "soul-gem"
+    },
+    {
+      "name": "Soul Locket",
+      "slug": "soul-locket"
+    },
+    {
+      "name": "Soul Reaver",
+      "slug": "soul-reaver"
+    },
+    {
+      "name": "Soul Reliquary",
+      "slug": "soul-reliquary"
+    },
+    {
+      "name": "Spear of Desolation",
+      "slug": "spear-of-desolation"
+    },
+    {
+      "name": "Spear Of The Magus",
+      "slug": "spear-of-the-magus"
+    },
+    {
+      "name": "Spectral Armor",
+      "slug": "spectral-armor"
+    },
+    {
+      "name": "Sphere of Negation",
+      "slug": "sphere-of-negation"
+    },
+    {
+      "name": "Spirit Robe",
+      "slug": "spirit-robe"
+    },
+    {
+      "name": "Staff of Myrddin",
+      "slug": "staff-of-myrddin"
+    },
+    {
+      "name": "Stalwart Sigil",
+      "slug": "stalwart-sigil"
+    },
+    {
+      "name": "Stampede",
+      "slug": "stampede"
+    },
+    {
+      "name": "Stone of Binding",
+      "slug": "stone-of-binding"
+    },
+    {
+      "name": "Stygian Anchor",
+      "slug": "stygian-anchor"
+    },
+    {
+      "name": "Sun Beam Bow",
+      "slug": "sun-beam-bow"
+    },
+    {
+      "name": "Sundering Arc",
+      "slug": "sundering-arc"
+    },
+    {
+      "name": "Sundering Axe",
+      "slug": "sundering-axe"
+    },
+    {
+      "name": "Sundering Echo",
+      "slug": "sundering-echo"
+    },
+    {
+      "name": "Surplus Mod",
+      "slug": "surplus-mod"
+    },
+    {
+      "name": "Survivor's Sash",
+      "slug": "survivors-sash"
+    },
+    {
+      "name": "Talisman of Purification",
+      "slug": "talisman-of-purification"
+    },
+    {
+      "name": "Tekko-Kagi",
+      "slug": "tekko-kagi"
+    },
+    {
+      "name": "The Cosmic Horror",
+      "slug": "the-cosmic-horror"
+    },
+    {
+      "name": "The Crusher",
+      "slug": "the-crusher"
+    },
+    {
+      "name": "The Executioner",
+      "slug": "the-executioner"
+    },
+    {
+      "name": "The Reaper",
+      "slug": "the-reaper"
+    },
+    {
+      "name": "The World Stone",
+      "slug": "the-world-stone"
+    },
+    {
+      "name": "Thermal Mod",
+      "slug": "thermal-mod"
+    },
+    {
+      "name": "Thistlethorn Acorn",
+      "slug": "thistlethorn-acorn"
+    },
+    {
+      "name": "Time-lock Aegis",
+      "slug": "time-lock-aegis"
+    },
+    {
+      "name": "Titan's Bane",
+      "slug": "titans-bane"
+    },
+    {
+      "name": "Totem of Death",
+      "slug": "totem-of-death"
+    },
+    {
+      "name": "Toxic Blade",
+      "slug": "toxic-blade"
+    },
+    {
+      "name": "Transcendence",
+      "slug": "transcendence"
+    },
+    {
+      "name": "Triton's Conch",
+      "slug": "tritons-conch"
+    },
+    {
+      "name": "Typhon's Heart",
+      "slug": "typhons-heart"
+    },
+    {
+      "name": "Tyrfing",
+      "slug": "tyrfing"
+    },
+    {
+      "name": "Umbral Link",
+      "slug": "umbral-link"
+    },
+    {
+      "name": "Vampiric Shroud",
+      "slug": "vampiric-shroud"
+    },
+    {
+      "name": "Veve Charm",
+      "slug": "veve-charm"
+    },
+    {
+      "name": "Vision Ward",
+      "slug": "vision-ward"
+    },
+    {
+      "name": "Vital Amplifier",
+      "slug": "vital-amplifier"
+    },
+    {
+      "name": "Void Shard",
+      "slug": "void-shard"
+    },
+    {
+      "name": "Void Shield",
+      "slug": "void-shield"
+    },
+    {
+      "name": "Void Stone",
+      "slug": "void-stone"
+    },
+    {
+      "name": "War Banner",
+      "slug": "war-banner"
+    },
+    {
+      "name": "War Flag",
+      "slug": "war-flag"
+    },
+    {
+      "name": "Warding Chalice",
+      "slug": "warding-chalice"
+    },
+    {
+      "name": "Warrior's Axe",
+      "slug": "warriors-axe"
+    },
+    {
+      "name": "Wish-Granting Pearl",
+      "slug": "wish-granting-pearl"
+    },
+    {
+      "name": "Wyrmskin Hide",
+      "slug": "wyrmskin-hide"
+    },
+    {
+      "name": "Xibalban Effigy",
+      "slug": "xibalban-effigy"
+    },
+    {
+      "name": "Yogi's Necklace",
+      "slug": "yogis-necklace"
+    },
+    {
+      "name": "Zither",
+      "slug": "zither"
+    }
+  ]
+}

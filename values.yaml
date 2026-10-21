@@ -403,7 +403,7 @@ smite2:
     suspend: false
     image:
       repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
-      tag: "1.12.5"
+      tag: "1.12.6"
     # Keep a verified account ID as well as the name: SmiteSource cannot
     # resolve names when SmitePrime search is unavailable.
     seeds:

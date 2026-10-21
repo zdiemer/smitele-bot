@@ -22,7 +22,7 @@ import paths
 from game import Game
 from smite2 import last_run
 from smite2.players import parse_player
-from smite2.provider import Smite2Provider
+from catalogue import load as load_catalogue
 
 async def collect_match(client, mid, preferred, provider):
     """Try other providers when a scoreboard is unavailable or invalid."""
@@ -149,8 +149,9 @@ async def crawl(args):
         target=Path(state)/'last_sources_run.json'
         temp=target.with_suffix('.partial'); temp.write_text(json.dumps(report)); temp.replace(target)
     try:
-        provider=Smite2Provider(silent=False); await provider.create()
-        if not provider.gods or not provider.items:raise RuntimeError('catalogue unavailable')
+        provider, report["catalogue_source"] = await load_catalogue(
+            paths.game_data_file(Game.SMITE_2, "source_catalogue.json"))
+        print(f'Catalogue: {report["catalogue_source"]}; {len(provider.gods)} gods, {len(provider.items)} items', flush=True)
         seen=SeenMatches(state)
         cutoff=(datetime.now(timezone.utc)-timedelta(days=args.since_days)).date().isoformat()
         client=Sources(state,args.budget,args.interval,time.monotonic()+args.minutes*60)
