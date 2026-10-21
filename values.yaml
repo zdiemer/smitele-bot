@@ -404,7 +404,10 @@ smite2:
     image:
       repository: registry.zachd.duckdns.org/zdiemer/smitele-bot
       tag: "1.12.4"
+    # Keep a verified account ID as well as the name: SmiteSource cannot
+    # resolve names when SmitePrime search is unavailable.
     seeds:
+      - "xbl:2535431543554562"
       - "xbl:juicytot6298"
     maxMatches: 1000
     # 02:40 UTC. Nothing depends on the hour — there is no "yesterday" to wait

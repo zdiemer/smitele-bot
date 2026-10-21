@@ -326,3 +326,33 @@ async def test_source_bootstraps_item_map_for_cross_provider_match(monkeypatch):
     report=dict(new_matches=0,rows_written=0,exit_reason='running')
     await asyncio.wait_for(module.workers(Client(),[('xbl','seed')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,1),2)
     assert len(calls)==2 and report['new_matches']==1
+
+@pytest.mark.asyncio
+async def test_numeric_seed_collects_when_name_resolver_is_blocked(monkeypatch):
+    """Source must bootstrap without a successful Prime name lookup."""
+    import collect_sources as module
+    body=json.loads((FIXTURES/'smitesource_full.json').read_text())
+    assets=json.loads((FIXTURES/'smitesource_assets.json').read_text())
+    mid=body['hirezMatchId'];seen=set();calls=[]
+    client=Sources.__new__(Sources)
+    client.stats={n:dict(requests=0,discovered=0,rejected=0,persisted=0) for n in NAMES}
+    client.pauses={'SmitePrime':time.time()+86400,'tracker.gg':time.time()+86400}
+    client.deadline=time.monotonic()+100;client.assets={}
+    async def get(name,path,payload=None):
+        assert name=='SmiteSource'
+        calls.append((path,payload))
+        if path=='getPlayerByPlatform':
+            return {'playerUuid':'source-player'} if payload['platformId']=='2535431543554562' else None
+        if path=='getPlayerMatches':
+            return {'matches':[{'hirezMatchId':mid}], 'assetMaps':{'itemMetaByMasterId':assets}}
+        assert path=='getMatch'
+        return body
+    client.get=get
+    def persist(corpus,index,date,rows):
+        index.add(mid);return len(rows)
+    monkeypatch.setattr(module,'persist',persist)
+    report=dict(new_matches=0,rows_written=0,exit_reason='running')
+    await asyncio.wait_for(module.workers(client,[('xbl','juicytot6298'),('xbl','2535431543554562')],Catalogue(),seen,'unused','2026-10-01',report,lambda:None,1),3)
+    assert report['new_matches']==1 and report['rows_written']==6
+    assert client.stats['SmiteSource']['persisted']==1
+    assert [p['platformId'] for path,p in calls if path=='getPlayerByPlatform']==['juicytot6298','2535431543554562']
